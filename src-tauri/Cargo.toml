@@ -1,0 +1,30 @@
+[package]
+name = "sonarcan"
+version = "0.1.0"
+description = "Dive into the music."
+authors = ["SonArcan contributors"]
+edition = "2021"
+rust-version = "1.78"
+
+[lib]
+name = "sonarcan_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+directories = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+symphonia = { version = "0.5", features = ["mp3", "flac", "wav"] }
+thiserror = "2"
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
