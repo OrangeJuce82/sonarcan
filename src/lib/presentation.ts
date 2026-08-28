@@ -28,6 +28,15 @@ export type WaveformViewportEdge = "start" | "end";
 
 export const WAVEFORM_MAX_ZOOM = 128;
 
+export function defaultLoopBounds(
+  savedA: number | null,
+  savedB: number | null,
+  durationSeconds: number,
+): { a: number | null; b: number | null } {
+  if (savedA !== null || savedB !== null) return { a: savedA, b: savedB };
+  return { a: 0, b: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null };
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }

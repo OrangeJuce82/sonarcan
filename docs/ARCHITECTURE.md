@@ -41,6 +41,12 @@ Raw audio buffers and full-resolution waveform data must not cross the JSON IPC 
 
 The webview is strictly a control surface. It never decodes audio or owns playback timing, looping, gain, time-stretching, or pitch-shifting. Those operations always run in Rust; TypeScript only sends control parameters and displays snapshots of engine state.
 
+The macOS window keeps its decorated native title bar explicitly visible, with
+the standard traffic-light controls and the `SonArcan` title. The application
+header below it is fixed to the webview viewport rather than relying on a
+scrolling sticky layer, so project controls and the output mixer remain visible
+while the workspace is scrolled.
+
 ## Localization
 
 User-facing interface and help text use typed English and French catalogs. The saved language preference defaults to the operating-system language and rebuilds the native Tauri menu immediately when changed. Internal identifiers, project manifests, logs, and source code remain in English.

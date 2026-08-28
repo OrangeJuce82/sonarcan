@@ -8,7 +8,7 @@
   import { deduplicateImportCandidates } from "./lib/importCandidates";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
-  import { buildProjectPath, calculateBeatLines, formatPitch, formatTime, formatTimePrecise, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
+  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatTime, formatTimePrecise, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
   import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
@@ -27,6 +27,7 @@
   let loopEnabled = false;
   let loopA: number | null = null;
   let loopB: number | null = null;
+  let usingDefaultLoopBounds = false;
   let preferencesVisible = false;
   let importVisible = false;
   let tasksVisible = false;
@@ -712,8 +713,10 @@
     volume = preferences.masterVolume;
     volumeBeforeMute = volume > 0 ? volume : 0.8;
     loopEnabled = track.practice.loopEnabled ?? (track.practice.loopASeconds !== null && track.practice.loopBSeconds !== null);
-    loopA = track.practice.loopASeconds;
-    loopB = track.practice.loopBSeconds;
+    const loopBounds = defaultLoopBounds(track.practice.loopASeconds, track.practice.loopBSeconds, durationSeconds);
+    loopA = loopBounds.a;
+    loopB = loopBounds.b;
+    usingDefaultLoopBounds = track.practice.loopASeconds === null && track.practice.loopBSeconds === null;
     gridBpm = track.practice.gridBpm ?? null;
     beatGridOffsetSeconds = track.practice.beatGridOffsetSeconds ?? 0;
     metronomeEnabled = track.practice.metronomeEnabled ?? false;
@@ -789,6 +792,7 @@
       const status = await audioLoad(project!.packagePath, track.id);
       if (selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== track.id) return;
       durationSeconds = status.durationSeconds;
+      if (usingDefaultLoopBounds) loopB = durationSeconds;
       await audioSetVolume(volume);
       await audioSetPlaybackRate(playbackRate);
       await audioSetPitch(pitchSemitones);
@@ -1000,7 +1004,8 @@
 
   function setLoopA(): void {
     loopA = currentSeconds;
-    if (loopB !== null && loopB <= loopA) loopB = null;
+    if (usingDefaultLoopBounds || (loopB !== null && loopB <= loopA)) loopB = null;
+    usingDefaultLoopBounds = false;
     loopEnabled = true;
     applyLoopToEngine();
     schedulePracticeSave();
@@ -1009,6 +1014,7 @@
   function setLoopB(): void {
     if (loopA === null) loopA = 0;
     if (currentSeconds > loopA) loopB = currentSeconds;
+    usingDefaultLoopBounds = false;
     loopEnabled = true;
     applyLoopToEngine();
     schedulePracticeSave();
@@ -1017,6 +1023,7 @@
   function clearLoop(): void {
     loopA = null;
     loopB = null;
+    usingDefaultLoopBounds = false;
     loopEnabled = false;
     void audioSetLoop(null, null);
     schedulePracticeSave();
@@ -1111,6 +1118,7 @@
     const minimum = Math.min(0.05, durationSeconds);
     if (loopDrag.mode === "a") loopA = Math.max(0, Math.min(time, loopDrag.b - minimum));
     else loopB = Math.min(durationSeconds, Math.max(time, loopDrag.a + minimum));
+    usingDefaultLoopBounds = false;
     loopEnabled = true;
     applyLoopToEngine();
   }
@@ -1333,7 +1341,7 @@
   }
 </script>
 
-<svelte:head><title>SonArcan — {t("tagline")}</title></svelte:head>
+<svelte:head><title>SonArcan</title></svelte:head>
 
 <main class="shell" class:console-open={consoleVisible}>
   <header class="topbar">
@@ -1437,15 +1445,16 @@
             <div class="beat-grid" aria-hidden="true">
               {#each detailedBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
             </div>
-            {#if loopA !== null && loopB !== null}
-              <i
-                class="loop-region"
-                class:disabled={!loopEnabled}
-                aria-hidden="true"
-                style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%;width:${(loopB - loopA) / durationSeconds * waveformZoom * 100}%`}
-              ></i>
+            {#if loopEnabled && loopA !== null}
               <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>A</button>
-              <button class="loop-handle b" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
+              {#if loopB !== null}
+                <i
+                  class="loop-region"
+                  aria-hidden="true"
+                  style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%;width:${(loopB - loopA) / durationSeconds * waveformZoom * 100}%`}
+                ></i>
+                <button class="loop-handle b" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
+              {/if}
             {/if}
             {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
           {/if}
@@ -1465,10 +1474,12 @@
             <button type="button" class="viewport" class:dragging={viewportDrag?.mode === "move"} aria-label={t("moveViewport")} style={`left:${waveformStart * 100}%;width:${100 / waveformZoom}%`} onpointerdown={(event) => startViewportDrag(event, "move")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             <button type="button" class="viewport-handle start" aria-label={t("resizeViewportStart")} data-tooltip={t("resizeViewportStart")} style={`left:${waveformStart * 100}%`} onpointerdown={(event) => startViewportDrag(event, "start")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             <button type="button" class="viewport-handle end" aria-label={t("resizeViewportEnd")} data-tooltip={t("resizeViewportEnd")} style={`left:${(waveformStart + 1 / waveformZoom) * 100}%`} onpointerdown={(event) => startViewportDrag(event, "end")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
-            {#if loopA !== null && loopB !== null}
-              <i class="loop-region overview" class:disabled={!loopEnabled} aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
+            {#if loopEnabled && loopA !== null}
               <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>A</button>
-              <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
+              {#if loopB !== null}
+                <i class="loop-region overview" aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
+                <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
+              {/if}
             {/if}
             <i class="overview-playhead" style={`left:${durationSeconds ? currentSeconds / durationSeconds * 100 : 0}%`}></i>
           {/if}

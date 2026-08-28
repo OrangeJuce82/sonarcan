@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildProjectPath,
   calculateBeatLines,
+  defaultLoopBounds,
   formatPitch,
   formatTime,
   formatTimePrecise,
@@ -22,6 +23,12 @@ test("buildProjectPath preserves absolute and Windows path navigation", () => {
     label: "Set.sac",
     path: "C:/Music/Set.sac",
   });
+});
+
+test("default loop bounds cover a track without enabling loop mode", () => {
+  assert.deepEqual(defaultLoopBounds(null, null, 123.5), { a: 0, b: 123.5 });
+  assert.deepEqual(defaultLoopBounds(null, null, 0), { a: 0, b: null });
+  assert.deepEqual(defaultLoopBounds(12, null, 123.5), { a: 12, b: null });
 });
 
 test("time and pitch formatters handle boundaries", () => {

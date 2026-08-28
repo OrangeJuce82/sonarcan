@@ -18,6 +18,12 @@ The 84 MB model is downloaded on first use to the application cache and then reu
 
 When the cache becomes ready, the engine swaps an immutable four-buffer stem set into the callback. Per-stem gain, mute, and solo values are atomics. The callback reads them without locks or allocation, sums the four aligned samples, and feeds that mix into the existing loop, time-stretch, pitch, metronome, and master-gain chain. Disabling stem mode atomically returns playback to the original decoded mix.
 
+The master volume is the final output gain: it applies to the combined music,
+stem mix, and metronome signal. Master volume changes, mute/unmute transitions,
+stem gain changes, and stem mute/solo changes use a 40 ms callback-side ramp to
+avoid clicks and zipper noise. The ramp keeps the real-time path allocation-free
+and lock-free.
+
 The current model revision is pinned in `Cargo.toml`. Updating it requires changing the stem cache revision and repeating separation parity and performance tests.
 
 When looping is enabled, the Rust `play` command atomically positions playback at A before enabling the callback. This rule is enforced by the engine rather than simulated by the frontend.

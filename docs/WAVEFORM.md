@@ -7,7 +7,10 @@ detailed waveform pans it, clicking the background seeks, and dragging an A/B
 flag adjusts that endpoint. The highlighted loop region is visual only and no
 longer moves as a block, so A/B resize handles always take priority over waveform
 navigation. A/B controls and sliders are mirrored in the detailed and full-song
-views.
+views. Defining A shows its marker immediately; defining B adds the highlighted
+loop region. A and B markers and the region are visible on the waveforms only
+when Loop is on. For tracks without saved bounds, the inactive default is A at
+the beginning and B at the end of the track.
 
 The `A` and `B` keyboard shortcuts always move the corresponding loop point to the playhead, including after a toolbar button has received focus. `L` toggles looping and `Escape` clears the range. Text inputs remain exempt so project and track names can be edited normally.
 
