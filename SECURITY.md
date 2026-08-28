@@ -20,12 +20,18 @@ permissions, or exhaust resources without a bound.
 - Bound queues, concurrency, captured logs, parsed metadata, caches, and files
   read into memory. Never expose secrets, private URLs, raw media, or personal
   file contents in logs.
+- Treat analysis caches as disposable untrusted data. Acoustic fingerprint files
+  have a strict read-size limit and invalid or unsupported cache versions are
+  ignored and rebuilt from canonicalized project media.
+- Create temporary projects with unpredictable package names below the platform
+  temporary directory. Canonicalize Save As parents and reject destinations
+  nested inside the source package to prevent recursive copies or path escapes.
 - Keep `package-lock.json` and `Cargo.lock` committed and review dependency graph
   changes explicitly.
 
 ## Dependency audit
 
-Run the network-backed audit before releases and after dependency changes:
+Run the network-backed audit only when adding a new library or package:
 
 ```bash
 npm run security
@@ -34,6 +40,10 @@ npm run security
 It combines npm advisories with OSV scanning for npm and Cargo lockfiles. New or
 expired advisories fail the command. Exceptions live in `osv-scanner.toml`; each
 must have a concrete reason and near-term expiry.
+
+Do not run this audit for ordinary code or documentation changes. Validate
+security-sensitive code changes with focused tests and checks for the affected
+trust boundary instead.
 
 ### Reviewed transitive maintenance notices
 

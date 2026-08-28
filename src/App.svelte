@@ -3,11 +3,12 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, createProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
+  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
+  import { deduplicateImportCandidates } from "./lib/importCandidates";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
-  import { buildProjectPath, calculateBeatLines, formatPitch, formatTime, formatTimePrecise, visiblePeaks } from "./lib/presentation";
+  import { buildProjectPath, calculateBeatLines, formatPitch, formatTime, formatTimePrecise, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
   import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
@@ -32,6 +33,7 @@
   let consoleVisible = false;
   let appLogs: AppLogEntry[] = [];
   let shortcutsVisible = false;
+  let closePromptVisible = false;
   let waveform: WaveformData | null = null;
   let waveformLoading = false;
   let audioLoading = false;
@@ -65,6 +67,7 @@
   let importAnalysisGeneration = 0;
   let importQueue: ImportJob[] = [];
   const importDismissTimers = new Map<string, number>();
+  const masterMeterLevels = [8, 7, 6, 5, 4, 3, 2, 1] as const;
   let lastClipboardText = "";
   let clipboardDetected = 0;
   let editingTrackId: string | null = null;
@@ -81,7 +84,9 @@
   let waveformStart = 0;
   let dragStartX = 0;
   let dragStartViewport = 0;
+  let dragStartZoom = 1;
   let dragMoved = false;
+  let waveformDragPointerId: number | null = null;
   let practiceSaveTimer: number | undefined;
   let playbackRateTimer: number | undefined;
   let pitchTimer: number | undefined;
@@ -92,8 +97,10 @@
   const tempoCache = new Map<string, TempoAnalysis>();
   const loadingWave = Array.from({ length: 72 }, (_, index) => Math.min(0.95, 0.12 + Math.abs(Math.sin(index * 0.71) * Math.cos(index * 0.17)) * 0.78));
   const warmedProjects = new Set<string>();
-  type LoopDragMode = "a" | "b" | "region";
-  let loopDrag: { mode: LoopDragMode; pointerId: number; originTime: number; a: number; b: number } | null = null;
+  type LoopDragMode = "a" | "b";
+  let loopDrag: { mode: LoopDragMode; pointerId: number; a: number; b: number } | null = null;
+  type ViewportDragMode = "move" | WaveformViewportEdge;
+  let viewportDrag: { mode: ViewportDragMode; pointerId: number; originRatio: number; originClientX: number; start: number; zoom: number; moved: boolean } | null = null;
   let language: Language = systemLanguage();
   const t = (key: MessageKey): string => translate(language, key);
 
@@ -117,7 +124,11 @@
   onMount(() => {
     let unlisten: UnlistenFn | undefined;
     let unlistenDrag: (() => void) | undefined;
+    let unlistenClose: (() => void) | undefined;
+    let unlistenExit: UnlistenFn | undefined;
+    const appWindow = getCurrentWindow();
     void listen<string>("native-menu", (event) => handleNativeMenu(event.payload)).then((stop) => unlisten = stop);
+    void listen<void>("application-exit-requested", () => closePromptVisible = true).then((stop) => unlistenExit = stop);
     const handleKeydown = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable='true']") || !project) return;
@@ -154,7 +165,12 @@
     window.addEventListener("pointerup", finishPlaylistDrag);
     window.addEventListener("pointercancel", finishPlaylistDrag);
     window.addEventListener("pointerdown", closeTrackContextMenu);
-    void getCurrentWindow().onDragDropEvent((event) => {
+    void appWindow.onCloseRequested((event) => {
+      if (!project?.temporary) return;
+      event.preventDefault();
+      closePromptVisible = true;
+    }).then((stop) => unlistenClose = stop);
+    void appWindow.onDragDropEvent((event) => {
       if (!importVisible) return;
       if (event.payload.type === "enter" || event.payload.type === "over") importDropActive = true;
       else if (event.payload.type === "leave") importDropActive = false;
@@ -191,6 +207,8 @@
       window.removeEventListener("pointercancel", finishPlaylistDrag);
       window.removeEventListener("pointerdown", closeTrackContextMenu);
       unlistenDrag?.();
+      unlistenClose?.();
+      unlistenExit?.();
     };
   });
 
@@ -254,25 +272,17 @@
   async function restoreLastProject(): Promise<void> {
     if (project) return;
     try {
-      const [mostRecent] = await listRecentProjects();
-      if (!mostRecent || project) {
-        offerInitialProjectCreation();
-        return;
-      }
-      const restored = await openProject(mostRecent);
+      const initialized = await initializeProject();
       if (project) return;
-      project = restored;
-      const firstTrack = restored.tracks[0];
+      project = initialized.project;
+      if (initialized.unavailableProjectPath) {
+        errorMessage = `${t("previousProjectUnavailable")} ${initialized.unavailableProjectPath}\n${t("temporaryProjectCreated")}`;
+      }
+      const firstTrack = initialized.project.tracks[0];
       if (firstTrack) selectTrack(firstTrack, false);
-    } catch {
-      // Startup restoration is best-effort. The File menu remains available if
-      // the recent project is invalid, inaccessible, or was moved meanwhile.
-      offerInitialProjectCreation();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
     }
-  }
-
-  function offerInitialProjectCreation(): void {
-    if (!project && window.confirm(t("createFirstProject"))) newProject();
   }
 
   async function run(action: () => Promise<void>): Promise<void> {
@@ -289,13 +299,7 @@
 
   function newProject(): void {
     void run(async () => {
-      const packagePath = await save({
-        title: t("createProjectFile"),
-        defaultPath: `${t("defaultProjectName")}.sac`,
-        filters: [{ name: "SonArcan project", extensions: ["sac"] }],
-      });
-      if (!packagePath) return;
-      project = await createProject(packagePath);
+      project = await createTemporaryProject();
       currentTrack = null;
     });
   }
@@ -439,23 +443,70 @@
     void audioSetEndBehavior(behavior);
   }
 
-  function saveAs(): void {
+  async function saveProjectToChosenLocation(): Promise<boolean> {
+    if (!project) return false;
+    window.clearTimeout(practiceSaveTimer);
+    if (!await persistCurrentPracticeState()) return false;
+    const destination = await save({
+      title: t("saveProjectFile"),
+      defaultPath: `${project.name.replace(/[\\/:*?"<>|]/g, "_")}.sac`,
+      filters: [{ name: "SonArcan project", extensions: ["sac"] }],
+    });
+    if (!destination) return false;
+    const selectedTrackId = currentTrack?.id;
+    project = await saveProjectAs(project.packagePath, destination);
+    currentTrack = selectedTrackId
+      ? project.tracks.find((track) => track.id === selectedTrackId) ?? null
+      : null;
+    return true;
+  }
+
+  function saveCurrentProject(): void {
     if (!project) return;
     void run(async () => {
-      const parentDirectory = await open({ directory: true, multiple: false, title: t("chooseDestination") });
-      if (!parentDirectory) return;
-      const name = window.prompt(t("copyName"), `${project!.name} ${t("copySuffix")}`)?.trim();
-      if (!name) return;
-      project = await saveProjectAs(project!.packagePath, parentDirectory, name);
-      currentTrack = null;
+      if (project?.temporary) await saveProjectToChosenLocation();
+      else {
+        window.clearTimeout(practiceSaveTimer);
+        await persistCurrentPracticeState();
+      }
     });
+  }
+
+  function saveAs(): void {
+    if (!project) return;
+    void run(async () => { await saveProjectToChosenLocation(); });
+  }
+
+  function requestApplicationClose(): void {
+    void requestApplicationExit();
+  }
+
+  function closeWithoutSavingElsewhere(): void {
+    closePromptVisible = false;
+    void confirmApplicationExit();
+  }
+
+  async function saveTemporaryAndClose(): Promise<void> {
+    busy = true;
+    errorMessage = "";
+    try {
+      if (!await saveProjectToChosenLocation()) return;
+      closePromptVisible = false;
+      await confirmApplicationExit();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      busy = false;
+    }
   }
 
   async function handleNativeMenu(id: string): Promise<void> {
     if (id === "file:new") newProject();
     else if (id === "file:open") loadProject();
     else if (id === "file:import") openImportCenter();
+    else if (id === "file:save") saveCurrentProject();
     else if (id === "file:save_as") saveAs();
+    else if (id === "app:quit") requestApplicationClose();
     else if (id === "file:rename_project") renameCurrentProject();
     else if (id === "playlist:add") openImportCenter();
     else if (id === "playlist:export_json") exportCurrentPlaylist("json");
@@ -481,9 +532,7 @@
 
   function setWaveformZoom(nextZoom: number): void {
     const center = waveformStart + 0.5 / waveformZoom;
-    waveformZoom = Math.max(1, Math.min(128, nextZoom));
-    const span = 1 / waveformZoom;
-    waveformStart = Math.max(0, Math.min(1 - span, center - span / 2));
+    applyWaveformViewport(zoomWaveformViewport(waveformStart, waveformZoom, nextZoom / waveformZoom, center));
   }
 
   function addTracks(): void {
@@ -544,6 +593,7 @@
         candidates = resolved;
       }
       if (generation !== importAnalysisGeneration) return;
+      candidates = deduplicateImportCandidates(candidates);
       importCandidates = candidates;
       selectedImports = new Set(candidates.map((candidate) => candidate.input));
       importHasAnalyzed = true;
@@ -574,13 +624,7 @@
     if (inputs.length > 10 && !window.confirm(`${t("confirmLargeImport")} (${inputs.length})`)) return;
     await run(async () => {
       if (!project) {
-        const packagePath = await save({
-          title: t("createProjectFile"),
-          defaultPath: `${t("defaultProjectName")}.sac`,
-          filters: [{ name: "SonArcan project", extensions: ["sac"] }],
-        });
-        if (!packagePath) return;
-        project = await createProject(packagePath);
+        project = await createTemporaryProject();
         currentTrack = null;
       }
       importQueue = await enqueueImports(project.packagePath, inputs);
@@ -613,7 +657,7 @@
       const text = (await readClipboardText()).trim();
       if (!text || text === lastClipboardText) return;
       lastClipboardText = text;
-      const candidates = await analyzeImportText(text);
+      const candidates = deduplicateImportCandidates(await analyzeImportText(text));
       if (!candidates.length) return;
       clipboardDetected = candidates.length;
       importText = text;
@@ -1054,10 +1098,11 @@
 
   function startLoopDrag(event: PointerEvent, mode: LoopDragMode, detailed: boolean): void {
     if (loopA === null || loopB === null) return;
+    event.preventDefault();
     event.stopPropagation();
     const target = event.currentTarget as HTMLElement;
     target.setPointerCapture(event.pointerId);
-    loopDrag = { mode, pointerId: event.pointerId, originTime: eventTime(event, detailed), a: loopA, b: loopB };
+    loopDrag = { mode, pointerId: event.pointerId, a: loopA, b: loopB };
   }
 
   function moveLoopDrag(event: PointerEvent, detailed: boolean): void {
@@ -1065,13 +1110,7 @@
     const time = eventTime(event, detailed);
     const minimum = Math.min(0.05, durationSeconds);
     if (loopDrag.mode === "a") loopA = Math.max(0, Math.min(time, loopDrag.b - minimum));
-    else if (loopDrag.mode === "b") loopB = Math.min(durationSeconds, Math.max(time, loopDrag.a + minimum));
-    else {
-      const length = loopDrag.b - loopDrag.a;
-      const a = Math.max(0, Math.min(durationSeconds - length, loopDrag.a + time - loopDrag.originTime));
-      loopA = a;
-      loopB = a + length;
-    }
+    else loopB = Math.min(durationSeconds, Math.max(time, loopDrag.a + minimum));
     loopEnabled = true;
     applyLoopToEngine();
   }
@@ -1134,8 +1173,8 @@
     practiceSaveTimer = window.setTimeout(() => void persistCurrentPracticeState(), delay);
   }
 
-  async function persistCurrentPracticeState(): Promise<void> {
-    if (!project || !currentTrack) return;
+  async function persistCurrentPracticeState(): Promise<boolean> {
+    if (!project || !currentTrack) return true;
     const packagePath = project.packagePath;
     const trackId = currentTrack.id;
     try {
@@ -1159,8 +1198,10 @@
         stemMix,
       });
       if (project?.packagePath === packagePath) project = updated;
+      return true;
     } catch (error) {
       errorMessage = `${t("saveError")}: ${error instanceof Error ? error.message : String(error)}`;
+      return false;
     }
   }
 
@@ -1168,32 +1209,49 @@
     event.preventDefault();
     const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const anchor = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
-    const oldSpan = 1 / waveformZoom;
-    const anchorPosition = waveformStart + anchor * oldSpan;
     const factor = Math.exp(-event.deltaY * 0.002);
-    const nextZoom = Math.max(1, Math.min(128, waveformZoom * factor));
-    const nextSpan = 1 / nextZoom;
-    waveformStart = Math.max(0, Math.min(1 - nextSpan, anchorPosition - anchor * nextSpan));
-    waveformZoom = nextZoom;
+    const anchorPosition = waveformStart + anchor / waveformZoom;
+    applyWaveformViewport(zoomWaveformViewport(waveformStart, waveformZoom, factor, anchorPosition));
+  }
+
+  function zoomOverviewWaveform(event: WheelEvent): void {
+    event.preventDefault();
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const anchorPosition = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    applyWaveformViewport(zoomWaveformViewport(
+      waveformStart,
+      waveformZoom,
+      Math.exp(-event.deltaY * 0.002),
+      anchorPosition,
+    ));
+  }
+
+  function applyWaveformViewport(viewport: WaveformViewport): void {
+    waveformStart = viewport.start;
+    waveformZoom = viewport.zoom;
   }
 
   function startWaveformDrag(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
     dragStartX = event.clientX;
     dragStartViewport = waveformStart;
+    dragStartZoom = waveformZoom;
     dragMoved = false;
+    waveformDragPointerId = event.pointerId;
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   }
 
   function dragWaveform(event: PointerEvent): void {
-    if (!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return;
+    if (waveformDragPointerId !== event.pointerId || !(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return;
     const width = (event.currentTarget as HTMLElement).clientWidth;
     const delta = event.clientX - dragStartX;
     if (Math.abs(delta) > 3) dragMoved = true;
-    const span = 1 / waveformZoom;
-    waveformStart = Math.max(0, Math.min(1 - span, dragStartViewport - delta / width * span));
+    applyWaveformViewport(moveWaveformViewport(dragStartViewport, dragStartZoom, -delta / width / dragStartZoom));
   }
 
   function finishWaveformDrag(event: PointerEvent): void {
+    if (waveformDragPointerId !== event.pointerId) return;
     const target = event.currentTarget as HTMLElement;
     if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
     if (!dragMoved) {
@@ -1201,14 +1259,77 @@
       const local = (event.clientX - bounds.left) / bounds.width;
       seek((waveformStart + local / waveformZoom) * durationSeconds);
     }
+    waveformDragPointerId = null;
+    dragMoved = false;
+  }
+
+  function cancelWaveformDrag(event: PointerEvent): void {
+    if (waveformDragPointerId !== event.pointerId) return;
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    waveformDragPointerId = null;
+    dragMoved = false;
+  }
+
+  function overviewRatio(event: PointerEvent): number {
+    const overview = (event.currentTarget as HTMLElement).closest(".overview-wave") as HTMLElement | null;
+    const bounds = (overview ?? event.currentTarget as HTMLElement).getBoundingClientRect();
+    return Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+  }
+
+  function startViewportDrag(event: PointerEvent, mode: ViewportDragMode): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget as HTMLElement;
+    target.setPointerCapture(event.pointerId);
+    viewportDrag = {
+      mode,
+      pointerId: event.pointerId,
+      originRatio: overviewRatio(event),
+      originClientX: event.clientX,
+      start: waveformStart,
+      zoom: waveformZoom,
+      moved: false,
+    };
+  }
+
+  function moveViewportDrag(event: PointerEvent): void {
+    if (!viewportDrag || viewportDrag.pointerId !== event.pointerId) return;
+    const ratio = overviewRatio(event);
+    if (Math.abs(event.clientX - viewportDrag.originClientX) > 3) viewportDrag.moved = true;
+    const next = viewportDrag.mode === "move"
+      ? moveWaveformViewport(viewportDrag.start, viewportDrag.zoom, ratio - viewportDrag.originRatio)
+      : resizeWaveformViewport(viewportDrag.start, viewportDrag.zoom, viewportDrag.mode, ratio);
+    applyWaveformViewport(next);
+  }
+
+  function finishViewportDrag(event: PointerEvent): void {
+    if (!viewportDrag || viewportDrag.pointerId !== event.pointerId) return;
+    const completedDrag = viewportDrag;
+    const ratio = overviewRatio(event);
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    viewportDrag = null;
+    if (completedDrag.mode === "move" && !completedDrag.moved) seekAndCenterOverview(ratio);
+  }
+
+  function cancelViewportDrag(event: PointerEvent): void {
+    if (!viewportDrag || viewportDrag.pointerId !== event.pointerId) return;
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    viewportDrag = null;
   }
 
   function seekFromOverview(event: PointerEvent): void {
-    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    if (event.button !== 0) return;
+    seekAndCenterOverview(overviewRatio(event));
+  }
+
+  function seekAndCenterOverview(ratio: number): void {
     seek(ratio * durationSeconds);
     const span = 1 / waveformZoom;
-    waveformStart = Math.max(0, Math.min(1 - span, ratio - span / 2));
+    applyWaveformViewport(moveWaveformViewport(ratio - span / 2, waveformZoom, 0));
   }
 </script>
 
@@ -1249,7 +1370,9 @@
         </button>
         <input aria-label={t("masterVolume")} type="range" min="0" max="1" step="0.01" value={volume} oninput={(event) => changeVolume(Number(event.currentTarget.value))} />
         <output>{Math.round(volume * 100)}%</output>
-        <div class="master-meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`}><i style={`width:${Math.min(100, masterPeak * 100)}%`}></i></div>
+        <div class="master-meter" role="meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeak * 100)}>
+          {#each masterMeterLevels as level}<i class:active={masterPeak * masterMeterLevels.length >= level}></i>{/each}
+        </div>
       </div>
     </div>
   </header>
@@ -1293,7 +1416,7 @@
         <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{:else if detectedBpm !== null}<button class="bpm" data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}>↺ {detectedBpm.toFixed(1)} BPM</button>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded">✓ {t("audioReady")}</span>{/if}</div></div>
         <div
           class="wave detailed-wave"
-          class:dragging={dragMoved}
+          class:dragging={waveformDragPointerId !== null}
           role="application"
           aria-label={t("waveform")}
           data-tooltip={t("seekHelp")}
@@ -1301,6 +1424,7 @@
           onpointerdown={startWaveformDrag}
           onpointermove={dragWaveform}
           onpointerup={finishWaveformDrag}
+          onpointercancel={cancelWaveformDrag}
         >
           {#if waveformLoading}<div class="wave-skeleton" aria-label={t("waveformLoading")}><svg viewBox={`0 0 ${loadingWave.length} 100`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={50 - height * 45} y2={50 + height * 45}></line>{/each}</svg><i></i><span>{t("waveformLoading")}</span></div>
           {:else if detailedPeaks.length === 0}<span class="wave-message">{t("waveformEmpty")}</span>
@@ -1314,25 +1438,20 @@
               {#each detailedBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
             </div>
             {#if loopA !== null && loopB !== null}
-              <button
-                type="button"
-                class="loop-region editable"
+              <i
+                class="loop-region"
                 class:disabled={!loopEnabled}
-                aria-label={t("moveRegion")}
-                data-tooltip={t("moveRegion")}
+                aria-hidden="true"
                 style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%;width:${(loopB - loopA) / durationSeconds * waveformZoom * 100}%`}
-                onpointerdown={(event) => startLoopDrag(event, "region", true)}
-                onpointermove={(event) => moveLoopDrag(event, true)}
-                onpointerup={finishLoopDrag}
-              ></button>
-              <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag}>A</button>
-              <button class="loop-handle b" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag}>B</button>
+              ></i>
+              <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>A</button>
+              <button class="loop-handle b" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
             {/if}
             {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
           {/if}
         </div>
         <div class="zoom-info"><span>{waveformZoom.toFixed(1)}×</span><span>{t("waveformHelp")}</span></div>
-        <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onpointerdown={seekFromOverview}>
+        <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheel={zoomOverviewWaveform} onpointerdown={seekFromOverview}>
           {#if waveformLoading}<div class="overview-skeleton"><svg viewBox={`0 0 ${loadingWave.length} 60`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={30 - height * 27} y2={30 + height * 27}></line>{/each}</svg><i></i></div>
           {:else if overviewPeaks.length > 0}
             <svg viewBox={`0 0 ${overviewPeaks.length} 60`} preserveAspectRatio="none" aria-hidden="true">
@@ -1343,11 +1462,13 @@
             <div class="beat-grid overview" aria-hidden="true">
               {#each overviewBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
             </div>
-            <i class="viewport" style={`left:${waveformStart * 100}%;width:${100 / waveformZoom}%`}></i>
+            <button type="button" class="viewport" class:dragging={viewportDrag?.mode === "move"} aria-label={t("moveViewport")} style={`left:${waveformStart * 100}%;width:${100 / waveformZoom}%`} onpointerdown={(event) => startViewportDrag(event, "move")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
+            <button type="button" class="viewport-handle start" aria-label={t("resizeViewportStart")} data-tooltip={t("resizeViewportStart")} style={`left:${waveformStart * 100}%`} onpointerdown={(event) => startViewportDrag(event, "start")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
+            <button type="button" class="viewport-handle end" aria-label={t("resizeViewportEnd")} data-tooltip={t("resizeViewportEnd")} style={`left:${(waveformStart + 1 / waveformZoom) * 100}%`} onpointerdown={(event) => startViewportDrag(event, "end")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             {#if loopA !== null && loopB !== null}
-              <button type="button" class="loop-region overview editable" class:disabled={!loopEnabled} aria-label={t("moveRegion")} data-tooltip={t("moveRegion")} style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`} onpointerdown={(event) => startLoopDrag(event, "region", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag}></button>
-              <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag}>A</button>
-              <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag}>B</button>
+              <i class="loop-region overview" class:disabled={!loopEnabled} aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
+              <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>A</button>
+              <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
             {/if}
             <i class="overview-playhead" style={`left:${durationSeconds ? currentSeconds / durationSeconds * 100 : 0}%`}></i>
           {/if}
@@ -1463,6 +1584,17 @@
   <div class="background-tools">
     <button class:active={preferences.smartClipboard} class="clipboard-watch" data-tooltip={t("smartClipboard")} onclick={() => { preferences = { ...preferences, smartClipboard: !preferences.smartClipboard }; clipboardDetected = 0; void persistPreferences(); }}>⌘{clipboardDetected ? ` ${clipboardDetected}` : ""}</button>
   </div>
+
+  {#if closePromptVisible}
+    <Modal title={t("saveTemporaryTitle")} close={() => closePromptVisible = false}>
+      <p>{t("saveTemporaryPrompt")}</p>
+      <div class="modal-actions">
+        <button onclick={() => closePromptVisible = false}>{t("cancel")}</button>
+        <button onclick={closeWithoutSavingElsewhere}>{t("quitWithoutSaving")}</button>
+        <button class="primary" disabled={busy} onclick={() => void saveTemporaryAndClose()}>{t("saveAndQuit")}</button>
+      </div>
+    </Modal>
+  {/if}
 
   {#if diagnosticInfo}
     <Modal title={t("diagnostics")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>

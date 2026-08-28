@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppLogEntry, AudioStatus, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StemStatus, TempoAnalysis, UserPreferences, WaveformData } from "./types";
+import type { AppLogEntry, AudioStatus, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, TempoAnalysis, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -8,6 +8,16 @@ export async function createProject(packagePath: string): Promise<ProjectSummary
     throw new Error("Project creation requires the Tauri desktop runtime.");
   }
   return invoke<ProjectSummary>("create_project", { packagePath });
+}
+
+export async function createTemporaryProject(): Promise<ProjectSummary> {
+  if (!isTauri()) throw new Error("Temporary project creation requires the Tauri desktop runtime.");
+  return invoke<ProjectSummary>("create_temporary_project");
+}
+
+export async function initializeProject(): Promise<StartupProject> {
+  if (!isTauri()) throw new Error("Project initialization requires the Tauri desktop runtime.");
+  return invoke<StartupProject>("initialize_project");
 }
 
 export async function openProject(packagePath: string): Promise<ProjectSummary> {
@@ -54,9 +64,9 @@ export async function updatePracticeState(packagePath: string, trackId: string, 
   return invoke<ProjectSummary>("update_practice_state", { packagePath, trackId, state });
 }
 
-export async function saveProjectAs(sourcePackage: string, parentDirectory: string, name: string): Promise<ProjectSummary> {
+export async function saveProjectAs(sourcePackage: string, destination: string): Promise<ProjectSummary> {
   if (!isTauri()) throw new Error("Save As requires the Tauri desktop runtime.");
-  return invoke<ProjectSummary>("save_project_as", { sourcePackage, parentDirectory, name });
+  return invoke<ProjectSummary>("save_project_as", { sourcePackage, destination });
 }
 
 export async function getWaveform(packagePath: string, trackId: string): Promise<WaveformData> {
@@ -73,6 +83,9 @@ export async function listRecentProjects(): Promise<string[]> {
   if (!isTauri()) return [];
   return invoke<string[]>("list_recent_projects");
 }
+
+export const requestApplicationExit = (): Promise<void> => invoke("request_application_exit");
+export const confirmApplicationExit = (): Promise<void> => invoke("confirm_application_exit");
 
 export async function setApplicationLanguage(language: "en" | "fr"): Promise<void> {
   if (isTauri()) await invoke("set_language", { language });

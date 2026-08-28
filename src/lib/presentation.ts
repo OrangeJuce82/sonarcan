@@ -19,6 +19,77 @@ export interface BeatLineOptions {
   start: number;
 }
 
+export interface WaveformViewport {
+  start: number;
+  zoom: number;
+}
+
+export type WaveformViewportEdge = "start" | "end";
+
+export const WAVEFORM_MAX_ZOOM = 128;
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function normalizedViewport(start: number, zoom: number): WaveformViewport {
+  const safeZoom = clamp(Number.isFinite(zoom) ? zoom : 1, 1, WAVEFORM_MAX_ZOOM);
+  const span = 1 / safeZoom;
+  return {
+    start: clamp(Number.isFinite(start) ? start : 0, 0, 1 - span),
+    zoom: safeZoom,
+  };
+}
+
+export function moveWaveformViewport(start: number, zoom: number, delta: number): WaveformViewport {
+  const current = normalizedViewport(start, zoom);
+  const span = 1 / current.zoom;
+  return {
+    start: clamp(current.start + (Number.isFinite(delta) ? delta : 0), 0, 1 - span),
+    zoom: current.zoom,
+  };
+}
+
+export function resizeWaveformViewport(
+  start: number,
+  zoom: number,
+  edge: WaveformViewportEdge,
+  position: number,
+): WaveformViewport {
+  const current = normalizedViewport(start, zoom);
+  const minimumSpan = 1 / WAVEFORM_MAX_ZOOM;
+  const end = current.start + 1 / current.zoom;
+  const safePosition = Number.isFinite(position) ? position : edge === "start" ? current.start : end;
+  const nextStart = edge === "start"
+    ? clamp(safePosition, 0, end - minimumSpan)
+    : current.start;
+  const nextEnd = edge === "end"
+    ? clamp(safePosition, current.start + minimumSpan, 1)
+    : end;
+  return { start: nextStart, zoom: 1 / (nextEnd - nextStart) };
+}
+
+export function zoomWaveformViewport(
+  start: number,
+  zoom: number,
+  factor: number,
+  anchorPosition: number,
+): WaveformViewport {
+  const current = normalizedViewport(start, zoom);
+  const currentSpan = 1 / current.zoom;
+  const anchor = clamp(Number.isFinite(anchorPosition) ? anchorPosition : current.start + currentSpan / 2, 0, 1);
+  const anchorWithinViewport = anchor >= current.start && anchor <= current.start + currentSpan
+    ? (anchor - current.start) / currentSpan
+    : 0.5;
+  const safeFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+  const nextZoom = clamp(current.zoom * safeFactor, 1, WAVEFORM_MAX_ZOOM);
+  const nextSpan = 1 / nextZoom;
+  return {
+    start: clamp(anchor - anchorWithinViewport * nextSpan, 0, 1 - nextSpan),
+    zoom: nextZoom,
+  };
+}
+
 export function buildProjectPath(packagePath: string): ProjectPathPart[] {
   const normalized = packagePath.replaceAll("\\", "/");
   const absolute = normalized.startsWith("/");

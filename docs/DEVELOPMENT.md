@@ -12,8 +12,9 @@ Every change must provide:
 6. no unreviewed applicable dependency advisory.
 
 Run the complete local quality gate with `npm run quality`. Run the network-backed
-dependency gate with `npm run security` after dependency or trust-boundary changes
-and before a release. See `CONTRIBUTING.md` and `SECURITY.md` for the exact policy.
+dependency gate with `npm run security` only when adding a new library or package.
+Use focused validation for trust-boundary changes. See `CONTRIBUTING.md` and
+`SECURITY.md` for the exact policy.
 
 ## Debugging workflow
 

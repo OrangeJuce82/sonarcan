@@ -41,7 +41,9 @@ safety for delivery speed.
 
 ## Definition of done
 
-Run `npm run quality`. For dependency or trust-boundary changes, also run
-`npm run security`. Both commands must finish with no project warning, error,
-test failure, or unreviewed advisory. Add a regression test for important fixes
-and update documentation when a boundary, behavior, or accepted risk changes.
+Run `npm run quality`. Run the network-backed `npm run security` audit (npm audit
+and OSV) only when a change adds a new library or package. Do not run it for
+ordinary code or documentation changes. Required commands must finish with no
+project warning, error, test failure, or unreviewed advisory. Add a regression
+test for important fixes and update documentation when a boundary, behavior, or
+accepted risk changes.

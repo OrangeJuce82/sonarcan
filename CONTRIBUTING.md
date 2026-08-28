@@ -82,11 +82,15 @@ npm run quality
 This runs Svelte/TypeScript diagnostics, frontend unit tests, the production
 bundle, Rust formatting, Clippy with warnings denied, and all Rust tests.
 
-For dependency, import, IPC, filesystem, networking, process, or release changes:
+Only when adding a new library or package:
 
 ```bash
 npm run security
 ```
+
+Do not run this network-backed npm/OSV audit for ordinary code or documentation
+changes. Security-sensitive changes still require focused validation of the
+affected trust boundary.
 
 The change is complete only when relevant tests pass, diagnostics are clean,
 documentation matches reality, accessibility is preserved, performance-critical

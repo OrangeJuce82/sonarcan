@@ -37,9 +37,15 @@ export interface PracticeState {
 export interface ProjectSummary {
   name: string;
   packagePath: string;
+  temporary: boolean;
   formatVersion: number;
   trackCount: number;
   tracks: TrackSummary[];
+}
+
+export interface StartupProject {
+  project: ProjectSummary;
+  unavailableProjectPath: string | null;
 }
 
 export interface DiagnosticsSnapshot {

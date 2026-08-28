@@ -7,7 +7,10 @@ import {
   formatPitch,
   formatTime,
   formatTimePrecise,
+  moveWaveformViewport,
+  resizeWaveformViewport,
   visiblePeaks,
+  zoomWaveformViewport,
 } from "./presentation.ts";
 
 test("buildProjectPath preserves absolute and Windows path navigation", () => {
@@ -66,4 +69,23 @@ test("calculateBeatLines bounds density and accents every fourth beat", () => {
     zoom: 1,
     start: 0,
   }).length, 500);
+});
+
+test("waveform viewport movement preserves its span and stays in bounds", () => {
+  assert.deepEqual(moveWaveformViewport(0.25, 4, 0.1), { start: 0.35, zoom: 4 });
+  assert.deepEqual(moveWaveformViewport(0.75, 4, 0.5), { start: 0.75, zoom: 4 });
+  assert.deepEqual(moveWaveformViewport(0.25, 4, -0.5), { start: 0, zoom: 4 });
+});
+
+test("waveform viewport edges resize independently down to the minimum span", () => {
+  assert.deepEqual(resizeWaveformViewport(0.25, 2, "start", 0.5), { start: 0.5, zoom: 4 });
+  assert.deepEqual(resizeWaveformViewport(0.25, 2, "end", 0.5), { start: 0.25, zoom: 4 });
+  const minimum = resizeWaveformViewport(0.25, 2, "start", 1);
+  assert.equal(minimum.zoom, 128);
+  assert.equal(minimum.start, 0.75 - 1 / 128);
+});
+
+test("waveform wheel zoom keeps an in-viewport anchor stable", () => {
+  assert.deepEqual(zoomWaveformViewport(0.25, 2, 2, 0.5), { start: 0.375, zoom: 4 });
+  assert.deepEqual(zoomWaveformViewport(0, 1, 0.1, 0.5), { start: 0, zoom: 1 });
 });

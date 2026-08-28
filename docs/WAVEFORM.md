@@ -2,7 +2,12 @@
 
 Generated peak data is cached in each project under `Analysis/waveform`. Waveforms already viewed during the current session are also retained in a frontend display cache, avoiding disk reads and JSON parsing when switching back to a track. This cache contains visualization peaks only; it never participates in audio playback.
 
-Loop interaction follows a direct gesture hierarchy: dragging the waveform background pans it, clicking the background seeks, dragging an A/B flag adjusts that endpoint, and dragging the highlighted region moves the complete loop. No intermediate selection mode is required. A/B controls and sliders are mirrored in the detailed and full-song views.
+Loop interaction follows a direct gesture hierarchy: grabbing anywhere on the
+detailed waveform pans it, clicking the background seeks, and dragging an A/B
+flag adjusts that endpoint. The highlighted loop region is visual only and no
+longer moves as a block, so A/B resize handles always take priority over waveform
+navigation. A/B controls and sliders are mirrored in the detailed and full-song
+views.
 
 The `A` and `B` keyboard shortcuts always move the corresponding loop point to the playhead, including after a toolbar button has received focus. `L` toggles looping and `Escape` clears the range. Text inputs remain exempt so project and track names can be edited normally.
 
@@ -33,7 +38,10 @@ Interactions:
 - mouse wheel or trackpad pinch: zoom around the pointer;
 - horizontal drag: navigate through the detailed waveform;
 - click: seek to an exact visible position;
-- overview click: seek and recenter the detailed viewport.
+- overview background click: seek and recenter the detailed viewport;
+- overview viewport drag: move the detailed window without changing its zoom;
+- overview viewport edge drag: resize the detailed window and update its zoom;
+- overview mouse wheel or trackpad pinch: zoom around the pointer.
 
 Zoom is bounded between `1×` and `128×`. Loop markers share the same time-to-screen transform as the playhead so they remain aligned at every zoom level.
 

@@ -57,6 +57,22 @@ Project manifests are untrusted input. A stored media path is canonicalized and
 must resolve to a regular file below the package's `Audio` directory before audio
 read or deletion. This also prevents symlink and traversal escapes.
 
+When no recent project can be restored, the Rust project service immediately
+creates a randomly named `.sac` package below the operating system's temporary
+directory. No creation dialog blocks startup or the New Project action. This
+temporary package is persisted continuously and remembered like any other
+project, so it reopens after a restart while it still exists. If the operating
+system removed it, startup reports the unavailable path, forgets that stale
+entry, and creates a fresh temporary project without failing.
+
+Save promotes the current temporary package through Save As to a user-selected
+`.sac` destination; Save As always creates a copy. A destination cannot already
+exist or be nested inside its source package. Native application exit and window
+close requests are intercepted while the active project remains temporary, and
+the UI offers Save and Quit, Quit Without Saving Elsewhere, or Cancel. Choosing
+to quit without promotion leaves the temporary package available for the next
+startup, subject to normal operating-system temporary-file cleanup.
+
 ## Real-time audio contract
 
 The audio callback must never:
@@ -86,6 +102,17 @@ The application console is a bounded diagnostic view, not a real-time sink. Rust
 Local paths and remote sources enter one Rust-owned background queue. Each queued item retains its destination project and the preference snapshot active when it was submitted, so concurrent imports cannot leak into another project. Concurrency and batch size are bounded.
 
 Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Automatically downloaded `yt-dlp` releases are checked against the publisher's SHA-256 manifest before execution.
+
+Duplicate prevention has two deliberately separate layers. Text analysis removes
+obvious repeats by normalized URL, search text, or case-insensitive local
+filename so the selection UI stays concise. The project service remains the
+authority: before copying media it compares a Chromaprint acoustic fingerprint
+of at most the first ten seconds, plus total duration, against every existing
+track and every item in the same batch. This identifies the same recording after
+MP3, WAV, or FLAC conversion while keeping CPU and cache size bounded;
+the job fails visibly instead of silently skipping the file. Fingerprints are
+versioned caches under `Analysis/fingerprints/`, never part of the project DTO or
+JSON IPC payload, and are lazily rebuilt for older projects.
 
 ## Planned module extraction
 
