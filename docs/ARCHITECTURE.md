@@ -79,6 +79,15 @@ the UI offers Save and Quit, Quit Without Saving Elsewhere, or Cancel. Choosing
 to quit without promotion leaves the temporary package available for the next
 startup, subject to normal operating-system temporary-file cleanup.
 
+Activating another project invalidates every in-flight track load before clearing
+the waveform, transport, loop, tempo, spectrum, stem, and meter state. The audio
+engine is paused and its track controls return to defaults, so a late waveform or
+status response cannot repopulate an empty project. When tracks exist, the UI
+restores the last selected track from bounded local user state and falls back to
+the first track if that selection no longer exists. This selection is a UI
+convenience and is deliberately not stored in the portable project manifest. An
+empty project replaces the complete practice workspace with an import action.
+
 ## Real-time audio contract
 
 The audio callback must never:
@@ -106,6 +115,12 @@ The application console is a bounded diagnostic view, not a real-time sink. Rust
 ## Import pipeline
 
 Local paths and remote sources enter one Rust-owned background queue. Each queued item retains its destination project and the preference snapshot active when it was submitted, so concurrent imports cannot leak into another project. Concurrency and batch size are bounded.
+
+When the optional smart clipboard is enabled, opening the import center reads and
+analyzes the current clipboard immediately. While that window remains open,
+copy, paste, focus, and bounded clipboard polling detect content changes and
+restart the generation-guarded import analysis. Clipboard text remains an
+untrusted bounded IPC input and is never logged.
 
 Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Automatically downloaded `yt-dlp` releases are checked against the publisher's SHA-256 manifest before execution.
 

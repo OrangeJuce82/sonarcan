@@ -23,6 +23,11 @@ This document translates the useful interaction model observed in musician pract
 
 The current implementation persists position, tempo, volume, and A/B boundaries per track in `project.json`. Saves are debounced during playback and flushed immediately when playback pauses or the active track changes.
 
+The last selected track is remembered per project as local user-interface state.
+Reopening a known project restores that track; a missing remembered track falls
+back to the first playlist entry. Opening an empty project clears every track
+control and shows a dedicated import action instead of stale practice panels.
+
 ### 2. A/B practice loop
 
 - set A at the current position;

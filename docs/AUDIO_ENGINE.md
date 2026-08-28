@@ -24,6 +24,13 @@ stem gain changes, and stem mute/solo changes use a 40 ms callback-side ramp to
 avoid clicks and zipper noise. The ramp keeps the real-time path allocation-free
 and lock-free.
 
+Interactive seeks are coalesced by the UI to at most one in-flight IPC request,
+while the position readout continues to follow the pointer immediately. Each
+accepted position generation is joined to the last output frame by an 8 ms
+callback-side transition. Rapid scrubbing therefore cannot build an IPC backlog
+or send a discontinuous sample step to the output device; the transition uses
+only buffers allocated when the stream is created.
+
 The bounded `AudioStatus` snapshot exposes the decaying master peak and
 independent left/right output peaks for the UI meters. These scalar values are
 the only output-level data crossing IPC; raw audio never leaves the engine.

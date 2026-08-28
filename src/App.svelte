@@ -10,6 +10,7 @@
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
   import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
+  import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
@@ -75,6 +76,8 @@
   const masterMeterLevels = [8, 7, 6, 5, 4, 3, 2, 1] as const;
   let lastClipboardText = "";
   let clipboardDetected = 0;
+  let clipboardReadActive = false;
+  let clipboardForcePending = false;
   let editingTrackId: string | null = null;
   let editingTrackTitle = "";
   let draggedTrackId: string | null = null;
@@ -97,6 +100,9 @@
   let playbackRateTimer: number | undefined;
   let pitchTimer: number | undefined;
   let volumePreferenceTimer: number | undefined;
+  let seekAnimationFrame: number | undefined;
+  let pendingSeekPosition: number | null = null;
+  let seekRequestActive = false;
   let statusRequestActive = false;
   let systemMetricsSnapshot: SystemMetrics = { cpuPercent: null, memoryMegabytes: null };
   let trackSelectionGeneration = 0;
@@ -145,6 +151,7 @@
     void listen<string>("native-menu", (event) => handleNativeMenu(event.payload)).then((stop) => unlisten = stop);
     void listen<void>("application-exit-requested", () => closePromptVisible = true).then((stop) => unlistenExit = stop);
     const handleKeydown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && document.querySelector("dialog[open]")) return;
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable='true']") || !project) return;
       if (event.key.toLowerCase() === "a") { event.preventDefault(); setLoopA(); }
@@ -182,7 +189,22 @@
     const stemTimer = window.setInterval(() => void refreshStemStatus(), 400);
     const metricsTimer = window.setInterval(() => void refreshSystemMetrics(), 1_500);
     const importTimer = window.setInterval(() => void refreshImportJobs(), 500);
-    const clipboardTimer = window.setInterval(() => void inspectClipboard(), 900);
+    let clipboardTimer: number | undefined;
+    const pollClipboard = (): void => {
+      void inspectClipboard();
+      clipboardTimer = window.setTimeout(pollClipboard, importVisible ? 300 : 900);
+    };
+    clipboardTimer = window.setTimeout(pollClipboard, 300);
+    const inspectClipboardAfterEvent = (): void => {
+      if (!importVisible || !preferences.smartClipboard) return;
+      window.setTimeout(() => void inspectClipboard(), 0);
+    };
+    const inspectClipboardOnFocus = (): void => {
+      if (importVisible && preferences.smartClipboard) void inspectClipboard();
+    };
+    window.addEventListener("copy", inspectClipboardAfterEvent);
+    window.addEventListener("paste", inspectClipboardAfterEvent);
+    window.addEventListener("focus", inspectClipboardOnFocus);
     const consoleTimer = window.setInterval(() => { if (consoleVisible) void refreshConsole(); }, 350);
     void refreshSystemMetrics();
     const originalConsole = installConsoleForwarding();
@@ -225,12 +247,16 @@
       window.clearInterval(stemTimer);
       window.clearInterval(metricsTimer);
       window.clearInterval(importTimer);
-      window.clearInterval(clipboardTimer);
+      if (clipboardTimer !== undefined) window.clearTimeout(clipboardTimer);
+      window.removeEventListener("copy", inspectClipboardAfterEvent);
+      window.removeEventListener("paste", inspectClipboardAfterEvent);
+      window.removeEventListener("focus", inspectClipboardOnFocus);
       window.clearInterval(consoleTimer);
       window.clearTimeout(playbackRateTimer);
       window.clearTimeout(pitchTimer);
       window.clearTimeout(volumePreferenceTimer);
       window.clearTimeout(importAnalysisTimer);
+      cancelPendingSeek();
       for (const timer of importDismissTimers.values()) window.clearTimeout(timer);
       importDismissTimers.clear();
       window.removeEventListener("error", handleWindowError);
@@ -311,12 +337,10 @@
     try {
       const initialized = await initializeProject();
       if (project) return;
-      project = initialized.project;
+      await activateProject(initialized.project);
       if (initialized.unavailableProjectPath) {
         errorMessage = `${t("previousProjectUnavailable")} ${initialized.unavailableProjectPath}\n${t("temporaryProjectCreated")}`;
       }
-      const firstTrack = initialized.project.tracks[0];
-      if (firstTrack) selectTrack(firstTrack, false);
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
@@ -336,8 +360,9 @@
 
   function newProject(): void {
     void run(async () => {
-      project = await createTemporaryProject();
-      currentTrack = null;
+      window.clearTimeout(practiceSaveTimer);
+      if (!await persistCurrentPracticeState()) return;
+      await activateProject(await createTemporaryProject());
     });
   }
 
@@ -345,16 +370,91 @@
     void run(async () => {
       const packagePath = await open({ directory: true, multiple: false, title: t("openProject") });
       if (!packagePath) return;
-      project = await openProject(packagePath);
-      currentTrack = null;
+      window.clearTimeout(practiceSaveTimer);
+      if (!await persistCurrentPracticeState()) return;
+      await activateProject(await openProject(packagePath));
     });
   }
 
   function openRecent(packagePath: string): void {
     void run(async () => {
-      project = await openProject(packagePath);
-      currentTrack = null;
+      window.clearTimeout(practiceSaveTimer);
+      if (!await persistCurrentPracticeState()) return;
+      await activateProject(await openProject(packagePath));
     });
+  }
+
+  async function activateProject(nextProject: ProjectSummary): Promise<void> {
+    await resetTrackState();
+    project = nextProject;
+    const rememberedId = rememberedTrackId(window.localStorage, nextProject.packagePath);
+    const track = preferredTrack(nextProject.tracks, rememberedId);
+    if (track) selectTrack(track, false);
+    else forgetTrackSelection(window.localStorage, nextProject.packagePath);
+  }
+
+  async function resetTrackState(): Promise<void> {
+    ++trackSelectionGeneration;
+    cancelPendingSeek();
+    window.clearTimeout(playbackRateTimer);
+    window.clearTimeout(pitchTimer);
+    window.clearTimeout(practiceSaveTimer);
+    playbackRateTimer = undefined;
+    pitchTimer = undefined;
+    practiceSaveTimer = undefined;
+    currentTrack = null;
+    loadingTrackId = null;
+    isPlaying = false;
+    audioLoading = false;
+    waveformLoading = false;
+    tempoLoading = false;
+    currentSeconds = 0;
+    durationSeconds = 0;
+    playbackRate = preferences.defaultPlaybackRate;
+    pitchSemitones = preferences.defaultPitchSemitones;
+    volume = preferences.masterVolume;
+    volumeBeforeMute = volume > 0 ? volume : 0.8;
+    masterPeak = 0;
+    masterPeakLeft = 0;
+    masterPeakRight = 0;
+    loopEnabled = false;
+    loopA = null;
+    loopB = null;
+    usingDefaultLoopBounds = false;
+    loopDrag = null;
+    waveform = null;
+    waveformZoom = 1;
+    waveformStart = 0;
+    waveformDragPointerId = null;
+    viewportDrag = null;
+    detectedBpm = null;
+    gridBpm = null;
+    beatGridOffsetSeconds = 0;
+    metronomeEnabled = false;
+    metronomeVolume = preferences.metronomeVolume;
+    tapTimes = [];
+    trainerEnabled = preferences.defaultTrainerEnabled;
+    trainerRepetitions = preferences.defaultTrainerRepetitions;
+    trainerIncrement = preferences.defaultTrainerIncrement;
+    trainerTargetRate = preferences.defaultTrainerTargetRate;
+    trainerLoopCount = 0;
+    endedGeneration = 0;
+    spectrumBands = Array<number>(64).fill(0);
+    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    stemMix = Array.from({ length: 4 }, () => ({ gain: 1, muted: false, soloed: false }));
+    editingTrackId = null;
+    draggedTrackId = null;
+    dropTrackId = null;
+    dropTrackIndex = null;
+    trackContextMenu = null;
+    await audioPause();
+    await stemDisable();
+    await audioSetLoop(null, null);
+    await audioSetMetronome(false, metronomeVolume);
+    await audioSetLoopTrainer(false, trainerRepetitions, trainerIncrement, trainerTargetRate);
+    await audioSetPlaybackRate(playbackRate);
+    await audioSetPitch(pitchSemitones);
+    await audioSeek(0);
   }
 
   function renameCurrentProject(): void {
@@ -438,18 +538,10 @@
       waveformCache.delete(`${packagePath}:${track.id}`);
       tempoCache.delete(`${packagePath}:${track.id}`);
       if (wasCurrent) {
-        ++trackSelectionGeneration;
-        currentTrack = null;
-        loadingTrackId = null;
-        audioLoading = false;
-        waveformLoading = false;
-        tempoLoading = false;
-        waveform = null;
-        detectedBpm = null;
-        durationSeconds = 0;
-        currentSeconds = 0;
+        await resetTrackState();
         const replacement = project.tracks[deletedIndex] ?? project.tracks[project.tracks.length - 1];
         if (replacement) selectTrack(replacement, false);
+        else forgetTrackSelection(window.localStorage, packagePath);
       }
     });
   }
@@ -490,11 +582,17 @@
       filters: [{ name: "SonArcan project", extensions: ["sac"] }],
     });
     if (!destination) return false;
+    const sourcePackagePath = project.packagePath;
     const selectedTrackId = currentTrack?.id;
     project = await saveProjectAs(project.packagePath, destination);
     currentTrack = selectedTrackId
       ? project.tracks.find((track) => track.id === selectedTrackId) ?? null
       : null;
+    if (selectedTrackId) rememberTrackSelection(window.localStorage, project.packagePath, selectedTrackId);
+    else forgetTrackSelection(window.localStorage, project.packagePath);
+    if (sourcePackagePath !== project.packagePath && selectedTrackId) {
+      rememberTrackSelection(window.localStorage, sourcePackagePath, selectedTrackId);
+    }
     return true;
   }
 
@@ -576,7 +674,17 @@
     openImportCenter();
   }
 
-  function openImportCenter(): void { importVisible = true; }
+  function openImportCenter(): void {
+    importVisible = true;
+    if (preferences.smartClipboard) queueMicrotask(() => void inspectClipboard(true));
+  }
+
+  function toggleSmartClipboard(): void {
+    preferences = { ...preferences, smartClipboard: !preferences.smartClipboard };
+    clipboardDetected = 0;
+    void persistPreferences();
+    if (preferences.smartClipboard && importVisible) queueMicrotask(() => void inspectClipboard(true));
+  }
 
   function isImportDropTarget(position: { x: number; y: number } | undefined): boolean {
     if (!position || !importTextarea) return false;
@@ -669,10 +777,11 @@
     if (inputs.length > 10 && !window.confirm(`${t("confirmLargeImport")} (${inputs.length})`)) return;
     await run(async () => {
       if (!project) {
-        project = await createTemporaryProject();
-        currentTrack = null;
+        await activateProject(await createTemporaryProject());
       }
-      importQueue = await enqueueImports(project.packagePath, inputs);
+      const activeProject = project;
+      if (!activeProject) return;
+      importQueue = await enqueueImports(activeProject.packagePath, inputs);
       importVisible = false; tasksVisible = false; importText = ""; importCandidates = []; selectedImports = new Set();
       await refreshImportJobs();
     });
@@ -692,16 +801,48 @@
       if (project && completed > previousCompleted) {
         project = await openProject(project.packagePath);
         if (currentTrack) currentTrack = project.tracks.find((track) => track.id === currentTrack?.id) ?? currentTrack;
+        else {
+          const track = preferredTrack(project.tracks, rememberedTrackId(window.localStorage, project.packagePath));
+          if (track) selectTrack(track, false);
+        }
       }
     } catch { /* Background status is best-effort during shutdown. */ }
   }
 
-  async function inspectClipboard(): Promise<void> {
-    if (!preferences.smartClipboard || !project || importVisible) return;
+  async function inspectClipboard(force = false): Promise<void> {
+    if (!preferences.smartClipboard) return;
+    if (clipboardReadActive) {
+      clipboardForcePending ||= force;
+      return;
+    }
+    clipboardReadActive = true;
+    let text = "";
     try {
-      const text = (await readClipboardText()).trim();
-      if (!text || text === lastClipboardText) return;
-      lastClipboardText = text;
+      text = (await readClipboardText()).trim();
+    } catch (error) {
+      if (importVisible) {
+        importCandidates = [];
+        selectedImports = new Set();
+        importHasAnalyzed = true;
+        importAnalysisError = error instanceof Error ? error.message : String(error);
+      }
+      return;
+    } finally {
+      clipboardReadActive = false;
+    }
+    force ||= clipboardForcePending;
+    clipboardForcePending = false;
+    if (!text || (!force && text === lastClipboardText)) return;
+    lastClipboardText = text;
+    if (importVisible) {
+      importText = text;
+      clipboardDetected = 0;
+      await analyzeImports();
+      if (importVisible && importText === text && !importAnalyzing) clipboardDetected = importCandidates.length;
+      return;
+    }
+    if (!project) return;
+    try {
       const candidates = deduplicateImportCandidates(await analyzeImportText(text));
       if (!candidates.length) return;
       clipboardDetected = candidates.length;
@@ -737,6 +878,9 @@
   }
 
   function selectTrack(track: TrackSummary, autoplay = true): void {
+    if (!project) return;
+    cancelPendingSeek();
+    const packagePath = project.packagePath;
     const selectionGeneration = ++trackSelectionGeneration;
     window.clearTimeout(playbackRateTimer);
     window.clearTimeout(pitchTimer);
@@ -753,6 +897,7 @@
     audioLoading = true;
     loadingTrackId = track.id;
     currentTrack = track;
+    rememberTrackSelection(window.localStorage, packagePath, track.id);
     currentSeconds = track.practice.positionSeconds;
     durationSeconds = track.durationSeconds ?? 0;
     playbackRate = track.practice.playbackRate;
@@ -777,9 +922,9 @@
     trainerLoopCount = 0;
     spectrumBands = Array<number>(64).fill(0);
     tapTimes = [];
-    void loadTrackWaveform(track);
-    void loadTrackTempo(track);
-    void loadSelectedAudio(track, selectionGeneration, autoplay);
+    void loadTrackWaveform(track, packagePath, selectionGeneration);
+    void loadTrackTempo(track, packagePath, selectionGeneration);
+    void loadSelectedAudio(track, packagePath, selectionGeneration, autoplay);
   }
 
   async function enableStems(): Promise<void> {
@@ -811,15 +956,17 @@
     schedulePracticeSave();
   }
 
-  async function loadTrackTempo(track: TrackSummary): Promise<void> {
-    if (!project) return;
+  async function loadTrackTempo(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
     tempoLoading = true;
     detectedBpm = null;
-    const cacheKey = `${project.packagePath}:${track.id}`;
+    const cacheKey = `${packagePath}:${track.id}`;
+    const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
+      && project?.packagePath === packagePath
+      && currentTrack?.id === track.id;
     try {
-      const analysis = tempoCache.get(cacheKey) ?? await analyzeTempo(project.packagePath, track.id);
+      const analysis = tempoCache.get(cacheKey) ?? await analyzeTempo(packagePath, track.id);
       tempoCache.set(cacheKey, analysis);
-      if (currentTrack?.id === track.id) {
+      if (stillSelected()) {
         detectedBpm = analysis.bpm;
         if (gridBpm === null && analysis.bpm !== null) {
           gridBpm = analysis.bpm;
@@ -828,16 +975,19 @@
         }
       }
     } catch {
-      if (currentTrack?.id === track.id) detectedBpm = null;
+      if (stillSelected()) detectedBpm = null;
     } finally {
-      if (currentTrack?.id === track.id) tempoLoading = false;
+      if (stillSelected()) tempoLoading = false;
     }
   }
 
-  async function loadSelectedAudio(track: TrackSummary, selectionGeneration: number, autoplay: boolean): Promise<void> {
+  async function loadSelectedAudio(track: TrackSummary, packagePath: string, selectionGeneration: number, autoplay: boolean): Promise<void> {
+    const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
+      && project?.packagePath === packagePath
+      && currentTrack?.id === track.id;
     try {
-      const status = await audioLoad(project!.packagePath, track.id);
-      if (selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== track.id) return;
+      const status = await audioLoad(packagePath, track.id);
+      if (!stillSelected()) return;
       durationSeconds = status.durationSeconds;
       if (usingDefaultLoopBounds) loopB = durationSeconds;
       await audioSetVolume(volume);
@@ -847,21 +997,24 @@
       await audioSetMetronome(metronomeEnabled, metronomeVolume);
       await audioSetLoopTrainer(trainerEnabled, trainerRepetitions, trainerIncrement, trainerTargetRate);
       await audioSetEndBehavior(endBehavior);
+      if (!stillSelected()) return;
       endedGeneration = status.endedGeneration;
       applyLoopToEngine();
       await audioSeek(currentSeconds);
+      if (!stillSelected()) return;
       audioLoading = false;
       loadingTrackId = null;
       if (track.practice.stemsEnabled) void enableStems();
       if (autoplay) await play();
+      if (!stillSelected()) return;
       preloadNeighbour(track);
-      void warmPlaylistCache(project!.packagePath, track.id);
+      void warmPlaylistCache(packagePath, track.id);
     } catch (error) {
-      if (selectionGeneration === trackSelectionGeneration) {
+      if (stillSelected()) {
         errorMessage = `${t("playbackError")}: ${error instanceof Error ? error.message : String(error)}`;
       }
     } finally {
-      if (selectionGeneration === trackSelectionGeneration) {
+      if (stillSelected()) {
         audioLoading = false;
         loadingTrackId = null;
       }
@@ -889,24 +1042,26 @@
     }
   }
 
-  async function loadTrackWaveform(track: TrackSummary): Promise<void> {
-    if (!project) return;
+  async function loadTrackWaveform(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
     waveformLoading = true;
     waveform = null;
     waveformZoom = 1;
     waveformStart = 0;
+    const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
+      && project?.packagePath === packagePath
+      && currentTrack?.id === track.id;
     try {
-      const cacheKey = `${project.packagePath}:${track.id}`;
-      const loaded = waveformCache.get(cacheKey) ?? await getWaveform(project.packagePath, track.id);
+      const cacheKey = `${packagePath}:${track.id}`;
+      const loaded = waveformCache.get(cacheKey) ?? await getWaveform(packagePath, track.id);
       waveformCache.set(cacheKey, loaded);
-      if (currentTrack?.id === track.id) {
+      if (stillSelected()) {
         waveform = loaded;
         if (loaded.durationSeconds > 0) durationSeconds = loaded.durationSeconds;
       }
     } catch (error) {
-      errorMessage = `${t("waveformError")}: ${error instanceof Error ? error.message : String(error)}`;
+      if (stillSelected()) errorMessage = `${t("waveformError")}: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
-      if (currentTrack?.id === track.id) waveformLoading = false;
+      if (stillSelected()) waveformLoading = false;
     }
   }
 
@@ -939,7 +1094,50 @@
   function seek(position: number): void {
     if (!Number.isFinite(position)) return;
     currentSeconds = Math.max(0, Math.min(position, durationSeconds));
-    void audioSeek(currentSeconds);
+    pendingSeekPosition = currentSeconds;
+    if (seekAnimationFrame !== undefined) {
+      window.cancelAnimationFrame(seekAnimationFrame);
+      seekAnimationFrame = undefined;
+    }
+    void flushPendingSeek();
+  }
+
+  function scrub(position: number): void {
+    if (!Number.isFinite(position)) return;
+    currentSeconds = Math.max(0, Math.min(position, durationSeconds));
+    pendingSeekPosition = currentSeconds;
+    schedulePendingSeek();
+  }
+
+  function schedulePendingSeek(): void {
+    if (seekAnimationFrame !== undefined || seekRequestActive) return;
+    seekAnimationFrame = window.requestAnimationFrame(() => {
+      seekAnimationFrame = undefined;
+      void flushPendingSeek();
+    });
+  }
+
+  async function flushPendingSeek(): Promise<void> {
+    if (seekRequestActive || pendingSeekPosition === null) return;
+    const position = pendingSeekPosition;
+    pendingSeekPosition = null;
+    seekRequestActive = true;
+    try {
+      await audioSeek(position);
+    } catch (error) {
+      errorMessage = `${t("playbackError")}: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      seekRequestActive = false;
+      if (pendingSeekPosition !== null) schedulePendingSeek();
+    }
+  }
+
+  function cancelPendingSeek(): void {
+    pendingSeekPosition = null;
+    if (seekAnimationFrame !== undefined) {
+      window.cancelAnimationFrame(seekAnimationFrame);
+      seekAnimationFrame = undefined;
+    }
   }
 
   function jump(seconds: number): void {
@@ -1177,10 +1375,15 @@
 
   async function refreshAudioStatus(): Promise<void> {
     if (!currentTrack || statusRequestActive) return;
+    const trackId = currentTrack.id;
+    const selectionGeneration = trackSelectionGeneration;
     statusRequestActive = true;
     try {
       const status = await audioStatus();
-      currentSeconds = status.positionSeconds;
+      if (selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== trackId) return;
+      if (!seekRequestActive && pendingSeekPosition === null && seekAnimationFrame === undefined) {
+        currentSeconds = status.positionSeconds;
+      }
       durationSeconds = status.durationSeconds || durationSeconds;
       isPlaying = status.playing;
       masterPeak = status.outputPeak;
@@ -1211,10 +1414,12 @@
 
   async function refreshSpectrum(): Promise<void> {
     if (!currentTrack || !isPlaying || spectrumRequestActive) return;
+    const trackId = currentTrack.id;
+    const selectionGeneration = trackSelectionGeneration;
     spectrumRequestActive = true;
     try {
       const frame = await audioSpectrum();
-      spectrumBands = frame.bands;
+      if (selectionGeneration === trackSelectionGeneration && currentTrack?.id === trackId) spectrumBands = frame.bands;
     } catch {
       // Spectrum visualization is optional and must never affect playback.
     } finally {
@@ -1423,6 +1628,7 @@
               {#if index > 0}<span class="path-separator">/</span>{/if}
               <button class:project-path-ellipsis={part.ellipsis} class="project-path-part" title={part.ellipsis ? projectHeaderPath.directoryPath : part.path} onclick={() => showPathInFileManager(part.path)}>{part.label}</button>
             {/each}
+            {#if projectHeaderPath.directoryParts.length > 0}<span class="path-separator">/</span>{/if}
           {/if}
           <button class="project-file" title={projectHeaderPath?.fullPath ?? project.packagePath} onclick={() => showPathInFileManager(project!.packagePath)}>
             <span class="project-file-stem">{projectHeaderPath?.fileStem ?? project.name}</span><span class="project-file-extension">{projectHeaderPath?.fileExtension}</span>
@@ -1496,6 +1702,7 @@
     </aside>
 
     <section class="main-stage">
+      {#if currentTrack}
       <div class="visualizer panel">
         <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{:else if detectedBpm !== null}<button class="bpm" data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}><Icon name="rotate-left" size="11px" /> {detectedBpm.toFixed(1)} BPM</button>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div></div>
         <div
@@ -1569,7 +1776,8 @@
           max={durationSeconds || 1}
           step="0.01"
           value={currentSeconds}
-          oninput={(event) => seek(Number(event.currentTarget.value))}
+          oninput={(event) => scrub(Number(event.currentTarget.value))}
+          onchange={(event) => seek(Number(event.currentTarget.value))}
         />
         <div class="loop-status">
           <span>A {loopA === null ? "—" : formatTime(loopA)}</span>
@@ -1661,6 +1869,14 @@
         </div>
         <div class="panel"><div class="panel-title"><h2>{t("chords")}</h2><span>{t("notAnalyzed")}</span></div><div class="chords"><b>Am7</b><b>Fmaj7</b><b>C</b><b>G</b></div></div>
       </div>
+      {:else}
+        <div class="no-track-stage panel" role="region" aria-labelledby="no-track-title">
+          <span class="no-track-icon" aria-hidden="true"><Icon name="music" size="42px" /></span>
+          <h2 id="no-track-title">{t("noTrackTitle")}</h2>
+          <p>{t("noTrackMessage")}</p>
+          <button class="primary no-track-import" onclick={openImportCenter}><Icon name="plus" size="13px" /> {t("importFirstTrack")}</button>
+        </div>
+      {/if}
     </section>
   </section>
 
@@ -1725,7 +1941,7 @@
               aria-pressed={preferences.smartClipboard}
               aria-label={t("smartClipboard")}
               data-tooltip={t("smartClipboard")}
-              onclick={() => { preferences = { ...preferences, smartClipboard: !preferences.smartClipboard }; clipboardDetected = 0; void persistPreferences(); }}
+              onclick={toggleSmartClipboard}
             >
               <Icon name="clipboard" size="12px" />
               <span>{t("smartClipboard")}</span>

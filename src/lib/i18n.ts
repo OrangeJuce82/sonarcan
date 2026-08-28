@@ -3,7 +3,7 @@ export type Language = "en" | "fr";
 const messages = {
   en: {
     tagline: "Dive into the music.", noProject: "Preparing a temporary project…", playlist: "Playlist", addSongs: "Add songs", reorderSong: "Drag to reorder", exportJson: "Export playlist as JSON", exportMarkdown: "Export printable playlist as Markdown",
-    emptyPlaylist: "Import WAV, MP3, or FLAC files to begin.", createFirstProject: "No project is open. Would you like to create one now?", waveform: "Waveform", phase: "Phase 0",
+    emptyPlaylist: "Import WAV, MP3, or FLAC files to begin.", noTrackTitle: "No track selected", noTrackMessage: "Import a song to activate the waveform, transport, practice tools, and audio analysis.", importFirstTrack: "Import a song", createFirstProject: "No project is open. Would you like to create one now?", waveform: "Waveform", phase: "Phase 0",
     waveformLoading: "Preparing waveform…", loadingAudio: "Loading audio…", loadingTrack: "Loading track", audioReady: "Audio ready", waveformEmpty: "Select a track to generate its waveform.", waveformHelp: "Wheel/pinch to zoom · drag waveform to navigate · drag A/B to resize loop",
     noLoop: "No loop range", loop: "Loop", loopOff: "Loop off", position: "Position", playbackPosition: "Playback position", tempo: "Tempo", pitch: "Pitch",
     stems: "Stems", idle: "Off", mix: "Mix", vocals: "Vocals", bass: "Bass", drums: "Drums", other: "Other", chords: "Chords", notAnalyzed: "Not analyzed",
@@ -29,7 +29,7 @@ const messages = {
   },
   fr: {
     tagline: "Plongez au cœur de la musique.", noProject: "Préparation d’un projet temporaire…", playlist: "Playlist", addSongs: "Ajouter des morceaux", reorderSong: "Glisser pour réordonner", exportJson: "Exporter la playlist en JSON", exportMarkdown: "Exporter la playlist imprimable en Markdown",
-    emptyPlaylist: "Importez des fichiers WAV, MP3 ou FLAC pour commencer.", createFirstProject: "Aucun projet n’est ouvert. Voulez-vous en créer un maintenant ?", waveform: "Forme d’onde", phase: "Phase 0",
+    emptyPlaylist: "Importez des fichiers WAV, MP3 ou FLAC pour commencer.", noTrackTitle: "Aucun morceau sélectionné", noTrackMessage: "Importez un morceau pour activer la forme d’onde, le transport, les outils de travail et l’analyse audio.", importFirstTrack: "Importer un morceau", createFirstProject: "Aucun projet n’est ouvert. Voulez-vous en créer un maintenant ?", waveform: "Forme d’onde", phase: "Phase 0",
     waveformLoading: "Préparation de la forme d’onde…", loadingAudio: "Chargement audio…", loadingTrack: "Chargement du morceau", audioReady: "Audio prêt", waveformEmpty: "Sélectionnez un morceau pour générer sa forme d’onde.", waveformHelp: "Molette/pincement pour zoomer · saisir l’onde pour naviguer · étirer A/B pour régler la boucle",
     noLoop: "Aucune plage de boucle", loop: "Boucle", loopOff: "Boucle désactivée", position: "Position", playbackPosition: "Position de lecture", tempo: "Vitesse", pitch: "Hauteur",
     stems: "Pistes séparées", idle: "Désactivé", mix: "Mix", vocals: "Voix", bass: "Basse", drums: "Batterie", other: "Autres", chords: "Accords", notAnalyzed: "Non analysé",

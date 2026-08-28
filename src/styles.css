@@ -108,6 +108,11 @@ button:disabled { opacity: .4; cursor: default; }
 .playlist small, .track-number { color: #63757d; font-size: .68rem; margin-top: 3px; }
 .empty { color: #72838a; font-size: .85rem; line-height: 1.6; padding: 25px 8px; }
 .main-stage { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.no-track-stage { display: grid; place-content: center; justify-items: center; min-height: 520px; padding: 48px; text-align: center; }
+.no-track-icon { display: grid; place-items: center; width: 82px; height: 82px; margin-bottom: 18px; border: 1px solid #355057; border-radius: 50%; color: #55c5bd; background: #122326; box-shadow: 0 16px 38px #0005; }
+.no-track-stage h2 { margin: 0; color: var(--text); font-size: 1.18rem; }
+.no-track-stage p { max-width: 470px; margin: 10px 0 22px; color: var(--muted); font-size: .78rem; line-height: 1.6; }
+.no-track-import { display: inline-flex; align-items: center; gap: 7px; padding: .78rem 1.05rem; }
 .visualizer { padding: 16px; min-height: 300px; }
 .wave { position: relative; height: 205px; border-block: 1px solid #27343a; overflow: hidden; touch-action: none; cursor: grab; user-select: none; }
 .wave.dragging { cursor: grabbing; }
@@ -160,15 +165,15 @@ button:disabled { opacity: .4; cursor: default; }
 .transport-center { display: flex; align-items: center; justify-content: center; gap: 7px; }
 .transport-trainer { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-self: end; gap: 8px; min-width: 0; padding: 0 0 4px; }
 .transport-trainer .numeric-control { min-width: 150px; }
-.trainer-toggle { display: grid; grid-template-columns: 24px; justify-items: center; min-width: 36px; height: 37px; padding: 4px 6px 3px; border: 0; border-radius: 5px; background: transparent; box-shadow: none; }
-.trainer-toggle:hover:not(:disabled) { background: #172226; }
+.trainer-toggle { display: grid; grid-template-columns: 24px; justify-items: center; min-width: 42px; min-height: 37px; padding: 4px 8px 3px; border: 1px solid var(--button-border); border-radius: 8px; color: var(--muted); background: var(--button-bg); box-shadow: none; }
+.trainer-toggle:hover:not(:disabled) { border-color: #4fb8b2; color: var(--text); background: var(--header-hover); }
 .trainer-toggle span { color: #71858d; font-size: .48rem; line-height: 1; }
-.trainer-toggle.active { color: #ffd892; background: #302617; }
-.trainer-toggle.active span { color: #ffd892; }
+.trainer-toggle.active { border-color: #55c5bd; color: #bffbf6; background: #173a3b; }
+.trainer-toggle.active span { color: #bffbf6; }
 .stair-icon { display: flex; align-items: flex-end; gap: 2px; width: 22px; height: 18px; padding: 2px; font-style: normal; }
 .stair-icon b { display: block; width: 5px; background: #789097; }
 .stair-icon b:nth-child(1) { height: 5px; }.stair-icon b:nth-child(2) { height: 9px; }.stair-icon b:nth-child(3) { height: 14px; }
-.trainer-toggle.active .stair-icon b { background: #e4b85f; }
+.trainer-toggle.active .stair-icon b { background: #55c5bd; }
 .transport-trainer-progress { position: absolute; left: 4px; right: 4px; bottom: 0; height: 2px; overflow: hidden; border-radius: 2px; background: transparent; }
 .transport-trainer-progress i { display: block; height: 100%; background: #d9a64a; transition: width .15s linear; }
 .end-behavior { display: flex; justify-self: end; padding: 3px; border: 1px solid #2b363c; border-radius: 8px; background: #0d1418; }

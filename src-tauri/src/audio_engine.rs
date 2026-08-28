@@ -28,6 +28,7 @@ use crate::{error::AppError, spectrum};
 const NO_LOOP: u64 = u64::MAX;
 const CROSSFADE_SECONDS: f64 = 0.005;
 const GAIN_RAMP_SECONDS: f64 = 0.04;
+const SEEK_TRANSITION_SECONDS: f64 = 0.008;
 const MAX_DECODED_TRACKS: usize = 3;
 const MAX_DECODED_CACHE_BYTES: usize = 384 * 1024 * 1024;
 const MAX_DSP_OUTPUT_FRAMES: usize = 1_024;
@@ -675,6 +676,58 @@ struct RealtimeRenderer {
     smoothed_stem_gains: [f32; 4],
     gains_initialized: bool,
     dsp_active: bool,
+    seek_transition: SeekTransition,
+}
+
+struct SeekTransition {
+    generation: u64,
+    total_frames: u32,
+    remaining_frames: u32,
+    anchor: Vec<f32>,
+    last_output: Vec<f32>,
+}
+
+impl SeekTransition {
+    fn new(channels: usize, output_rate: u32) -> Self {
+        Self {
+            generation: u64::MAX,
+            total_frames: (output_rate as f64 * SEEK_TRANSITION_SECONDS)
+                .round()
+                .max(1.0) as u32,
+            remaining_frames: 0,
+            anchor: vec![0.0; channels],
+            last_output: vec![0.0; channels],
+        }
+    }
+
+    fn begin_frame(&mut self, generation: u64) -> f32 {
+        if generation != self.generation {
+            self.generation = generation;
+            self.anchor.copy_from_slice(&self.last_output);
+            self.remaining_frames = self.total_frames;
+        }
+        if self.remaining_frames == 0 {
+            1.0
+        } else {
+            (self.total_frames - self.remaining_frames) as f32 / self.total_frames as f32
+        }
+    }
+
+    fn smooth_sample(&mut self, channel: usize, value: f32, blend: f32) -> f32 {
+        let smoothed = self.anchor[channel] + (value - self.anchor[channel]) * blend;
+        self.last_output[channel] = smoothed;
+        smoothed
+    }
+
+    fn end_frame(&mut self) {
+        self.remaining_frames = self.remaining_frames.saturating_sub(1);
+    }
+
+    fn clear_output(&mut self) {
+        self.anchor.fill(0.0);
+        self.last_output.fill(0.0);
+        self.remaining_frames = 0;
+    }
 }
 
 impl RealtimeRenderer {
@@ -703,6 +756,7 @@ impl RealtimeRenderer {
             smoothed_stem_gains: [1.0; 4],
             gains_initialized: false,
             dsp_active: false,
+            seek_transition: SeekTransition::new(channels, output_rate),
         }
     }
 
@@ -745,6 +799,7 @@ impl RealtimeRenderer {
                 shared,
                 self.smoothed_volume,
                 &smoothed_stem_gains,
+                Some(&mut self.seek_transition),
             );
             return;
         }
@@ -773,10 +828,12 @@ impl RealtimeRenderer {
         let silence = T::from_sample(0.0);
         output.fill(silence);
         if !shared.playing.load(Ordering::Acquire) {
+            self.seek_transition.clear_output();
             publish_output_peak(shared, 0.0);
             return;
         }
         let Some(audio) = shared.audio.load_full() else {
+            self.seek_transition.clear_output();
             publish_output_peak(shared, 0.0);
             return;
         };
@@ -870,6 +927,7 @@ impl RealtimeRenderer {
                 &mut self.processed[..output_samples],
             );
             for (frame_index, frame) in output_chunk.chunks_mut(self.channels).enumerate() {
+                let seek_blend = self.seek_transition.begin_frame(generation);
                 let metronome_position = wrap_loop_position(
                     output_start_position + frame_index as f64 * source_step * rate,
                     loop_a,
@@ -883,12 +941,16 @@ impl RealtimeRenderer {
                         click,
                         volume,
                     );
+                    let value = self
+                        .seek_transition
+                        .smooth_sample(channel, value, seek_blend);
                     output_peak = output_peak.max(value.abs());
                     if channel < channel_peaks.len() {
                         channel_peaks[channel] = channel_peaks[channel].max(value.abs());
                     }
                     *target = T::from_sample(value);
                 }
+                self.seek_transition.end_frame();
             }
         }
         if generation == shared.position_generation.load(Ordering::Acquire) {
@@ -1010,6 +1072,7 @@ where
         shared,
         volume,
         &stem_gains,
+        None,
     );
 }
 
@@ -1020,16 +1083,23 @@ fn render_with_gains<T>(
     shared: &SharedState,
     volume: f32,
     stem_gains: &[f32; 4],
+    mut seek_transition: Option<&mut SeekTransition>,
 ) where
     T: SizedSample + FromSample<f32>,
 {
     let silence = T::from_sample(0.0);
     output.fill(silence);
     if !shared.playing.load(Ordering::Acquire) {
+        if let Some(transition) = seek_transition.as_deref_mut() {
+            transition.clear_output();
+        }
         publish_output_peak(shared, 0.0);
         return;
     }
     let Some(audio) = shared.audio.load_full() else {
+        if let Some(transition) = seek_transition.as_deref_mut() {
+            transition.clear_output();
+        }
         publish_output_peak(shared, 0.0);
         return;
     };
@@ -1047,6 +1117,9 @@ fn render_with_gains<T>(
     let mut output_peak = 0.0_f32;
     let mut channel_peaks = [0.0_f32; 2];
     for frame in output.chunks_mut(output_channels) {
+        let seek_blend = seek_transition
+            .as_deref_mut()
+            .map_or(1.0, |transition| transition.begin_frame(generation));
         if valid_loop {
             process_loop_boundary(shared, &mut position, loop_a, loop_b);
         }
@@ -1078,12 +1151,18 @@ fn render_with_gains<T>(
                 valid_loop || repeat_full_track,
                 stem_gains,
             );
-            let output_value = apply_master_gain(value, click, volume);
+            let mut output_value = apply_master_gain(value, click, volume);
+            if let Some(transition) = seek_transition.as_deref_mut() {
+                output_value = transition.smooth_sample(channel, output_value, seek_blend);
+            }
             output_peak = output_peak.max(output_value.abs());
             if channel < channel_peaks.len() {
                 channel_peaks[channel] = channel_peaks[channel].max(output_value.abs());
             }
             *sample = T::from_sample(output_value);
+        }
+        if let Some(transition) = seek_transition.as_deref_mut() {
+            transition.end_frame();
         }
         position += step;
     }
@@ -1943,6 +2022,28 @@ mod tests {
         let muted_step = gain;
         smooth_gain(&mut gain, 1.0, 0.25);
         assert!(gain > muted_step && gain < 1.0);
+    }
+
+    #[test]
+    fn seek_transition_preserves_continuity_then_reaches_the_new_signal() {
+        let mut transition = SeekTransition::new(1, 1_000);
+        transition.generation = 4;
+        transition.last_output[0] = 0.75;
+
+        let first_blend = transition.begin_frame(5);
+        let first = transition.smooth_sample(0, -0.75, first_blend);
+        transition.end_frame();
+        assert!((first - 0.75).abs() < f32::EPSILON);
+
+        for _ in 1..transition.total_frames {
+            let blend = transition.begin_frame(5);
+            transition.smooth_sample(0, -0.75, blend);
+            transition.end_frame();
+        }
+        let settled_blend = transition.begin_frame(5);
+        let settled = transition.smooth_sample(0, -0.75, settled_blend);
+        assert_eq!(settled_blend, 1.0);
+        assert!((settled + 0.75).abs() < f32::EPSILON);
     }
 
     #[test]

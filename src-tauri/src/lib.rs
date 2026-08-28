@@ -51,6 +51,7 @@ struct ProjectSession {
 }
 
 const APPLICATION_EXIT_REQUESTED: &str = "application-exit-requested";
+const MAX_CLIPBOARD_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
 #[tauri::command]
 fn create_project(app: AppHandle, package_path: PathBuf) -> Result<ProjectSummary, AppError> {
@@ -299,12 +300,20 @@ fn remove_import_job(
 #[tauri::command]
 async fn read_clipboard_text() -> Result<String, AppError> {
     tauri::async_runtime::spawn_blocking(|| {
-        arboard::Clipboard::new()
+        let text = arboard::Clipboard::new()
             .and_then(|mut clipboard| clipboard.get_text())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        bounded_clipboard_text(text)
     })
     .await
-    .map_err(|error| AppError::BackgroundTask(error.to_string()))
+    .map_err(|error| AppError::BackgroundTask(error.to_string()))?
+}
+
+fn bounded_clipboard_text(text: String) -> Result<String, AppError> {
+    if text.len() > MAX_CLIPBOARD_TEXT_BYTES {
+        return Err(AppError::ClipboardTextTooLarge);
+    }
+    Ok(text)
 }
 
 #[tauri::command]
@@ -701,6 +710,18 @@ mod tests {
         assert!(matches!(
             read_import_text_files(vec![path.clone()]),
             Err(AppError::ImportTextTooLarge(rejected)) if rejected == path
+        ));
+    }
+
+    #[test]
+    fn bounds_clipboard_text_before_sending_it_over_ipc() {
+        assert_eq!(
+            bounded_clipboard_text("song name".into()).unwrap(),
+            "song name"
+        );
+        assert!(matches!(
+            bounded_clipboard_text("a".repeat(MAX_CLIPBOARD_TEXT_BYTES + 1)),
+            Err(AppError::ClipboardTextTooLarge)
         ));
     }
 }
