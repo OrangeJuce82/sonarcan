@@ -1,38 +1,38 @@
-# SonArcan
+<div align="center">
+  <img src="src-tauri/icons/icon.png" alt="SonArcan logo" width="144" height="144">
 
-> Dive into the music.
+  # SonArcan
 
-SonArcan is a professional desktop workspace for musicians who need to learn, analyze, isolate, and rehearse songs from a band playlist. It is intentionally not a DAW.
+  **Dive into the music.**
 
-## Current status
+  A focused desktop workspace for learning, analyzing, and rehearsing music.
 
-The repository contains the first Phase 0 vertical slice:
+  Rust · Tauri 2 · Svelte · TypeScript
+</div>
 
-- Rust + Tauri 2 desktop shell;
-- Svelte 5 + TypeScript user interface;
-- versioned `.sac` project packages;
-- atomic project manifest writes;
-- WAV, MP3, and FLAC import validation;
-- audio container probing with duration, sample-rate, and channel metadata;
-- media copied into the project `Audio/` directory;
-- playlist selection and working webview playback controls;
-- duplicate source detection;
-- structured Rust logging;
-- local diagnostics;
-- project-format unit tests;
-- initial single-window workspace UI.
+SonArcan helps musicians work through a band playlist without the complexity of a full DAW. Projects remain portable and inspectable, while playback and DSP stay inside a dedicated Rust real-time audio engine.
 
-Audio playback, waveform extraction, DSP, model inference, and chord analysis are planned next. Placeholder controls in the UI intentionally do not pretend that these systems are already implemented.
+## What works today
 
-## Prerequisites
+- Portable `.sac` projects with WAV, MP3, and FLAC import
+- Native project menus, Open Recent, Save As, and renaming
+- Rust/CPAL playback with seek, gain, and seamless A/B loops
+- Independent 50–200% time stretch and ±12-semitone pitch shift in Rust
+- Fine pitch correction in 1-cent steps
+- Automatic per-track BPM analysis with a persistent cache
+- Editable beat grid and a synchronized Rust real-time metronome
+- Progressive Loop Trainer and a Rust FFT spectrum worker
+- Persistent decoded PCM caches for fast playlist navigation across sessions
+- Cached, zoomable waveforms with an editable loop region
+- Optional local HTDemucs four-stem separation with a cached Rust mixer
+- Per-track practice-state persistence
+- Structured diagnostics and project-format tests
 
-- Node.js 22 or newer;
-- Rust stable 1.78 or newer;
-- platform dependencies required by Tauri 2.
-
-See the official Tauri prerequisites for macOS, Linux, or Windows before building the desktop application.
+Chord analysis, editable time signatures, and grid gestures are tracked in the [development roadmap](docs/ROADMAP.md).
 
 ## Development
+
+Requirements: Node.js 22+, stable Rust 1.78+, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 npm install
@@ -40,13 +40,13 @@ npm run check
 npm run tauri dev
 ```
 
-Run the frontend alone when working on layout:
+Frontend-only development:
 
 ```bash
 npm run dev
 ```
 
-Run the Rust checks from the Tauri directory:
+Rust validation:
 
 ```bash
 cd src-tauri
@@ -55,9 +55,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 ```
 
-## Project packages
+## Project format
 
-A SonArcan project is an inspectable directory with a `.sac` extension:
+Each project is an inspectable directory:
 
 ```text
 My-Band.sac/
@@ -69,13 +69,11 @@ My-Band.sac/
 └── Cache/
 ```
 
-`project.json` is versioned and human-readable. Regenerable cache data is kept separate from user-authored project data.
+The versioned `project.json` manifest is human-readable. Generated analysis and cache data remain separate from source media and user-authored project data.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Development roadmap](docs/ROADMAP.md)
-- [Practice workflow](docs/PRACTICE_WORKFLOW.md)
-- [Project management](docs/PROJECT_MANAGEMENT.md)
-- [Contributing and debugging](docs/DEVELOPMENT.md)
-- [Product specification](CAHIER_DES_CHARGES.md) — currently written in French; implementation documentation and source code are in English.
+- [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [Development](docs/DEVELOPMENT.md)
+- [Practice workflow](docs/PRACTICE_WORKFLOW.md) · [Project management](docs/PROJECT_MANAGEMENT.md)
+- [Waveforms](docs/WAVEFORM.md) · [Real-time audio](docs/AUDIO_ENGINE.md) · [Native menus](docs/NATIVE_MENUS.md)
+- [Product specification](CAHIER_DES_CHARGES.md) — French specification; implementation documentation and code are written in English.

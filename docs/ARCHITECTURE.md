@@ -25,17 +25,23 @@ The frontend uses TypeScript interfaces matching serialized Rust DTOs. Commands 
 
 Raw audio buffers and full-resolution waveform data must not cross the JSON IPC boundary. The UI receives bounded visualization data, metadata, or references to cached artifacts.
 
+The webview is strictly a control surface. It never decodes audio or owns playback timing, looping, gain, time-stretching, or pitch-shifting. Those operations always run in Rust; TypeScript only sends control parameters and displays snapshots of engine state.
+
+## Localization
+
+User-facing interface and help text use typed English and French catalogs. The saved language preference defaults to the operating-system language and rebuilds the native Tauri menu immediately when changed. Internal identifiers, project manifests, logs, and source code remain in English.
+
 ## Project format
 
 The package format starts at version `1`. Every manifest read validates the version before exposing the project to the application. Writes use a temporary sibling file followed by an atomic rename.
 
 Imported media is copied into the project `Audio/` directory and the original source path is retained for duplicate detection and future relinking. Relative manifest paths and rebasing after a package move will be implemented before the format is considered stable.
 
-The initial vertical slice uses the Tauri asset protocol and the system webview media element for immediate playback. This validates the product workflow but is not the final real-time engine. Time-stretch, pitch-shift, sample-accurate loops, metronome synchronization, and deterministic device diagnostics require the dedicated Rust audio engine described below.
+Playback now uses the dedicated Rust/CPAL engine. The earlier webview media prototype has been removed.
 
 ## Real-time audio contract
 
-The future audio callback must never:
+The audio callback must never:
 
 - perform file or network I/O;
 - allocate an unbounded amount of memory;

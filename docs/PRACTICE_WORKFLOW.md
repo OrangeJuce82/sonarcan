@@ -6,8 +6,9 @@ This document translates the useful interaction model observed in musician pract
 
 1. A detailed waveform provides precise navigation around the playhead.
 2. An overview waveform shows the whole song, loop boundaries, sections, and marks.
-3. The practice strip keeps loop, tempo, pitch, and jump controls visible at all times.
-4. The transport remains centered and usable without opening another panel.
+3. An editable beat grid is shown at both waveform levels and drives the Rust metronome.
+4. The practice strip keeps loop, tempo, pitch, and jump controls visible at all times.
+5. The transport remains centered and usable without opening another panel.
 
 ## First implementation order
 
@@ -19,6 +20,8 @@ This document translates the useful interaction model observed in musician pract
 - previous and next track;
 - volume;
 - restore the last playback position.
+
+The current implementation persists position, tempo, volume, and A/B boundaries per track in `project.json`. Saves are debounced during playback and flushed immediately when playback pauses or the active track changes.
 
 ### 2. A/B practice loop
 
@@ -35,6 +38,7 @@ This document translates the useful interaction model observed in musician pract
 - adjust playback speed independently from pitch;
 - display both percentage and effective BPM when BPM is known;
 - provide reset and small increment/decrement controls;
+- provide button and `T` keyboard tap tempo using a robust rolling median;
 - retain the setting per track.
 
 ### 4. Pitch
@@ -43,6 +47,11 @@ This document translates the useful interaction model observed in musician pract
 - support fine tuning later;
 - display reset and increment/decrement controls;
 - use a dedicated DSP implementation rather than pretending that playback-rate changes are pitch shifting.
+- provide 1-cent fine tuning for historical or otherwise slightly detuned recordings.
+
+## Numeric control interaction
+
+Every adjustable integer or floating-point parameter uses the same interaction model: `+` and `−` apply one configured step, vertical dragging changes the value continuously by steps, the mouse wheel changes a focused value, and double-click restores its default. BPM additionally interprets repeated stationary clicks as tap tempo. The pitch control uses 1-cent steps; speed, BPM, volume, metronome volume, and Loop Trainer settings use domain-appropriate steps.
 
 ### 5. Marks and navigation
 
@@ -59,6 +68,8 @@ This document translates the useful interaction model observed in musician pract
 - stop at a configured target tempo;
 - optionally add a delay before restarting the loop.
 
+The implemented Loop Trainer performs the first three operations directly in the Rust renderer. It counts A/B repetitions when Loop is active and complete-track repetitions in normal mode. Repetition count, percentage increment, target speed, progress, and enabled state are visible in the practice workspace and persisted per track.
+
 ## SonArcan-specific decisions
 
 - The visual language remains SonArcan's dark teal and amber design.
@@ -66,3 +77,13 @@ This document translates the useful interaction model observed in musician pract
 - The first webview player validates interaction behavior only.
 - The dedicated Rust audio engine is required for sample-accurate looping, production-quality time-stretch, pitch shifting, metronome synchronization, and dropout diagnostics.
 
+## Current keyboard shortcuts
+
+| Action | Shortcut |
+|---|---|
+| Play or pause | Space |
+| Jump backward/forward five seconds | Left/Right Arrow |
+| Set loop A/B | A / B |
+| Clear loop | Escape |
+| Toggle metronome | M |
+| Tap tempo | T |
