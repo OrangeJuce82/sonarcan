@@ -72,6 +72,15 @@ button:disabled { opacity: .4; cursor: default; }
 .track-title:hover { color: #fff; text-decoration: underline dotted #a778e8; text-underline-offset: 3px; }
 .track-meta { color: #63757d; font-size: .64rem; font-weight: 500; }
 .track-title-input { width: 100%; padding: 4px 6px; border: 1px solid #a778e8; border-radius: 5px; color: #fff; background: #0d1418; font: inherit; font-size: .78rem; outline: none; }
+.track-remove { width: 21px; min-width: 21px; height: 21px; margin-right: 5px; padding: 0; border: 0; color: #61747c; background: transparent; font-size: .72rem; line-height: 1; opacity: .55; }
+.track-remove:hover { border-color: transparent; color: #ef8b95; background: #3a2026; opacity: 1; }
+.job-remove { width: 27px; min-width: 27px; height: 27px; padding: 0; border: 0; color: #73878f; background: transparent; font-size: 1.1rem; line-height: 1; }
+.job-remove:hover { border-color: transparent; color: #ef8b95; background: #3a2026; }
+.job-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.job-heading > span { display: grid; gap: 3px; min-width: 0; }
+.context-menu { position: fixed; z-index: 20; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: #151c20; box-shadow: 0 10px 30px #0008; }
+.context-menu button { width: 180px; padding: 8px 10px; border: 0; color: #efb1b7; background: transparent; text-align: left; }
+.context-menu button:hover { color: #fff; background: #3a2026; }
 .playlist strong, .playlist small { display: block; }
 .playlist small, .track-number { color: #63757d; font-size: .68rem; margin-top: 3px; }
 .empty { color: #72838a; font-size: .85rem; line-height: 1.6; padding: 25px 8px; }

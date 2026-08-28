@@ -3,11 +3,11 @@ import type { AppLogEntry, AudioStatus, DiagnosticsSnapshot, EndBehavior, Import
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
-export async function createProject(name: string, parentDirectory: string): Promise<ProjectSummary> {
+export async function createProject(packagePath: string): Promise<ProjectSummary> {
   if (!isTauri()) {
     throw new Error("Project creation requires the Tauri desktop runtime.");
   }
-  return invoke<ProjectSummary>("create_project", { name, parentDirectory });
+  return invoke<ProjectSummary>("create_project", { packagePath });
 }
 
 export async function openProject(packagePath: string): Promise<ProjectSummary> {
@@ -37,6 +37,11 @@ export async function renameTrack(packagePath: string, trackId: string, name: st
 export async function reorderTrack(packagePath: string, trackId: string, newIndex: number): Promise<ProjectSummary> {
   if (!isTauri()) throw new Error("Reordering tracks requires the Tauri desktop runtime.");
   return invoke<ProjectSummary>("reorder_track", { packagePath, trackId, newIndex });
+}
+
+export async function deleteTrack(packagePath: string, trackId: string): Promise<ProjectSummary> {
+  if (!isTauri()) throw new Error("Deleting tracks requires the Tauri desktop runtime.");
+  return invoke<ProjectSummary>("delete_track", { packagePath, trackId });
 }
 
 export async function exportPlaylist(packagePath: string, destination: string, format: "json" | "markdown"): Promise<void> {
@@ -99,6 +104,8 @@ export const resolveYoutubeSearch = (query: string): Promise<ImportCandidate[]> 
 export const readImportTextFiles = (paths: string[]): Promise<string> => invoke("read_import_text_files", { paths });
 export const enqueueImports = (packagePath: string, inputs: string[]): Promise<ImportJob[]> => invoke("enqueue_imports", { request: { packagePath, inputs } });
 export const importJobs = (): Promise<ImportJob[]> => invoke("import_jobs");
+export const cancelImport = (jobId: string): Promise<void> => invoke("cancel_import", { jobId });
+export const removeImportJob = (jobId: string): Promise<void> => invoke("remove_import_job", { jobId });
 export const readClipboardText = (): Promise<string> => invoke("read_clipboard_text");
 export const logsSnapshot = (): Promise<AppLogEntry[]> => invoke("logs_snapshot");
 export const pushFrontendLog = (level: string, message: string): Promise<void> => invoke("push_frontend_log", { level, message });

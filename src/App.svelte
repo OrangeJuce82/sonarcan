@@ -3,7 +3,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, createProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, renameProject, renameTrack, reorderTrack, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
+  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, createProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
   import appIconUrl from "../src-tauri/icons/icon.png?url";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import NumericControl from "./lib/NumericControl.svelte";
@@ -64,6 +64,7 @@
   let importAnalysisTimer: number | undefined;
   let importAnalysisGeneration = 0;
   let importQueue: ImportJob[] = [];
+  const importDismissTimers = new Map<string, number>();
   let lastClipboardText = "";
   let clipboardDetected = 0;
   let editingTrackId: string | null = null;
@@ -71,6 +72,7 @@
   let draggedTrackId: string | null = null;
   let dropTrackId: string | null = null;
   let dropTrackIndex: number | null = null;
+  let trackContextMenu: { trackId: string; x: number; y: number } | null = null;
   let endBehavior: EndBehavior = "stop";
   let endedGeneration = 0;
   let waveformZoom = 1;
@@ -142,10 +144,12 @@
     const handleUnhandledRejection = (event: PromiseRejectionEvent): void => console.error("Unhandled promise rejection", event.reason);
     window.addEventListener("error", handleWindowError);
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
-    void loadUserPreferences();
+    void loadUserPreferences().finally(() => void restoreLastProject());
     const finishPlaylistDrag = (): void => finishTrackDrag();
+    const closeTrackContextMenu = (): void => { trackContextMenu = null; };
     window.addEventListener("pointerup", finishPlaylistDrag);
     window.addEventListener("pointercancel", finishPlaylistDrag);
+    window.addEventListener("pointerdown", closeTrackContextMenu);
     void getCurrentWindow().onDragDropEvent((event) => {
       if (!importVisible) return;
       if (event.payload.type === "enter" || event.payload.type === "over") importDropActive = true;
@@ -158,7 +162,6 @@
     const savedEndBehavior = localStorage.getItem("sonarcan.endBehavior");
     if (savedEndBehavior === "restart" || savedEndBehavior === "advance" || savedEndBehavior === "stop") endBehavior = savedEndBehavior;
     void audioSetEndBehavior(endBehavior);
-    void restoreLastProject();
     return () => {
       window.removeEventListener("keydown", handleKeydown);
       window.clearInterval(statusTimer);
@@ -171,6 +174,8 @@
       window.clearTimeout(pitchTimer);
       window.clearTimeout(volumePreferenceTimer);
       window.clearTimeout(importAnalysisTimer);
+      for (const timer of importDismissTimers.values()) window.clearTimeout(timer);
+      importDismissTimers.clear();
       window.removeEventListener("error", handleWindowError);
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
       console.log = originalConsole.log;
@@ -180,6 +185,7 @@
       unlisten?.();
       window.removeEventListener("pointerup", finishPlaylistDrag);
       window.removeEventListener("pointercancel", finishPlaylistDrag);
+      window.removeEventListener("pointerdown", closeTrackContextMenu);
       unlistenDrag?.();
     };
   });
@@ -245,7 +251,10 @@
     if (project) return;
     try {
       const [mostRecent] = await listRecentProjects();
-      if (!mostRecent || project) return;
+      if (!mostRecent || project) {
+        offerInitialProjectCreation();
+        return;
+      }
       const restored = await openProject(mostRecent);
       if (project) return;
       project = restored;
@@ -254,7 +263,12 @@
     } catch {
       // Startup restoration is best-effort. The File menu remains available if
       // the recent project is invalid, inaccessible, or was moved meanwhile.
+      offerInitialProjectCreation();
     }
+  }
+
+  function offerInitialProjectCreation(): void {
+    if (!project && window.confirm(t("createFirstProject"))) newProject();
   }
 
   async function run(action: () => Promise<void>): Promise<void> {
@@ -271,11 +285,13 @@
 
   function newProject(): void {
     void run(async () => {
-      const parentDirectory = await open({ directory: true, multiple: false, title: t("chooseProjectFolder") });
-      if (!parentDirectory) return;
-      const name = window.prompt(t("projectName"), t("defaultProjectName"))?.trim();
-      if (!name) return;
-      project = await createProject(name, parentDirectory);
+      const packagePath = await save({
+        title: t("createProjectFile"),
+        defaultPath: `${t("defaultProjectName")}.sac`,
+        filters: [{ name: "SonArcan project", extensions: ["sac"] }],
+      });
+      if (!packagePath) return;
+      project = await createProject(packagePath);
       currentTrack = null;
     });
   }
@@ -343,6 +359,65 @@
     });
   }
 
+  function openTrackContextMenu(event: MouseEvent, trackId: string): void {
+    event.preventDefault();
+    const menuWidth = 190;
+    const menuHeight = 48;
+    trackContextMenu = {
+      trackId,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+    };
+  }
+
+  async function removeTrack(track: TrackSummary): Promise<void> {
+    trackContextMenu = null;
+    if (!project || !window.confirm(t("confirmRemoveTrack"))) return;
+    const wasCurrent = currentTrack?.id === track.id;
+    const deletedIndex = project.tracks.findIndex((item) => item.id === track.id);
+    await run(async () => {
+      if (wasCurrent) await audioPause();
+      const packagePath = project!.packagePath;
+      project = await deleteTrackFromProject(packagePath, track.id);
+      waveformCache.delete(`${packagePath}:${track.id}`);
+      tempoCache.delete(`${packagePath}:${track.id}`);
+      if (wasCurrent) {
+        ++trackSelectionGeneration;
+        currentTrack = null;
+        loadingTrackId = null;
+        audioLoading = false;
+        waveformLoading = false;
+        tempoLoading = false;
+        waveform = null;
+        detectedBpm = null;
+        durationSeconds = 0;
+        currentSeconds = 0;
+        const replacement = project.tracks[deletedIndex] ?? project.tracks[project.tracks.length - 1];
+        if (replacement) selectTrack(replacement, false);
+      }
+    });
+  }
+
+  async function cancelImportJob(jobId: string): Promise<void> {
+    await run(async () => {
+      const timer = importDismissTimers.get(jobId);
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        importDismissTimers.delete(jobId);
+      }
+      await cancelImport(jobId);
+      importQueue = importQueue.filter((job) => job.id !== jobId);
+    });
+  }
+
+  async function dismissCompletedImport(jobId: string): Promise<void> {
+    importDismissTimers.delete(jobId);
+    try {
+      await removeImportJob(jobId);
+      importQueue = importQueue.filter((job) => job.id !== jobId);
+    } catch { /* The queue is already ephemeral; the next refresh will reconcile it. */ }
+  }
+
   function changeEndBehavior(behavior: EndBehavior): void {
     endBehavior = behavior;
     localStorage.setItem("sonarcan.endBehavior", behavior);
@@ -400,7 +475,7 @@
     openImportCenter();
   }
 
-  function openImportCenter(): void { if (!project) return; importVisible = true; }
+  function openImportCenter(): void { importVisible = true; }
 
   async function exportCurrentPlaylist(format: "json" | "markdown"): Promise<void> {
     if (!project) return;
@@ -415,7 +490,6 @@
   }
 
   async function chooseImportFiles(): Promise<void> {
-    if (!project) return;
     const selected = await open({
         multiple: true,
         title: t("importAudio"), filters: [{ name: "Audio and text", extensions: ["wav", "mp3", "flac", "txt", "md"] }],
@@ -425,11 +499,12 @@
   }
 
   async function acceptDroppedPaths(paths: string[]): Promise<void> {
-    if (!project) return;
-    const textPaths = paths.filter((path) => /\.(txt|md)$/i.test(path));
-    const audioPaths = paths.filter((path) => /\.(wav|mp3|flac)$/i.test(path));
+    const textPaths = paths.filter((path) => /\.(txt|md)(?:[?#].*)?$/i.test(path));
+    const audioPaths = paths.filter((path) => /\.(wav|mp3|flac)(?:[?#].*)?$/i.test(path));
     if (textPaths.length) importText = [importText, await readImportTextFiles(textPaths)].filter(Boolean).join("\n");
-    if (audioPaths.length) importText = [importText, ...audioPaths.map((path) => `file://${path}`)].filter(Boolean).join("\n");
+    if (audioPaths.length) {
+      importText = [importText, ...audioPaths.map((path) => path.startsWith("file://") ? path : `file://${path}`)].filter(Boolean).join("\n");
+    }
     importVisible = true;
     if (!textPaths.length && !audioPaths.length) {
       importAnalysisError = t("unsupportedDrop");
@@ -479,16 +554,36 @@
   }
 
   async function startImports(): Promise<void> {
-    if (!project || selectedImports.size === 0) return;
-    importQueue = await enqueueImports(project.packagePath, [...selectedImports].slice(0, preferences.maxImportBatch));
-    importVisible = false; tasksVisible = false; importText = ""; importCandidates = []; selectedImports = new Set();
-    await refreshImportJobs();
+    if (selectedImports.size === 0) return;
+    const inputs = [...selectedImports];
+    if (inputs.length > 10 && !window.confirm(`${t("confirmLargeImport")} (${inputs.length})`)) return;
+    await run(async () => {
+      if (!project) {
+        const packagePath = await save({
+          title: t("createProjectFile"),
+          defaultPath: `${t("defaultProjectName")}.sac`,
+          filters: [{ name: "SonArcan project", extensions: ["sac"] }],
+        });
+        if (!packagePath) return;
+        project = await createProject(packagePath);
+        currentTrack = null;
+      }
+      importQueue = await enqueueImports(project.packagePath, inputs);
+      importVisible = false; tasksVisible = false; importText = ""; importCandidates = []; selectedImports = new Set();
+      await refreshImportJobs();
+    });
   }
 
   async function refreshImportJobs(): Promise<void> {
     try {
       const previousCompleted = importQueue.filter((job) => job.state === "completed").length;
-      importQueue = await importJobs();
+      const jobs = await importJobs();
+      importQueue = jobs;
+      for (const job of jobs) {
+        if (job.state !== "completed" || importDismissTimers.has(job.id)) continue;
+        const timer = window.setTimeout(() => void dismissCompletedImport(job.id), 2_500);
+        importDismissTimers.set(job.id, timer);
+      }
       const completed = importQueue.filter((job) => job.state === "completed").length;
       if (project && completed > previousCompleted) {
         project = await openProject(project.packagePath);
@@ -508,6 +603,7 @@
       clipboardDetected = candidates.length;
       importText = text;
       if (preferences.searchMode === "automaticFirst") {
+        if (candidates.length > 10 && !window.confirm(`${t("confirmLargeImport")} (${candidates.length})`)) return;
         await enqueueImports(project.packagePath, candidates.map((candidate) => candidate.input));
         await refreshImportJobs();
       }
@@ -1167,7 +1263,7 @@
 
   <section class="workspace">
     <aside class="playlist panel">
-      <div class="panel-title playlist-title"><h2>{t("playlist")}</h2><div><span class="count-badge">{project?.trackCount ?? 0}</span>{#if importQueue.length}<button class:failed={importQueue.some((job) => job.state === "failed")} class:complete={activeImports.length === 0 && !importQueue.some((job) => job.state === "failed")} class="playlist-task-orb" style={`--progress:${importProgress * 360}deg`} aria-label={t("importQueue")} data-tooltip={t("importQueue")} onclick={() => tasksVisible = true}><i></i><b>{activeImports.length || importQueue.filter((job) => job.state === "failed").length}</b></button>{/if}<button class="playlist-add" disabled={!project} aria-label={t("addSongs")} data-tooltip={t("addSongs")} onclick={openImportCenter}>+</button></div></div>
+      <div class="panel-title playlist-title"><h2>{t("playlist")}</h2><div><span class="count-badge">{project?.trackCount ?? 0}</span>{#if importQueue.length}<button class:failed={importQueue.some((job) => job.state === "failed")} class:complete={activeImports.length === 0 && !importQueue.some((job) => job.state === "failed")} class="playlist-task-orb" style={`--progress:${importProgress * 360}deg`} aria-label={t("importQueue")} data-tooltip={t("importQueue")} onclick={() => tasksVisible = true}><i></i><b>{importQueue.length}</b></button>{/if}<button class="playlist-add" aria-label={t("addSongs")} data-tooltip={t("addSongs")} onclick={openImportCenter}>+</button></div></div>
       {#if project && project.tracks.length > 0}
         <ol>
           {#each project.tracks as track, index}
@@ -1176,6 +1272,7 @@
               class:loading={track.id === loadingTrackId}
               class:drop-target={track.id === dropTrackId}
               onpointerenter={() => { if (draggedTrackId) { dropTrackId = track.id; dropTrackIndex = index; } }}
+              oncontextmenu={(event) => openTrackContextMenu(event, track.id)}
             >
               <button class="drag-handle" aria-label={t("reorderSong")} data-tooltip={t("reorderSong")} onpointerdown={(event) => startTrackDrag(event, track.id)}>⠿</button>
               <button class="track-select" onclick={() => selectTrack(track)} aria-label={`${t("loadingTrack")} ${track.title}`}><span class="track-number">{#if track.id === loadingTrackId}<i class="mini-spinner" aria-label={t("loadingTrack")}></i>{:else}{String(index + 1).padStart(2, "0")}{/if}</span></button>
@@ -1187,6 +1284,7 @@
                 {/if}
                 <button class="track-meta" onclick={() => selectTrack(track)}>{track.format.toUpperCase()} · {track.sampleRate ? `${track.sampleRate} Hz` : t("unknownRate")}</button>
               </div>
+              <button class="track-remove" aria-label={t("removeTrack")} data-tooltip={t("removeTrack")} onclick={(event) => { event.stopPropagation(); void removeTrack(track); }}><span aria-hidden="true">🗑</span></button>
             </li>
           {/each}
         </ol>
@@ -1407,12 +1505,18 @@
           <div class="import-empty">{t("noSourcesFound")}</div>
         {/if}
         <small class="authorized-note">{t("authorizedOnly")}</small>
-        <div class="modal-actions"><button onclick={() => importVisible = false}>{t("close")}</button><button class="primary" disabled={selectedImports.size === 0 || importAnalyzing} onclick={startImports}>{t("startImport")} ({Math.min(selectedImports.size, preferences.maxImportBatch)})</button></div>
+        <div class="modal-actions"><button onclick={() => importVisible = false}>{t("close")}</button><button class="primary" disabled={selectedImports.size === 0 || importAnalyzing} onclick={startImports}>{t("startImport")} ({selectedImports.size})</button></div>
       </div>
     </Modal>
   {/if}
 
   {#if tasksVisible}
-    <Modal title={t("importQueue")} wide close={() => tasksVisible = false}>{#if !importQueue.length}<p>{t("noTasks")}</p>{:else}<div class="job-list">{#each [...importQueue].reverse() as job}<article class:failed={job.state === "failed"}><div><strong>{job.label}</strong><span>{t(job.state as MessageKey)} · {Math.round(job.progress * 100)}%</span></div><i><b style={`width:${job.progress * 100}%`}></b></i>{#if job.error}<p>{job.error}</p>{/if}{#if job.suggestion}<small>{job.suggestion}</small>{/if}{#if job.diagnostic}<details><summary>{t("technicalDetails")}</summary><pre>{job.diagnostic}</pre></details>{/if}</article>{/each}</div>{/if}<button onclick={() => tasksVisible = false}>{t("close")}</button></Modal>
+    <Modal title={t("importQueue")} wide close={() => tasksVisible = false}>{#if !importQueue.length}<p>{t("noTasks")}</p>{:else}<div class="job-list">{#each [...importQueue].reverse() as job}<article class:failed={job.state === "failed"}><div class="job-heading"><span><strong>{job.label}</strong><span>{t(job.state as MessageKey)} · {Math.round(job.progress * 100)}%</span></span><button class="job-remove" aria-label={t("cancelImport")} data-tooltip={t("cancelImport")} onclick={() => void cancelImportJob(job.id)}>×</button></div><i><b style={`width:${job.progress * 100}%`}></b></i>{#if job.error}<p>{job.error}</p>{/if}{#if job.suggestion}<small>{job.suggestion}</small>{/if}{#if job.diagnostic}<details><summary>{t("technicalDetails")}</summary><pre>{job.diagnostic}</pre></details>{/if}</article>{/each}</div>{/if}<button onclick={() => tasksVisible = false}>{t("close")}</button></Modal>
+  {/if}
+
+  {#if trackContextMenu}
+    <div class="context-menu" role="menu" tabindex="-1" style={`left:${trackContextMenu.x}px;top:${trackContextMenu.y}px`} onpointerdown={(event) => event.stopPropagation()}>
+      <button onclick={() => { const track = project?.tracks.find((item) => item.id === trackContextMenu?.trackId); if (track) void removeTrack(track); }}>{t("removeTrack")}</button>
+    </div>
   {/if}
 </main>
