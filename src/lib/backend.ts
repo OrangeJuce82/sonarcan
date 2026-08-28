@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AudioStatus, DiagnosticsSnapshot, EndBehavior, PracticeState, ProjectSummary, SpectrumFrame, StemStatus, TempoAnalysis, WaveformData } from "./types";
+import type { AppLogEntry, AudioStatus, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StemStatus, TempoAnalysis, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -37,6 +37,11 @@ export async function renameTrack(packagePath: string, trackId: string, name: st
 export async function reorderTrack(packagePath: string, trackId: string, newIndex: number): Promise<ProjectSummary> {
   if (!isTauri()) throw new Error("Reordering tracks requires the Tauri desktop runtime.");
   return invoke<ProjectSummary>("reorder_track", { packagePath, trackId, newIndex });
+}
+
+export async function exportPlaylist(packagePath: string, destination: string, format: "json" | "markdown"): Promise<void> {
+  if (!isTauri()) throw new Error("Exporting a playlist requires the Tauri desktop runtime.");
+  return invoke("export_playlist", { packagePath, destination, format });
 }
 
 export async function updatePracticeState(packagePath: string, trackId: string, state: PracticeState): Promise<ProjectSummary> {
@@ -87,6 +92,18 @@ export const stemStart = (packagePath: string, trackId: string): Promise<void> =
 export const stemStatus = (): Promise<StemStatus> => invoke("stem_status");
 export const stemDisable = (): Promise<void> => invoke("stem_disable");
 export const stemSetMix = (index: number, gain: number, muted: boolean, soloed: boolean): Promise<void> => invoke("stem_set_mix", { index, gain, muted, soloed });
+export const getPreferences = (): Promise<UserPreferences> => invoke("get_preferences");
+export const savePreferences = (value: UserPreferences): Promise<UserPreferences> => invoke("save_preferences", { value });
+export const analyzeImportText = (text: string): Promise<ImportCandidate[]> => invoke("analyze_import_text", { text });
+export const resolveYoutubeSearch = (query: string): Promise<ImportCandidate[]> => invoke("resolve_youtube_search", { query });
+export const readImportTextFiles = (paths: string[]): Promise<string> => invoke("read_import_text_files", { paths });
+export const enqueueImports = (packagePath: string, inputs: string[]): Promise<ImportJob[]> => invoke("enqueue_imports", { request: { packagePath, inputs } });
+export const importJobs = (): Promise<ImportJob[]> => invoke("import_jobs");
+export const readClipboardText = (): Promise<string> => invoke("read_clipboard_text");
+export const logsSnapshot = (): Promise<AppLogEntry[]> => invoke("logs_snapshot");
+export const pushFrontendLog = (level: string, message: string): Promise<void> => invoke("push_frontend_log", { level, message });
+export const revealProject = (packagePath: string): Promise<void> => invoke("reveal_project", { packagePath });
+export const openExternalLink = (target: "github" | "donate"): Promise<void> => invoke("open_external_link", { target });
 
 export async function diagnostics(): Promise<DiagnosticsSnapshot> {
   if (!isTauri()) {

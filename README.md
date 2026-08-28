@@ -25,6 +25,9 @@ SonArcan helps musicians work through a band playlist without the complexity of 
 - Persistent decoded PCM caches for fast playlist navigation across sessions
 - Cached, zoomable waveforms with an editable loop region
 - Optional local HTDemucs four-stem separation with a cached Rust mixer
+- Unified local/YouTube Import Center with bounded background downloads and one-pass conversion
+- English/French preferences, smart clipboard detection, and native desktop menus
+- A colored in-app console combining Rust and WebView logs for diagnostics
 - Per-track practice-state persistence
 - Structured diagnostics and project-format tests
 
@@ -77,3 +80,9 @@ The versioned `project.json` manifest is human-readable. Generated analysis and 
 - [Practice workflow](docs/PRACTICE_WORKFLOW.md) · [Project management](docs/PROJECT_MANAGEMENT.md)
 - [Waveforms](docs/WAVEFORM.md) · [Real-time audio](docs/AUDIO_ENGINE.md) · [Native menus](docs/NATIVE_MENUS.md)
 - [Product specification](CAHIER_DES_CHARGES.md) — French specification; implementation documentation and code are written in English.
+
+## License
+
+SonArcan source code is available under the [MIT License](LICENSE). See
+[third-party notices](THIRD_PARTY_NOTICES.md) for the audio, model, desktop,
+and import components used by the application.

@@ -1,11 +1,14 @@
 <script lang="ts">
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { open } from "@tauri-apps/plugin-dialog";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, createProject, diagnostics, getWaveform, importAudio, listRecentProjects, openProject, renameProject, renameTrack, reorderTrack, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
+  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, createProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, renameProject, renameTrack, reorderTrack, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
+  import appIconUrl from "../src-tauri/icons/icon.png?url";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import NumericControl from "./lib/NumericControl.svelte";
-  import type { DiagnosticsSnapshot, EndBehavior, ProjectSummary, StemMix, StemStatus, TempoAnalysis, TrackSummary, WaveformData, WaveformPeak } from "./lib/types";
+  import Modal from "./lib/Modal.svelte";
+  import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, TempoAnalysis, TrackSummary, UserPreferences, WaveformData, WaveformPeak } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
@@ -19,10 +22,15 @@
   let pitchSemitones = 0;
   let volume = 0.8;
   let volumeBeforeMute = 0.8;
+  let masterPeak = 0;
   let loopEnabled = false;
   let loopA: number | null = null;
   let loopB: number | null = null;
   let preferencesVisible = false;
+  let importVisible = false;
+  let tasksVisible = false;
+  let consoleVisible = false;
+  let appLogs: AppLogEntry[] = [];
   let shortcutsVisible = false;
   let waveform: WaveformData | null = null;
   let waveformLoading = false;
@@ -42,13 +50,27 @@
   let trainerLoopCount = 0;
   let spectrumBands = Array<number>(64).fill(0);
   let spectrumRequestActive = false;
-  let stems: StemStatus = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null };
+  let stems: StemStatus = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
   let stemMix: StemMix[] = Array.from({ length: 4 }, () => ({ gain: 1, muted: false, soloed: false }));
   let stemStatusRequestActive = false;
+  let preferences: UserPreferences = { theme: "system", language: "en", smartClipboard: false, searchMode: "chooseFive", maxImportBatch: 10, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, defaultTrainerEnabled: false, defaultTrainerRepetitions: 3, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  let importText = "";
+  let importCandidates: ImportCandidate[] = [];
+  let selectedImports = new Set<string>();
+  let importAnalyzing = false;
+  let importAnalysisError = "";
+  let importHasAnalyzed = false;
+  let importDropActive = false;
+  let importAnalysisTimer: number | undefined;
+  let importAnalysisGeneration = 0;
+  let importQueue: ImportJob[] = [];
+  let lastClipboardText = "";
+  let clipboardDetected = 0;
   let editingTrackId: string | null = null;
   let editingTrackTitle = "";
   let draggedTrackId: string | null = null;
   let dropTrackId: string | null = null;
+  let dropTrackIndex: number | null = null;
   let endBehavior: EndBehavior = "stop";
   let endedGeneration = 0;
   let waveformZoom = 1;
@@ -57,6 +79,9 @@
   let dragStartViewport = 0;
   let dragMoved = false;
   let practiceSaveTimer: number | undefined;
+  let playbackRateTimer: number | undefined;
+  let pitchTimer: number | undefined;
+  let volumePreferenceTimer: number | undefined;
   let statusRequestActive = false;
   let trackSelectionGeneration = 0;
   const waveformCache = new Map<string, WaveformData>();
@@ -80,9 +105,12 @@
   $: playheadPercent = durationSeconds > 0 ? ((currentSeconds / durationSeconds - waveformStart) * waveformZoom * 100) : 0;
   $: detailedBeatLines = beatLines(true);
   $: overviewBeatLines = beatLines(false);
+  $: activeImports = importQueue.filter((job) => !["completed", "failed"].includes(job.state));
+  $: importProgress = importQueue.length ? importQueue.reduce((sum, job) => sum + job.progress, 0) / importQueue.length : 0;
 
   onMount(() => {
     let unlisten: UnlistenFn | undefined;
+    let unlistenDrag: (() => void) | undefined;
     void listen<string>("native-menu", (event) => handleNativeMenu(event.payload)).then((stop) => unlisten = stop);
     const handleKeydown = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null;
@@ -106,10 +134,27 @@
     const statusTimer = window.setInterval(() => void refreshAudioStatus(), 33);
     const spectrumTimer = window.setInterval(() => void refreshSpectrum(), 50);
     const stemTimer = window.setInterval(() => void refreshStemStatus(), 400);
-    const savedLanguage = localStorage.getItem("sonarcan.language");
-    if (savedLanguage === "en" || savedLanguage === "fr") language = savedLanguage;
-    document.documentElement.lang = language;
-    void setApplicationLanguage(language);
+    const importTimer = window.setInterval(() => void refreshImportJobs(), 500);
+    const clipboardTimer = window.setInterval(() => void inspectClipboard(), 900);
+    const consoleTimer = window.setInterval(() => { if (consoleVisible) void refreshConsole(); }, 350);
+    const originalConsole = installConsoleForwarding();
+    const handleWindowError = (event: ErrorEvent): void => console.error(event.error ?? event.message);
+    const handleUnhandledRejection = (event: PromiseRejectionEvent): void => console.error("Unhandled promise rejection", event.reason);
+    window.addEventListener("error", handleWindowError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    void loadUserPreferences();
+    const finishPlaylistDrag = (): void => finishTrackDrag();
+    window.addEventListener("pointerup", finishPlaylistDrag);
+    window.addEventListener("pointercancel", finishPlaylistDrag);
+    void getCurrentWindow().onDragDropEvent((event) => {
+      if (!importVisible) return;
+      if (event.payload.type === "enter" || event.payload.type === "over") importDropActive = true;
+      else if (event.payload.type === "leave") importDropActive = false;
+      else if (event.payload.type === "drop") {
+        importDropActive = false;
+        void acceptDroppedPaths(event.payload.paths);
+      }
+    }).then((stop) => unlistenDrag = stop);
     const savedEndBehavior = localStorage.getItem("sonarcan.endBehavior");
     if (savedEndBehavior === "restart" || savedEndBehavior === "advance" || savedEndBehavior === "stop") endBehavior = savedEndBehavior;
     void audioSetEndBehavior(endBehavior);
@@ -119,15 +164,81 @@
       window.clearInterval(statusTimer);
       window.clearInterval(spectrumTimer);
       window.clearInterval(stemTimer);
+      window.clearInterval(importTimer);
+      window.clearInterval(clipboardTimer);
+      window.clearInterval(consoleTimer);
+      window.clearTimeout(playbackRateTimer);
+      window.clearTimeout(pitchTimer);
+      window.clearTimeout(volumePreferenceTimer);
+      window.clearTimeout(importAnalysisTimer);
+      window.removeEventListener("error", handleWindowError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      console.log = originalConsole.log;
+      console.info = originalConsole.info;
+      console.warn = originalConsole.warn;
+      console.error = originalConsole.error;
       unlisten?.();
+      window.removeEventListener("pointerup", finishPlaylistDrag);
+      window.removeEventListener("pointercancel", finishPlaylistDrag);
+      unlistenDrag?.();
     };
   });
 
+  function installConsoleForwarding(): Pick<Console, "log" | "info" | "warn" | "error"> {
+    const original = { log: console.log, info: console.info, warn: console.warn, error: console.error };
+    for (const level of ["log", "info", "warn", "error"] as const) {
+      console[level] = (...values: unknown[]) => {
+        original[level](...values);
+        const message = values.map(formatLogValue).join(" ");
+        void pushFrontendLog(level === "log" ? "info" : level, message).catch(() => undefined);
+      };
+    }
+    return original;
+  }
+
+  function formatLogValue(value: unknown): string {
+    if (value instanceof Error) return `${value.name}: ${value.message}${value.stack ? `\n${value.stack}` : ""}`;
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
+
+  async function refreshConsole(): Promise<void> {
+    try { appLogs = await logsSnapshot(); } catch { /* The app may be shutting down. */ }
+  }
+
+  function toggleConsole(): void {
+    consoleVisible = !consoleVisible;
+    if (consoleVisible) void refreshConsole();
+  }
+
+  async function loadUserPreferences(): Promise<void> {
+    try {
+      preferences = await getPreferences();
+      language = preferences.language;
+      volume = preferences.masterVolume;
+      metronomeVolume = preferences.metronomeVolume;
+      applyTheme();
+      document.documentElement.lang = language;
+      await setApplicationLanguage(language);
+      await audioSetVolume(volume);
+    } catch { applyTheme(); }
+  }
+
+  function applyTheme(): void { document.documentElement.dataset.theme = preferences.theme; }
+
+  async function persistPreferences(): Promise<void> {
+    preferences = await savePreferences(preferences);
+    language = preferences.language;
+    volume = preferences.masterVolume;
+    metronomeVolume = preferences.metronomeVolume;
+    applyTheme();
+    document.documentElement.lang = language;
+  }
+
   function changeLanguage(nextLanguage: Language): void {
     language = nextLanguage;
-    localStorage.setItem("sonarcan.language", language);
-    document.documentElement.lang = language;
-    void setApplicationLanguage(language);
+    preferences = { ...preferences, language };
+    void persistPreferences();
   }
 
   async function restoreLastProject(): Promise<void> {
@@ -209,12 +320,23 @@
     });
   }
 
-  function dropTrack(event: DragEvent, newIndex: number): void {
+  function startTrackDrag(event: PointerEvent, trackId: string): void {
+    if (event.button !== 0) return;
     event.preventDefault();
+    draggedTrackId = trackId;
+    dropTrackId = trackId;
+    dropTrackIndex = project?.tracks.findIndex((track) => track.id === trackId) ?? null;
+  }
+
+  function finishTrackDrag(): void {
     const trackId = draggedTrackId;
     draggedTrackId = null;
     dropTrackId = null;
-    if (!project || !trackId) return;
+    const newIndex = dropTrackIndex;
+    dropTrackIndex = null;
+    if (!project || !trackId || newIndex === null) return;
+    const oldIndex = project.tracks.findIndex((track) => track.id === trackId);
+    if (oldIndex === newIndex) return;
     void run(async () => {
       project = await reorderTrack(project!.packagePath, trackId, newIndex);
       if (currentTrack) currentTrack = project.tracks.find((track) => track.id === currentTrack?.id) ?? null;
@@ -242,14 +364,18 @@
   async function handleNativeMenu(id: string): Promise<void> {
     if (id === "file:new") newProject();
     else if (id === "file:open") loadProject();
-    else if (id === "file:import") addTracks();
+    else if (id === "file:import") openImportCenter();
     else if (id === "file:save_as") saveAs();
     else if (id === "file:rename_project") renameCurrentProject();
+    else if (id === "playlist:add") openImportCenter();
+    else if (id === "playlist:export_json") exportCurrentPlaylist("json");
+    else if (id === "playlist:export_markdown") exportCurrentPlaylist("markdown");
     else if (id.startsWith("recent:")) {
       const index = Number(id.slice("recent:".length));
       const recent = await listRecentProjects();
       if (Number.isInteger(index) && recent[index]) openRecent(recent[index]);
     } else if (id === "view:zoom_in") setWaveformZoom(waveformZoom * 1.5);
+    else if (id === "view:console") toggleConsole();
     else if (id === "view:zoom_out") setWaveformZoom(waveformZoom / 1.5);
     else if (id === "view:zoom_reset") setWaveformZoom(1);
     else if (id === "playback:toggle") togglePlayback();
@@ -258,7 +384,7 @@
     else if (id === "playback:set_a") setLoopA();
     else if (id === "playback:set_b") setLoopB();
     else if (id === "playback:clear_loop") clearLoop();
-    else if (id === "preferences") preferencesVisible = true;
+    else if (id === "preferences" || id === "file:preferences") preferencesVisible = true;
     else if (id === "help:diagnostics") showDiagnostics();
     else if (id === "help:shortcuts") shortcutsVisible = true;
   }
@@ -271,20 +397,121 @@
   }
 
   function addTracks(): void {
+    openImportCenter();
+  }
+
+  function openImportCenter(): void { if (!project) return; importVisible = true; }
+
+  async function exportCurrentPlaylist(format: "json" | "markdown"): Promise<void> {
     if (!project) return;
-    void run(async () => {
-      const selected = await open({
-        multiple: true,
-        title: t("importAudio"),
-        filters: [{ name: t("supportedAudio"), extensions: ["wav", "mp3", "flac"] }],
-      });
-      if (!selected) return;
-      const sourcePaths = Array.isArray(selected) ? selected : [selected];
-      project = await importAudio(project!.packagePath, sourcePaths);
-      warmedProjects.delete(project.packagePath);
-      if (!currentTrack && project.tracks.length > 0) selectTrack(project.tracks[0], false);
-      else if (currentTrack) void warmPlaylistCache(project.packagePath, currentTrack.id);
+    const extension = format === "json" ? "json" : "md";
+    const destination = await save({
+      title: format === "json" ? t("exportJson") : t("exportMarkdown"),
+      defaultPath: `${project.name}.${extension}`,
+      filters: [{ name: format === "json" ? "JSON" : "Markdown", extensions: [extension] }],
     });
+    if (!destination) return;
+    await run(() => exportPlaylist(project!.packagePath, destination, format));
+  }
+
+  async function chooseImportFiles(): Promise<void> {
+    if (!project) return;
+    const selected = await open({
+        multiple: true,
+        title: t("importAudio"), filters: [{ name: "Audio and text", extensions: ["wav", "mp3", "flac", "txt", "md"] }],
+      });
+    if (!selected) return;
+    await acceptDroppedPaths(Array.isArray(selected) ? selected : [selected]);
+  }
+
+  async function acceptDroppedPaths(paths: string[]): Promise<void> {
+    if (!project) return;
+    const textPaths = paths.filter((path) => /\.(txt|md)$/i.test(path));
+    const audioPaths = paths.filter((path) => /\.(wav|mp3|flac)$/i.test(path));
+    if (textPaths.length) importText = [importText, await readImportTextFiles(textPaths)].filter(Boolean).join("\n");
+    if (audioPaths.length) importText = [importText, ...audioPaths.map((path) => `file://${path}`)].filter(Boolean).join("\n");
+    importVisible = true;
+    if (!textPaths.length && !audioPaths.length) {
+      importAnalysisError = t("unsupportedDrop");
+      return;
+    }
+    await analyzeImports();
+  }
+
+  async function analyzeImports(): Promise<void> {
+    const generation = ++importAnalysisGeneration;
+    importAnalyzing = true;
+    importAnalysisError = "";
+    importHasAnalyzed = false;
+    try {
+      let candidates = await analyzeImportText(importText);
+      if (preferences.searchMode === "chooseFive") {
+        const resolved: ImportCandidate[] = [];
+        for (const candidate of candidates) {
+          if (candidate.kind === "search") resolved.push(...await resolveYoutubeSearch(candidate.input));
+          else resolved.push(candidate);
+        }
+        candidates = resolved;
+      }
+      if (generation !== importAnalysisGeneration) return;
+      importCandidates = candidates;
+      selectedImports = new Set(candidates.map((candidate) => candidate.input));
+      importHasAnalyzed = true;
+    } catch (error) {
+      if (generation !== importAnalysisGeneration) return;
+      importCandidates = [];
+      selectedImports = new Set();
+      importHasAnalyzed = true;
+      importAnalysisError = error instanceof Error ? error.message : String(error);
+    } finally { if (generation === importAnalysisGeneration) importAnalyzing = false; }
+  }
+
+  function scheduleImportAnalysis(): void {
+    window.clearTimeout(importAnalysisTimer);
+    importHasAnalyzed = false;
+    importAnalysisTimer = window.setTimeout(() => void analyzeImports(), 260);
+  }
+
+  function toggleImport(input: string): void {
+    const next = new Set(selectedImports);
+    if (next.has(input)) next.delete(input); else next.add(input);
+    selectedImports = next;
+  }
+
+  async function startImports(): Promise<void> {
+    if (!project || selectedImports.size === 0) return;
+    importQueue = await enqueueImports(project.packagePath, [...selectedImports].slice(0, preferences.maxImportBatch));
+    importVisible = false; tasksVisible = false; importText = ""; importCandidates = []; selectedImports = new Set();
+    await refreshImportJobs();
+  }
+
+  async function refreshImportJobs(): Promise<void> {
+    try {
+      const previousCompleted = importQueue.filter((job) => job.state === "completed").length;
+      importQueue = await importJobs();
+      const completed = importQueue.filter((job) => job.state === "completed").length;
+      if (project && completed > previousCompleted) {
+        project = await openProject(project.packagePath);
+        if (currentTrack) currentTrack = project.tracks.find((track) => track.id === currentTrack?.id) ?? currentTrack;
+      }
+    } catch { /* Background status is best-effort during shutdown. */ }
+  }
+
+  async function inspectClipboard(): Promise<void> {
+    if (!preferences.smartClipboard || !project || importVisible) return;
+    try {
+      const text = (await readClipboardText()).trim();
+      if (!text || text === lastClipboardText) return;
+      lastClipboardText = text;
+      const candidates = await analyzeImportText(text);
+      if (!candidates.length) return;
+      clipboardDetected = candidates.length;
+      importText = text;
+      if (preferences.searchMode === "automaticFirst") {
+        await enqueueImports(project.packagePath, candidates.map((candidate) => candidate.input));
+        await refreshImportJobs();
+      }
+    } catch { /* Clipboard inspection is optional and local. */ }
   }
 
   function showDiagnostics(): void {
@@ -293,12 +520,29 @@
     });
   }
 
+  function showProjectInFileManager(): void {
+    if (!project) return;
+    void revealProject(project.packagePath).catch((error) => {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    });
+  }
+
+  function openCommunityLink(target: "github" | "donate"): void {
+    void openExternalLink(target).catch((error) => {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    });
+  }
+
   function selectTrack(track: TrackSummary, autoplay = true): void {
     const selectionGeneration = ++trackSelectionGeneration;
+    window.clearTimeout(playbackRateTimer);
+    window.clearTimeout(pitchTimer);
+    playbackRateTimer = undefined;
+    pitchTimer = undefined;
     void persistCurrentPracticeState();
     void audioPause();
     void stemDisable();
-    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null };
+    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
     isPlaying = false;
     audioLoading = true;
     loadingTrackId = track.id;
@@ -307,7 +551,7 @@
     durationSeconds = track.durationSeconds ?? 0;
     playbackRate = track.practice.playbackRate;
     pitchSemitones = track.practice.pitchSemitones ?? 0;
-    volume = track.practice.volume;
+    volume = preferences.masterVolume;
     volumeBeforeMute = volume > 0 ? volume : 0.8;
     loopEnabled = track.practice.loopEnabled ?? (track.practice.loopASeconds !== null && track.practice.loopBSeconds !== null);
     loopA = track.practice.loopASeconds;
@@ -315,11 +559,13 @@
     gridBpm = track.practice.gridBpm ?? null;
     beatGridOffsetSeconds = track.practice.beatGridOffsetSeconds ?? 0;
     metronomeEnabled = track.practice.metronomeEnabled ?? false;
-    metronomeVolume = track.practice.metronomeVolume ?? 0.55;
+    metronomeVolume = preferences.metronomeVolume;
     trainerEnabled = track.practice.trainerEnabled ?? false;
     trainerRepetitions = track.practice.trainerRepetitions ?? 3;
     trainerIncrement = track.practice.trainerIncrement ?? 0.05;
     trainerTargetRate = track.practice.trainerTargetRate ?? 1;
+    stemMix = track.practice.stemMix ?? Array.from({ length: 4 }, () => ({ gain: 1, muted: false, soloed: false }));
+    stemMix.forEach((value, index) => void stemSetMix(index, value.gain, value.muted, value.soloed));
     trainerLoopCount = 0;
     spectrumBands = Array<number>(64).fill(0);
     tapTimes = [];
@@ -330,14 +576,15 @@
 
   async function enableStems(): Promise<void> {
     if (!project || !currentTrack) return;
-    stems = { state: "separating", progress: 0, stage: "checkingCache", trackId: currentTrack.id, cached: false, error: null };
-    try { await stemStart(project.packagePath, currentTrack.id); }
+    stems = { state: "separating", progress: 0, stage: "checkingCache", trackId: currentTrack.id, cached: false, error: null, computeBackend: null };
+    try { await stemStart(project.packagePath, currentTrack.id); schedulePracticeSave(); }
     catch (error) { errorMessage = `${t("stemFailed")}: ${error instanceof Error ? error.message : String(error)}`; }
   }
 
   async function disableStems(): Promise<void> {
     await stemDisable();
-    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null };
+    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    schedulePracticeSave();
   }
 
   async function refreshStemStatus(): Promise<void> {
@@ -353,6 +600,7 @@
     stemMix = stemMix.map((value, candidate) => candidate === index ? { ...value, ...change } : value);
     const value = stemMix[index];
     void stemSetMix(index, value.gain, value.muted, value.soloed);
+    schedulePracticeSave();
   }
 
   async function loadTrackTempo(track: TrackSummary): Promise<void> {
@@ -395,6 +643,7 @@
       await audioSeek(currentSeconds);
       audioLoading = false;
       loadingTrackId = null;
+      if (track.practice.stemsEnabled) void enableStems();
       if (autoplay) await play();
       preloadNeighbour(track);
       void warmPlaylistCache(project!.packagePath, track.id);
@@ -519,6 +768,11 @@
     schedulePracticeSave();
   }
 
+  function restoreDetectedBpm(): void {
+    if (detectedBpm === null) return;
+    changeGridBpm(detectedBpm);
+  }
+
   function tapTempo(): void {
     if (!currentTrack) return;
     const now = performance.now();
@@ -545,6 +799,12 @@
     schedulePracticeSave();
   }
 
+  function resetBeatGridOrigin(): void {
+    beatGridOffsetSeconds = 0;
+    applyBeatGridToEngine();
+    schedulePracticeSave();
+  }
+
   function nudgeBeatGrid(milliseconds: number): void {
     beatGridOffsetSeconds = Math.max(0, Math.min(durationSeconds, beatGridOffsetSeconds + milliseconds / 1000));
     applyBeatGridToEngine();
@@ -561,7 +821,8 @@
   function changeMetronomeVolume(value: number): void {
     metronomeVolume = Math.max(0, Math.min(1, value));
     void audioSetMetronome(metronomeEnabled, metronomeVolume);
-    schedulePracticeSave();
+    preferences = { ...preferences, metronomeVolume };
+    void persistPreferences();
   }
 
   function applyLoopTrainer(): void {
@@ -637,31 +898,47 @@
     volume = Math.max(0, Math.min(1, value));
     if (volume > 0) volumeBeforeMute = volume;
     void audioSetVolume(volume);
-    schedulePracticeSave();
+    preferences = { ...preferences, masterVolume: volume };
+    window.clearTimeout(volumePreferenceTimer);
+    volumePreferenceTimer = window.setTimeout(() => void persistPreferences(), 180);
+  }
+
+  function setPlaybackRate(value: number): void {
+    playbackRate = Math.round(Math.max(0.5, Math.min(2, value)) * 100) / 100;
+    const target = playbackRate;
+    window.clearTimeout(playbackRateTimer);
+    playbackRateTimer = window.setTimeout(() => {
+      playbackRateTimer = undefined;
+      void audioSetPlaybackRate(target);
+    }, 65);
+    schedulePracticeSave(260);
+  }
+
+  function setPitch(value: number): void {
+    pitchSemitones = Math.round(Math.max(-12, Math.min(12, value)) * 100) / 100;
+    const target = pitchSemitones;
+    window.clearTimeout(pitchTimer);
+    pitchTimer = window.setTimeout(() => {
+      pitchTimer = undefined;
+      void audioSetPitch(target);
+    }, 65);
+    schedulePracticeSave(260);
   }
 
   function changePlaybackRate(delta: number): void {
-    playbackRate = Math.round(Math.max(0.5, Math.min(2, playbackRate + delta)) * 100) / 100;
-    void audioSetPlaybackRate(playbackRate);
-    schedulePracticeSave();
+    setPlaybackRate(playbackRate + delta);
   }
 
   function resetPlaybackRate(): void {
-    playbackRate = 1;
-    void audioSetPlaybackRate(playbackRate);
-    schedulePracticeSave();
+    setPlaybackRate(1);
   }
 
   function changePitch(delta: number): void {
-    pitchSemitones = Math.max(-12, Math.min(12, pitchSemitones + delta));
-    void audioSetPitch(pitchSemitones);
-    schedulePracticeSave();
+    setPitch(pitchSemitones + delta);
   }
 
   function resetPitch(): void {
-    pitchSemitones = 0;
-    void audioSetPitch(pitchSemitones);
-    schedulePracticeSave();
+    setPitch(0);
   }
 
   function toggleMute(): void {
@@ -731,6 +1008,7 @@
       currentSeconds = status.positionSeconds;
       durationSeconds = status.durationSeconds || durationSeconds;
       isPlaying = status.playing;
+      masterPeak = status.outputPeak;
       if (status.endedGeneration !== endedGeneration) {
         endedGeneration = status.endedGeneration;
         if (endBehavior === "advance" && (project?.tracks.length ?? 0) > 1) {
@@ -739,8 +1017,11 @@
         }
       }
       trainerLoopCount = status.trainerLoopCount;
-      if (Math.abs(playbackRate - status.playbackRate) > 0.0001 || trainerEnabled !== status.trainerEnabled) {
+      if (playbackRateTimer === undefined && Math.abs(playbackRate - status.playbackRate) > 0.0001) {
         playbackRate = status.playbackRate;
+        schedulePracticeSave(300);
+      }
+      if (trainerEnabled !== status.trainerEnabled) {
         trainerEnabled = status.trainerEnabled;
         schedulePracticeSave(300);
       }
@@ -790,6 +1071,8 @@
         trainerRepetitions,
         trainerIncrement,
         trainerTargetRate,
+        stemsEnabled: stems.state !== "disabled",
+        stemMix,
       });
       if (project?.packagePath === packagePath) project = updated;
     } catch (error) {
@@ -864,20 +1147,27 @@
 
 <svelte:head><title>SonArcan — {t("tagline")}</title></svelte:head>
 
-<main class="shell">
+<main class="shell" class:console-open={consoleVisible}>
   <header class="topbar">
-    <div>
-      <span class="eyebrow">SONARCAN</span>
-      <h1>{project?.name ?? t("tagline")}</h1>
+    <div class="app-identity"><img src={appIconUrl} alt="SonArcan" /></div>
+    <button class="project-context" disabled={!project} data-tooltip={project ? t("revealProject") : t("noProject")} onclick={showProjectInFileManager}>{project ? project.packagePath : t("noProject")}</button>
+    <div class="header-actions">
+      <button class="header-icon-link" aria-label={t("openGithub")} data-tooltip={t("openGithub")} onclick={() => openCommunityLink("github")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.77c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg></button>
+      <button class="header-icon-link donate" aria-label={t("supportProject")} data-tooltip={t("supportProject")} onclick={() => openCommunityLink("donate")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h12v3h1.5a3.5 3.5 0 0 1 0 7H17v1a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V5Zm12 5v3h1.5a1.5 1.5 0 0 0 0-3H17ZM7 7v9a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V7H7Zm1.5-5h2v2h-2V2Zm4 0h2v2h-2V2Z" /></svg></button>
+      <div class="master-output" aria-label={t("masterVolume")}>
+        <button class="master-mute" class:muted={volume === 0} onclick={toggleMute} aria-label={volume > 0 ? t("mute") : t("unmute")} data-tooltip={volume > 0 ? t("mute") : t("unmute")}>{volume > 0 ? "◖" : "×"}</button>
+        <input aria-label={t("masterVolume")} type="range" min="0" max="1" step="0.01" value={volume} oninput={(event) => changeVolume(Number(event.currentTarget.value))} />
+        <output>{Math.round(volume * 100)}%</output>
+        <div class="master-meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`}><i style={`width:${Math.min(100, masterPeak * 100)}%`}></i></div>
+      </div>
     </div>
-    <div class="project-context">{project ? project.packagePath : t("noProject")}</div>
   </header>
 
   {#if errorMessage}<div class="error" role="alert">{errorMessage}</div>{/if}
 
   <section class="workspace">
     <aside class="playlist panel">
-      <div class="panel-title"><h2>{t("playlist")}</h2><span>{project?.trackCount ?? 0}</span></div>
+      <div class="panel-title playlist-title"><h2>{t("playlist")}</h2><div><span class="count-badge">{project?.trackCount ?? 0}</span>{#if importQueue.length}<button class:failed={importQueue.some((job) => job.state === "failed")} class:complete={activeImports.length === 0 && !importQueue.some((job) => job.state === "failed")} class="playlist-task-orb" style={`--progress:${importProgress * 360}deg`} aria-label={t("importQueue")} data-tooltip={t("importQueue")} onclick={() => tasksVisible = true}><i></i><b>{activeImports.length || importQueue.filter((job) => job.state === "failed").length}</b></button>{/if}<button class="playlist-add" disabled={!project} aria-label={t("addSongs")} data-tooltip={t("addSongs")} onclick={openImportCenter}>+</button></div></div>
       {#if project && project.tracks.length > 0}
         <ol>
           {#each project.tracks as track, index}
@@ -885,14 +1175,9 @@
               class:active={track.id === currentTrack?.id}
               class:loading={track.id === loadingTrackId}
               class:drop-target={track.id === dropTrackId}
-              draggable={editingTrackId !== track.id}
-              ondragstart={(event) => { draggedTrackId = track.id; event.dataTransfer?.setData("text/plain", track.id); }}
-              ondragover={(event) => { event.preventDefault(); dropTrackId = track.id; }}
-              ondragleave={() => { if (dropTrackId === track.id) dropTrackId = null; }}
-              ondrop={(event) => dropTrack(event, index)}
-              ondragend={() => { draggedTrackId = null; dropTrackId = null; }}
+              onpointerenter={() => { if (draggedTrackId) { dropTrackId = track.id; dropTrackIndex = index; } }}
             >
-              <span class="drag-handle" aria-hidden="true">⠿</span>
+              <button class="drag-handle" aria-label={t("reorderSong")} data-tooltip={t("reorderSong")} onpointerdown={(event) => startTrackDrag(event, track.id)}>⠿</button>
               <button class="track-select" onclick={() => selectTrack(track)} aria-label={`${t("loadingTrack")} ${track.title}`}><span class="track-number">{#if track.id === loadingTrackId}<i class="mini-spinner" aria-label={t("loadingTrack")}></i>{:else}{String(index + 1).padStart(2, "0")}{/if}</span></button>
               <div class="track-info">
                 {#if editingTrackId === track.id}
@@ -912,7 +1197,7 @@
 
     <section class="main-stage">
       <div class="visualizer panel">
-        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{:else if detectedBpm !== null}<span class="bpm" data-tooltip={t("bpmDetected")}>{detectedBpm.toFixed(1)} BPM</span>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded">✓ {t("audioReady")}</span>{/if}</div></div>
+        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{:else if detectedBpm !== null}<button class="bpm" data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}>↺ {detectedBpm.toFixed(1)} BPM</button>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded">✓ {t("audioReady")}</span>{/if}</div></div>
         <div
           class="wave detailed-wave"
           class:dragging={dragMoved}
@@ -993,12 +1278,21 @@
       </div>
 
       <div class="transport panel">
-        <button disabled={audioLoading} aria-label={t("back5")} data-tooltip={t("back5")} onclick={() => jump(-5)}>−5s</button>
-        <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}>◀</button>
-        <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}{isPlaying ? "Ⅱ" : "▶"}{/if}</button>
-        <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}>▶</button>
-        <button disabled={audioLoading} aria-label={t("forward5")} data-tooltip={t("forward5")} onclick={() => jump(5)}>+5s</button>
-        <div class="readout"><small>{t("position")}</small><strong>{formatTime(currentSeconds)} / {formatTime(durationSeconds)}</strong></div>
+        <div class="transport-trainer">
+          <button class="trainer-toggle" class:active={trainerEnabled} aria-pressed={trainerEnabled} aria-label={t("loopTrainer")} data-tooltip={t("trainerHelp")} onclick={toggleLoopTrainer}><i class="stair-icon"><b></b><b></b><b></b></i><span>{trainerLoopCount}/{trainerRepetitions}</span></button>
+          <NumericControl label={t("repetitions")} value={trainerRepetitions} defaultValue={3} minimum={1} maximum={99} step={1} display={(value) => String(value)} onChange={updateTrainerRepetitions} tooltip={t("numericHelp")} />
+          <NumericControl label={t("increment")} value={trainerIncrement * 100} defaultValue={5} minimum={1} maximum={25} step={1} display={(value) => `+${value}%`} onChange={updateTrainerIncrement} tooltip={t("numericHelp")} />
+          <NumericControl label={t("targetTempo")} value={trainerTargetRate * 100} defaultValue={100} minimum={50} maximum={200} step={5} display={(value) => `${value}%`} onChange={updateTrainerTarget} tooltip={t("numericHelp")} />
+          <div class="transport-trainer-progress"><i style={`width:${Math.max(0, Math.min(100, trainerLoopCount / trainerRepetitions * 100))}%`}></i></div>
+        </div>
+        <div class="transport-center">
+          <button disabled={audioLoading} aria-label={t("back5")} data-tooltip={t("back5")} onclick={() => jump(-5)}>−5s</button>
+          <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}>◀</button>
+          <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}{isPlaying ? "Ⅱ" : "▶"}{/if}</button>
+          <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}>▶</button>
+          <button disabled={audioLoading} aria-label={t("forward5")} data-tooltip={t("forward5")} onclick={() => jump(5)}>+5s</button>
+          <div class="readout"><small>{t("position")}</small><strong>{formatTime(currentSeconds)} / {formatTime(durationSeconds)}</strong></div>
+        </div>
         <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
           <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}>↶</button>
           <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}>⇥</button>
@@ -1010,30 +1304,22 @@
         <div class="loop-controls">
           <div class="control-group loop-actions"><button onclick={setLoopA} data-tooltip={t("moveA")}>A</button><button onclick={clearLoop} data-tooltip={t("resetAB")}>×</button><button onclick={setLoopB} data-tooltip={t("moveB")}>B</button><button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} data-tooltip={t("toggleLoop")}>↻ {t("loop")}</button></div>
         </div>
-        <NumericControl label={t("tempo")} value={playbackRate} defaultValue={1} minimum={0.5} maximum={2} step={0.05} display={(value) => `${Math.round(value * 100)}%`} onChange={(value) => { playbackRate = value; void audioSetPlaybackRate(value); schedulePracticeSave(); }} tooltip={t("numericHelp")} />
-        <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} display={formatPitch} onChange={(value) => { pitchSemitones = value; void audioSetPitch(value); schedulePracticeSave(); }} tooltip={t("pitchFineHelp")} />
-        <div class="volume"><button class="volume-toggle" onclick={toggleMute} aria-label={volume > 0 ? t("mute") : t("unmute")} data-tooltip={volume > 0 ? t("mute") : t("unmute")}>{volume > 0 ? "🔊" : "🔇"}</button><NumericControl label={t("volume")} value={volume} defaultValue={0.8} minimum={0} maximum={1} step={0.05} display={(value) => `${Math.round(value * 100)}%`} onChange={changeVolume} tooltip={t("numericHelp")} /></div>
+        <NumericControl label={t("tempo")} value={playbackRate} defaultValue={1} minimum={0.5} maximum={2} step={0.01} buttonStep={0.05} shiftButtonStep={0.01} display={(value) => `${Math.round(value * 100)}%`} onChange={setPlaybackRate} tooltip={t("numericHelp")} />
+        <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} buttonStep={1} shiftButtonStep={0.01} display={formatPitch} onChange={setPitch} tooltip={t("pitchFineHelp")} />
       </div>
 
       <div class="tempo-grid panel">
-        <div class="tempo-editor"><NumericControl label={t("gridTempo")} value={gridBpm ?? detectedBpm ?? 120} defaultValue={detectedBpm ?? 120} minimum={30} maximum={300} step={0.1} display={(value) => `${value.toFixed(1)} BPM`} onChange={changeGridBpm} onTap={tapTempo} tooltip={t("tapTempoHelp")} /><small>{detectedBpm !== null ? `${t("detected")}: ${detectedBpm.toFixed(1)}` : t("bpmUnknown")}</small></div>
+        <div class="tempo-editor"><NumericControl label={t("gridTempo")} value={gridBpm ?? detectedBpm ?? 120} defaultValue={detectedBpm ?? 120} minimum={30} maximum={300} step={0.1} display={(value) => `${value.toFixed(1)} BPM`} onChange={changeGridBpm} onTap={tapTempo} tooltip={t("tapTempoHelp")} /><button class="reset-value" disabled={detectedBpm === null} data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}><i>↺</i><span><small>{t("detected")}</small><strong>{detectedBpm === null ? "—" : `${detectedBpm.toFixed(1)} BPM`}</strong></span></button></div>
         <div class="grid-anchor">
-          <button disabled={gridBpm === null} data-tooltip={t("setGridAnchorHelp")} onclick={setBeatGridAnchor}>{t("setGridAnchor")}</button>
+          <button class="align-first-beat" disabled={gridBpm === null} data-tooltip={t("setGridAnchorHelp")} onclick={setBeatGridAnchor}><i>Ⅰ</i><span>{t("setGridAnchor")}</span></button>
+          <button class="reset-value" disabled={gridBpm === null || beatGridOffsetSeconds === 0} data-tooltip={t("resetGridOriginHelp")} onclick={resetBeatGridOrigin}><i>↺</i><span><small>{t("gridAnchor")}</small><strong>{formatTimePrecise(0)}</strong></span></button>
           <div class="compact-controls"><button disabled={gridBpm === null} data-tooltip={t("nudgeGridBack")} onclick={() => nudgeBeatGrid(-10)}>−10 ms</button><button disabled={gridBpm === null} data-tooltip={t("nudgeGridForward")} onclick={() => nudgeBeatGrid(10)}>+10 ms</button></div>
-          <small>{t("gridAnchor")}: {formatTimePrecise(beatGridOffsetSeconds)}</small>
+          <output>{t("gridAnchor")}: {formatTimePrecise(beatGridOffsetSeconds)}</output>
         </div>
         <div class="metronome-control">
           <button class:active={metronomeEnabled} disabled={gridBpm === null} aria-pressed={metronomeEnabled} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}>♩ {t("metronome")}</button>
           <NumericControl label={t("metronomeVolume")} value={metronomeVolume} defaultValue={0.55} minimum={0} maximum={1} step={0.05} display={(value) => `${Math.round(value * 100)}%`} onChange={changeMetronomeVolume} tooltip={t("numericHelp")} />
         </div>
-      </div>
-
-      <div class="trainer panel">
-        <div class="trainer-heading"><button class:active={trainerEnabled} aria-pressed={trainerEnabled} data-tooltip={t("trainerHelp")} onclick={toggleLoopTrainer}>↗ {t("loopTrainer")}</button><small>{trainerLoopCount} / {trainerRepetitions} {t("cycles")}</small></div>
-        <NumericControl label={t("repetitions")} value={trainerRepetitions} defaultValue={3} minimum={1} maximum={99} step={1} display={(value) => String(value)} onChange={updateTrainerRepetitions} tooltip={t("numericHelp")} />
-        <NumericControl label={t("increment")} value={trainerIncrement * 100} defaultValue={5} minimum={1} maximum={25} step={1} display={(value) => `+${value}%`} onChange={updateTrainerIncrement} tooltip={t("numericHelp")} />
-        <NumericControl label={t("targetTempo")} value={trainerTargetRate * 100} defaultValue={100} minimum={50} maximum={200} step={5} display={(value) => `${value}%`} onChange={updateTrainerTarget} tooltip={t("numericHelp")} />
-        <div class="trainer-progress"><i style={`width:${Math.max(0, Math.min(100, trainerLoopCount / trainerRepetitions * 100))}%`}></i></div>
       </div>
 
       <div class="spectrum panel">
@@ -1046,11 +1332,11 @@
 
       <div class="lower-grid">
         <div class="panel stem-panel">
-          <div class="panel-title"><h2>{t("stems")}</h2><span>{stems.state === "ready" ? t("stemsReady") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div>
+          <div class="panel-title"><h2>{t("stems")}</h2><div class="stem-heading-status">{#if stems.computeBackend}<span class:cpu={stems.computeBackend === "CPU"} class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? t("stemsReady") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div></div>
           {#if stems.state === "disabled"}
             <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={enableStems}>{t("enableStems")}</button><small>HTDemucs · 4 stems · local</small></div>
           {:else if stems.state === "downloading" || stems.state === "separating"}
-            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.state === "downloading" ? t("downloadingModel") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
+            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.state === "downloading" ? t("downloadingModel") : stems.stage === "cpuFallback" ? t("cpuStemFallback") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
           {:else if stems.state === "failed"}
             <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><button onclick={enableStems}>{t("enableStems")}</button></div>
           {:else}
@@ -1069,15 +1355,64 @@
 
   <footer><span>{busy ? t("working") : t("ready")}</span><button class="link" onclick={showDiagnostics}>{t("diagnostics")}</button></footer>
 
+  {#if consoleVisible}
+    <section class="app-console" aria-label={t("applicationConsole")}>
+      <header><div><strong>{t("applicationConsole")}</strong><span>{appLogs.length} {t("logEntries")}</span></div><button aria-label={t("hideConsole")} data-tooltip={t("hideConsole")} onclick={toggleConsole}>×</button></header>
+      <div class="console-output">
+        {#if appLogs.length === 0}<p class="console-empty">{t("noLogs")}</p>{/if}
+        {#each appLogs as entry}
+          <div class={`console-line ${entry.level}`}><time>{new Date(entry.timestampMs).toLocaleTimeString(language, { hour12: false })}</time><b>{entry.origin === "rust" ? "RUST" : "WEB"}</b><em>{entry.level.toUpperCase()}</em><pre>{entry.message}</pre></div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  <div class="background-tools">
+    <button class:active={preferences.smartClipboard} class="clipboard-watch" data-tooltip={t("smartClipboard")} onclick={() => { preferences = { ...preferences, smartClipboard: !preferences.smartClipboard }; clipboardDetected = 0; void persistPreferences(); }}>⌘{clipboardDetected ? ` ${clipboardDetected}` : ""}</button>
+  </div>
+
   {#if diagnosticInfo}
-    <dialog open><h2>{t("diagnostics")}</h2><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></dialog>
+    <Modal title={t("diagnostics")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
   {/if}
 
   {#if preferencesVisible}
-    <dialog open><h2>{t("preferences")}</h2><p>{t("preferencesHelp")}</p><label class="language-select">{t("language")}<select value={language} onchange={(event) => changeLanguage(event.currentTarget.value as Language)}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><button onclick={() => preferencesVisible = false}>{t("close")}</button></dialog>
+    <Modal title={t("preferences")} wide close={() => preferencesVisible = false}>
+      <div class="preferences-grid">
+        <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label></section>
+        <section><h3>{t("importSettings")}</h3><label class="check"><input type="checkbox" bind:checked={preferences.smartClipboard} /> {t("smartClipboard")}</label><label>{t("searchMode")}<select bind:value={preferences.searchMode}><option value="automaticFirst">{t("automaticFirst")}</option><option value="chooseFive">{t("chooseFive")}</option></select></label><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
+        <section><h3>{t("practiceDefaults")}</h3><label>{t("repetitions")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label><label>{t("increment")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("targetTempo")}<input type="number" min="50" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label></section>
+        <section><h3>Audio</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label></section>
+      </div><div class="modal-actions"><button onclick={() => preferencesVisible = false}>{t("close")}</button><button class="primary" onclick={() => { void persistPreferences(); preferencesVisible = false; }}>{t("savePreferences")}</button></div>
+    </Modal>
   {/if}
 
   {#if shortcutsVisible}
-    <dialog open><h2>{t("shortcuts")}</h2><dl><dt>{t("playPause")}</dt><dd>Space</dd><dt>{t("jump")}</dt><dd>← / →</dd><dt>{t("loopAB")}</dt><dd>A / B</dd><dt>{t("clearLoop")}</dt><dd>Escape</dd><dt>{t("tempo")}</dt><dd>− / +</dd><dt>{t("tapTempo")}</dt><dd>T</dd><dt>{t("metronome")}</dt><dd>M</dd></dl><button onclick={() => shortcutsVisible = false}>{t("close")}</button></dialog>
+    <Modal title={t("shortcuts")} close={() => shortcutsVisible = false}><dl><dt>{t("playPause")}</dt><dd>Space</dd><dt>{t("jump")}</dt><dd>← / →</dd><dt>{t("loopAB")}</dt><dd>A / B</dd><dt>{t("clearLoop")}</dt><dd>Escape</dd><dt>{t("tempo")}</dt><dd>− / +</dd><dt>{t("tapTempo")}</dt><dd>T</dd><dt>{t("metronome")}</dt><dd>M</dd></dl><button onclick={() => shortcutsVisible = false}>{t("close")}</button></Modal>
+  {/if}
+
+  {#if importVisible}
+    <Modal title={t("importCenter")} wide close={() => importVisible = false}>
+      <div class:drop-active={importDropActive} class="import-center" role="region" aria-label={t("importCenter")} ondragover={(event) => { event.preventDefault(); importDropActive = true; }} ondragleave={() => importDropActive = false} ondrop={(event) => { event.preventDefault(); importDropActive = false; const text = event.dataTransfer?.getData("text/plain"); if (text) { importText = [importText, text].filter(Boolean).join("\n"); void analyzeImports(); } }}>
+        <div class="import-toolbar"><button onclick={chooseImportFiles}>{t("addFiles")}</button><span>{t("importLimit")}</span></div>
+        <textarea bind:value={importText} oninput={scheduleImportAnalysis} placeholder={t("importPlaceholder")}></textarea>
+        <div class="import-analysis-state">
+          {#if importAnalyzing}<span><i class="mini-spinner"></i>{t("analyzingSources")}</span>
+          {:else if importAnalysisError}<span class="failed">{importAnalysisError}</span>
+          {:else if importHasAnalyzed}<span>{importCandidates.length} {t("sourcesFound")}</span>
+          {:else}<span>{t("dropToAnalyze")}</span>{/if}
+        </div>
+        {#if importCandidates.length}
+          <div class="candidate-list">{#each importCandidates as candidate}<button class:selected={selectedImports.has(candidate.input)} onclick={() => toggleImport(candidate.input)}><i>{selectedImports.has(candidate.input) ? "✓" : ""}</i><span><strong>{candidate.title}</strong><small>{candidate.detail}</small></span></button>{/each}</div>
+        {:else if importHasAnalyzed && !importAnalysisError}
+          <div class="import-empty">{t("noSourcesFound")}</div>
+        {/if}
+        <small class="authorized-note">{t("authorizedOnly")}</small>
+        <div class="modal-actions"><button onclick={() => importVisible = false}>{t("close")}</button><button class="primary" disabled={selectedImports.size === 0 || importAnalyzing} onclick={startImports}>{t("startImport")} ({Math.min(selectedImports.size, preferences.maxImportBatch)})</button></div>
+      </div>
+    </Modal>
+  {/if}
+
+  {#if tasksVisible}
+    <Modal title={t("importQueue")} wide close={() => tasksVisible = false}>{#if !importQueue.length}<p>{t("noTasks")}</p>{:else}<div class="job-list">{#each [...importQueue].reverse() as job}<article class:failed={job.state === "failed"}><div><strong>{job.label}</strong><span>{t(job.state as MessageKey)} · {Math.round(job.progress * 100)}%</span></div><i><b style={`width:${job.progress * 100}%`}></b></i>{#if job.error}<p>{job.error}</p>{/if}{#if job.suggestion}<small>{job.suggestion}</small>{/if}{#if job.diagnostic}<details><summary>{t("technicalDetails")}</summary><pre>{job.diagnostic}</pre></details>{/if}</article>{/each}</div>{/if}<button onclick={() => tasksVisible = false}>{t("close")}</button></Modal>
   {/if}
 </main>

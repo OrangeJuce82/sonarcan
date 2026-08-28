@@ -52,13 +52,15 @@ Linear interpolation currently handles source/output sample-rate differences. Th
 
 ## Time stretch and pitch shift
 
-The callback owns a preconfigured Signalsmith Stretch processor and all of its input, output, and preroll buffers. The UI sends only atomic control values:
+The callback owns one preconfigured Signalsmith Stretch processor and all of its input, output, and preroll buffers. When stems are active, their gain/mute/solo mix is computed first; the resulting stereo mix passes through this processor exactly once. The UI sends only atomic control values:
 
 - playback speed from 50% to 200%, independently of pitch;
 - pitch transposition from -12 to +12 semitones, independently of speed.
 - fine pitch correction in 1-cent increments (`0.01` semitone) for slightly detuned recordings.
 
-Unity speed with zero transposition takes a direct low-overhead path. Other settings stream source frames through the DSP processor. A seek, track change, or loop restart resets and prerolls the processor from the requested source position, avoiding stale buffered audio. Speed and pitch are persisted in each track's practice state.
+Unity speed with zero transposition takes a direct low-overhead path. Other settings stream source frames through the DSP processor. A seek, track change, or loop restart resets and prerolls the processor from the requested source position, avoiding stale buffered audio. Interactive speed and pitch changes retain the streaming state and follow a 40 ms exponential transition, preventing repeated resets and discontinuities while playback continues. Signalsmith restores neutral transposition during transport resets, so the engine deliberately reapplies the selected pitch afterwards. Speed and pitch are persisted in each track's practice state.
+
+The UI updates its readout immediately and applies a 65 ms trailing debounce before crossing IPC. Button steps are 5% for speed and one semitone for pitch; Shift-click selects the fine 1% or one-cent step respectively.
 
 ## Tempo analysis
 
