@@ -5,6 +5,21 @@ export interface ProjectPathPart {
   path: string;
 }
 
+export interface ProjectHeaderPathPart extends ProjectPathPart {
+  ellipsis?: boolean;
+}
+
+export interface ProjectHeaderPath {
+  directory: string;
+  directoryPath: string;
+  directoryParts: ProjectHeaderPathPart[];
+  absolute: boolean;
+  fileName: string;
+  fileStem: string;
+  fileExtension: string;
+  fullPath: string;
+}
+
 export interface BeatLine {
   percent: number;
   accent: boolean;
@@ -108,6 +123,40 @@ export function buildProjectPath(packagePath: string): ProjectPathPart[] {
     current = current === "/" ? `/${label}` : current ? `${current}/${label}` : label;
     return { label, path: current };
   });
+}
+
+/** Split a project package path and compact only the directory portion. */
+export function formatProjectHeaderPath(packagePath: string, targetDirectoryLength = 20): ProjectHeaderPath {
+  const fullPath = packagePath.replaceAll("\\", "/");
+  const separator = fullPath.lastIndexOf("/");
+  const fileName = separator >= 0 ? fullPath.slice(separator + 1) : fullPath;
+  const extensionStart = fileName.lastIndexOf(".");
+  const fileExtension = extensionStart > 0 ? fileName.slice(extensionStart) : "";
+  const fileStem = fileExtension ? fileName.slice(0, extensionStart) : fileName;
+  const directory = separator >= 0 ? fullPath.slice(0, separator + 1) : "";
+  const absolute = directory.startsWith("/");
+  const segments = directory.split("/").filter(Boolean);
+  const fullDirectoryParts = buildProjectPath(directory.replace(/\/$/, ""));
+  if (!directory || directory.length <= targetDirectoryLength || segments.length < 3) {
+    return { directory, directoryPath: directory, directoryParts: fullDirectoryParts, absolute, fileName, fileStem, fileExtension, fullPath };
+  }
+  const suffix = `/${segments.at(-1)}/`;
+  const budget = Math.max(1, targetDirectoryLength - suffix.length - 5);
+  let prefix = absolute ? `/${segments[0]}` : segments[0];
+  let prefixCount = 1;
+  for (const segment of segments.slice(1, -1)) {
+    const candidate = `${prefix}/${segment}`;
+    if (candidate.length > budget) break;
+    prefix = candidate;
+    prefixCount += 1;
+  }
+  const hiddenParent = fullDirectoryParts.at(-2)?.path ?? directory;
+  const directoryParts: ProjectHeaderPathPart[] = [
+    ...fullDirectoryParts.slice(0, prefixCount),
+    { label: "...", path: hiddenParent, ellipsis: true },
+    fullDirectoryParts.at(-1)!,
+  ];
+  return { directory: `${prefix}/...${suffix}`, directoryPath: directory, directoryParts, absolute, fileName, fileStem, fileExtension, fullPath };
 }
 
 export function formatTime(value: number): string {

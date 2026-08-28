@@ -68,7 +68,7 @@ Every adjustable integer or floating-point parameter uses the same interaction m
 - stop at a configured target tempo;
 - optionally add a delay before restarting the loop.
 
-The implemented Loop Trainer performs the first three operations directly in the Rust renderer. It counts A/B repetitions when Loop is active and complete-track repetitions in normal mode. Repetition count, percentage increment, target speed, progress, and enabled state are visible in the practice workspace and persisted per track.
+The implemented Loop Trainer performs the first three operations directly in the Rust renderer. It counts complete A/B repetitions when Loop is active and complete-track repetitions in normal mode. A lead-in before A is available for context but is not counted; the first counted cycle always reaches B after entering the loop. Repetition count, percentage increment, target speed, progress, and enabled state are visible in the practice workspace and persisted per track.
 
 ## SonArcan-specific decisions
 

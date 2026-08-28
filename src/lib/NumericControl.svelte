@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "./Icon.svelte";
   export let label: string;
   export let value: number;
   export let defaultValue: number;
@@ -68,7 +69,7 @@
 </script>
 
 <div class="numeric-control" class:dragging={drag?.moved} data-tooltip={tooltip}>
-  <button type="button" class="step" aria-label={`${label} −`} onclick={(event) => buttonIncrement(event, -1)}>−</button>
+  <button type="button" class="step" aria-label={`${label} −`} onclick={(event) => buttonIncrement(event, -1)}><Icon name="minus" size="10px" /></button>
   <button
     type="button"
     class="value"
@@ -80,5 +81,5 @@
     onwheel={adjustWithWheel}
     ondblclick={onTap ? undefined : reset}
   ><small>{label}</small><strong>{display(value)}</strong></button>
-  <button type="button" class="step" aria-label={`${label} +`} onclick={(event) => buttonIncrement(event, 1)}>+</button>
+  <button type="button" class="step" aria-label={`${label} +`} onclick={(event) => buttonIncrement(event, 1)}><Icon name="plus" size="10px" /></button>
 </div>

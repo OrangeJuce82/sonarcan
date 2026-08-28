@@ -37,7 +37,7 @@
 - [x] direct, mode-free A / whole-loop / B mouse adjustment
 - [x] focus-safe A, B, L, and Escape loop shortcuts
 - [x] parallel audio/waveform loading with modern independent loading states
-- [x] Play starts at A whenever looping is enabled
+- [x] Play preserves a lead-in before A and restarts at A at or after B
 - [x] contextual hover help for practice and transport controls
 - [x] English/French UI, help, dialogs, and native menus
 - [x] production Rust time-stretch from 50% to 200% with pitch preservation

@@ -6,6 +6,7 @@ import {
   calculateBeatLines,
   defaultLoopBounds,
   formatPitch,
+  formatProjectHeaderPath,
   formatTime,
   formatTimePrecise,
   moveWaveformViewport,
@@ -23,6 +24,18 @@ test("buildProjectPath preserves absolute and Windows path navigation", () => {
     label: "Set.sac",
     path: "C:/Music/Set.sac",
   });
+});
+
+test("formatProjectHeaderPath keeps the filename separate and compacts only its directory", () => {
+  const formatted = formatProjectHeaderPath("/private/var/folders/5j/cache/T/sonarcan-d4345e32-578b-4910-99cb-50370002ef99.sac");
+  assert.equal(formatted.fileName, "sonarcan-d4345e32-578b-4910-99cb-50370002ef99.sac");
+  assert.equal(formatted.directory, "/private/var/.../T/");
+  assert.deepEqual(formatted.directoryParts.map((part) => part.label), ["private", "var", "...", "T"]);
+  assert.equal(formatted.directoryParts[0]?.path, "/private");
+  assert.equal(formatted.directoryParts[2]?.path, "/private/var/folders/5j/cache");
+  assert.equal(formatted.directoryParts[2]?.ellipsis, true);
+  assert.equal(formatted.directoryParts[3]?.path, "/private/var/folders/5j/cache/T");
+  assert.equal(formatted.fullPath, "/private/var/folders/5j/cache/T/sonarcan-d4345e32-578b-4910-99cb-50370002ef99.sac");
 });
 
 test("default loop bounds cover a track without enabling loop mode", () => {

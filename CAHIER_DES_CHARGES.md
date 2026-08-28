@@ -387,7 +387,7 @@ Codex doit développer SonArcan par tranches verticales vérifiables. Chaque ét
 
 Avant toute modification importante, il doit comprendre le module concerné, ses dépendances et ses tests. Après modification, il doit compiler, exécuter les tests et signaler les régressions éventuelles.
 
-Les audits réseau `npm audit` et OSV (`npm run security`) ne sont exécutés que lorsqu’une modification ajoute une nouvelle bibliothèque ou un nouveau package. Ils ne sont pas relancés pour les changements ordinaires de code ou de documentation ; les modifications sensibles pour la sécurité font l’objet de validations ciblées sur la frontière de confiance concernée.
+L’ajout de bibliothèques et de packages est autorisé lorsqu’il est justifié et documenté. Dans ce cas uniquement, les audits réseau `npm audit` et OSV (`npm run security`) sont exécutés pour valider la nouvelle chaîne de dépendances. Ils ne sont pas relancés pour les changements ordinaires de code ou de documentation ; les modifications sensibles pour la sécurité font l’objet de validations ciblées sur la frontière de confiance concernée.
 
 Pour chaque bug : reproduction, identification de la cause, correction minimale, test de régression et validation. Pour chaque optimisation : mesure, identification du goulot, modification, nouvelle mesure et contrôle de stabilité.
 

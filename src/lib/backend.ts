@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppLogEntry, AudioStatus, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, TempoAnalysis, UserPreferences, WaveformData } from "./types";
+import type { AppLogEntry, AudioStatus, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, TempoAnalysis, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -106,6 +106,7 @@ export const audioSetLoopTrainer = (enabled: boolean, repetitions: number, incre
 export const audioSetEndBehavior = (behavior: EndBehavior): Promise<void> => invoke("audio_set_end_behavior", { behavior });
 export const audioSpectrum = (): Promise<SpectrumFrame> => invoke("audio_spectrum");
 export const audioStatus = (): Promise<AudioStatus> => invoke("audio_status");
+export const systemMetrics = (): Promise<SystemMetrics> => invoke("system_metrics");
 export const stemStart = (packagePath: string, trackId: string): Promise<void> => invoke("stem_start", { packagePath, trackId });
 export const stemStatus = (): Promise<StemStatus> => invoke("stem_status");
 export const stemDisable = (): Promise<void> => invoke("stem_disable");

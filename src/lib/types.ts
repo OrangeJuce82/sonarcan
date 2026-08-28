@@ -76,6 +76,8 @@ export interface AudioStatus {
   outputChannels: number;
   underruns: number;
   outputPeak: number;
+  outputPeakLeft: number;
+  outputPeakRight: number;
   playbackRate: number;
   pitchSemitones: number;
   gridBpm: number | null;
@@ -102,6 +104,11 @@ export interface SpectrumFrame {
   bands: number[];
   minimumHz: number;
   maximumHz: number;
+}
+
+export interface SystemMetrics {
+  cpuPercent: number | null;
+  memoryMegabytes: number | null;
 }
 
 export type StemState = "disabled" | "ready" | "downloading" | "separating" | "failed";

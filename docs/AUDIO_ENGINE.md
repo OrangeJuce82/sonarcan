@@ -24,9 +24,16 @@ stem gain changes, and stem mute/solo changes use a 40 ms callback-side ramp to
 avoid clicks and zipper noise. The ramp keeps the real-time path allocation-free
 and lock-free.
 
+The bounded `AudioStatus` snapshot exposes the decaying master peak and
+independent left/right output peaks for the UI meters. These scalar values are
+the only output-level data crossing IPC; raw audio never leaves the engine.
+
 The current model revision is pinned in `Cargo.toml`. Updating it requires changing the stem cache revision and repeating separation parity and performance tests.
 
-When looping is enabled, the Rust `play` command atomically positions playback at A before enabling the callback. This rule is enforced by the engine rather than simulated by the frontend.
+When looping is enabled, playback may start anywhere in the track. A position
+before A is preserved as a lead-in, while a position at or after B is moved to A
+when Play is pressed. Once playback reaches B, the Rust callback wraps to A.
+This rule is enforced by the engine rather than simulated by the frontend.
 
 ## Ownership
 
@@ -80,7 +87,16 @@ The metronome is synthesized directly in the CPAL callback. It performs no alloc
 
 ## Loop trainer
 
-The real-time renderer counts training cycles with atomics. With A/B looping active, one cycle is a B-to-A wrap. In normal playback, one cycle is a complete track; the renderer restarts from the beginning with a short boundary crossfade. After a configurable number of cycles, it increases the playback rate by the configured step. Training stops automatically at the target rate. The callback never waits for the UI to schedule an increment, so continuity is preserved. The enabled state, repetition count, increment, and target are persisted per track.
+The real-time renderer counts training cycles with atomics. With A/B looping
+active, one cycle is a complete A-to-B pass followed by the B-to-A wrap. A
+lead-in before A is allowed but never counted as a repetition; a partial pass
+that starts inside the loop is also completed once before it can be counted.
+In normal playback, one cycle is a complete track; the renderer restarts from
+the beginning with a short boundary crossfade. After a configurable number of
+cycles, it increases the playback rate by the configured step. Training stops
+automatically at the target rate. The callback never waits for the UI to
+schedule an increment, so continuity is preserved. The enabled state,
+repetition count, increment, and target are persisted per track.
 
 ## End-of-track behavior
 

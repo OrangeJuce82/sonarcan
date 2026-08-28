@@ -3,13 +3,14 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
+  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, systemMetrics, updatePracticeState } from "./lib/backend";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates } from "./lib/importCandidates";
+  import Icon from "./lib/Icon.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
-  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatTime, formatTimePrecise, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
-  import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
+  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
+  import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
@@ -24,6 +25,8 @@
   let volume = 0.8;
   let volumeBeforeMute = 0.8;
   let masterPeak = 0;
+  let masterPeakLeft = 0;
+  let masterPeakRight = 0;
   let loopEnabled = false;
   let loopA: number | null = null;
   let loopB: number | null = null;
@@ -64,6 +67,7 @@
   let importAnalysisError = "";
   let importHasAnalyzed = false;
   let importDropActive = false;
+  let importTextarea: HTMLTextAreaElement | undefined;
   let importAnalysisTimer: number | undefined;
   let importAnalysisGeneration = 0;
   let importQueue: ImportJob[] = [];
@@ -79,6 +83,7 @@
   let trackContextMenu: { trackId: string; x: number; y: number } | null = null;
   let editingProjectName = false;
   let projectNameDraft = "";
+  let helpMessage = "";
   let endBehavior: EndBehavior = "stop";
   let endedGeneration = 0;
   let waveformZoom = 1;
@@ -93,6 +98,7 @@
   let pitchTimer: number | undefined;
   let volumePreferenceTimer: number | undefined;
   let statusRequestActive = false;
+  let systemMetricsSnapshot: SystemMetrics = { cpuPercent: null, memoryMegabytes: null };
   let trackSelectionGeneration = 0;
   const waveformCache = new Map<string, WaveformData>();
   const tempoCache = new Map<string, TempoAnalysis>();
@@ -105,13 +111,21 @@
   let language: Language = systemLanguage();
   const t = (key: MessageKey): string => translate(language, key);
 
-  $: projectPathParts = project ? buildProjectPath(project.packagePath) : [];
+  $: projectHeaderPath = project ? formatProjectHeaderPath(project.packagePath) : null;
 
   function focusOnMount(node: HTMLInputElement): void {
     queueMicrotask(() => {
       node.focus();
       node.select();
     });
+  }
+
+  function helpTarget(target: EventTarget | null): HTMLElement | null {
+    return target instanceof Element ? target.closest<HTMLElement>("[data-tooltip]") : null;
+  }
+
+  function updateHelp(target: EventTarget | null): void {
+    helpMessage = helpTarget(target)?.dataset.tooltip ?? "";
   }
 
   $: detailedPeaks = visiblePeaks(waveform?.peaks ?? [], waveformZoom, waveformStart, 1_000);
@@ -149,12 +163,28 @@
       else if (event.key.toLowerCase() === "t") { event.preventDefault(); tapTempo(); }
     };
     window.addEventListener("keydown", handleKeydown);
+    const handleHelpOver = (event: PointerEvent): void => updateHelp(event.target);
+    const handleHelpOut = (event: PointerEvent): void => {
+      const from = helpTarget(event.target);
+      const to = helpTarget(event.relatedTarget);
+      if (from !== to) helpMessage = to?.dataset.tooltip ?? "";
+    };
+    const handleHelpFocus = (event: FocusEvent): void => updateHelp(event.target);
+    const handleHelpBlur = (event: FocusEvent): void => {
+      if (!helpTarget(event.relatedTarget)) helpMessage = "";
+    };
+    window.addEventListener("pointerover", handleHelpOver);
+    window.addEventListener("pointerout", handleHelpOut);
+    window.addEventListener("focusin", handleHelpFocus);
+    window.addEventListener("focusout", handleHelpBlur);
     const statusTimer = window.setInterval(() => void refreshAudioStatus(), 33);
     const spectrumTimer = window.setInterval(() => void refreshSpectrum(), 50);
     const stemTimer = window.setInterval(() => void refreshStemStatus(), 400);
+    const metricsTimer = window.setInterval(() => void refreshSystemMetrics(), 1_500);
     const importTimer = window.setInterval(() => void refreshImportJobs(), 500);
     const clipboardTimer = window.setInterval(() => void inspectClipboard(), 900);
     const consoleTimer = window.setInterval(() => { if (consoleVisible) void refreshConsole(); }, 350);
+    void refreshSystemMetrics();
     const originalConsole = installConsoleForwarding();
     const handleWindowError = (event: ErrorEvent): void => console.error(event.error ?? event.message);
     const handleUnhandledRejection = (event: PromiseRejectionEvent): void => console.error("Unhandled promise rejection", event.reason);
@@ -173,11 +203,12 @@
     }).then((stop) => unlistenClose = stop);
     void appWindow.onDragDropEvent((event) => {
       if (!importVisible) return;
-      if (event.payload.type === "enter" || event.payload.type === "over") importDropActive = true;
+      const position = "position" in event.payload ? event.payload.position : undefined;
+      if (event.payload.type === "enter" || event.payload.type === "over") importDropActive = isImportDropTarget(position);
       else if (event.payload.type === "leave") importDropActive = false;
       else if (event.payload.type === "drop") {
         importDropActive = false;
-        void acceptDroppedPaths(event.payload.paths);
+        if (isImportDropTarget(position)) void acceptDroppedPaths(event.payload.paths);
       }
     }).then((stop) => unlistenDrag = stop);
     const savedEndBehavior = localStorage.getItem("sonarcan.endBehavior");
@@ -185,9 +216,14 @@
     void audioSetEndBehavior(endBehavior);
     return () => {
       window.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("pointerover", handleHelpOver);
+      window.removeEventListener("pointerout", handleHelpOut);
+      window.removeEventListener("focusin", handleHelpFocus);
+      window.removeEventListener("focusout", handleHelpBlur);
       window.clearInterval(statusTimer);
       window.clearInterval(spectrumTimer);
       window.clearInterval(stemTimer);
+      window.clearInterval(metricsTimer);
       window.clearInterval(importTimer);
       window.clearInterval(clipboardTimer);
       window.clearInterval(consoleTimer);
@@ -542,6 +578,14 @@
 
   function openImportCenter(): void { importVisible = true; }
 
+  function isImportDropTarget(position: { x: number; y: number } | undefined): boolean {
+    if (!position || !importTextarea) return false;
+    const rect = importTextarea.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    const contains = (x: number, y: number): boolean => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    return contains(position.x, position.y) || contains(position.x / scale, position.y / scale);
+  }
+
   async function exportCurrentPlaylist(format: "json" | "markdown"): Promise<void> {
     if (!project) return;
     const extension = format === "json" ? "json" : "md";
@@ -703,6 +747,9 @@
     void stemDisable();
     stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
     isPlaying = false;
+    masterPeak = 0;
+    masterPeakLeft = 0;
+    masterPeakRight = 0;
     audioLoading = true;
     loadingTrackId = track.id;
     currentTrack = track;
@@ -867,9 +914,6 @@
     if (!currentTrack && project?.tracks.length) selectTrack(project.tracks[0], false);
     if (!currentTrack || audioLoading) return;
     try {
-      if (loopEnabled && loopA !== null && loopB !== null) {
-        currentSeconds = loopA;
-      }
       await audioPlay();
       isPlaying = true;
     } catch (error) {
@@ -1140,6 +1184,8 @@
       durationSeconds = status.durationSeconds || durationSeconds;
       isPlaying = status.playing;
       masterPeak = status.outputPeak;
+      masterPeakLeft = status.outputPeakLeft;
+      masterPeakRight = status.outputPeakRight;
       if (status.endedGeneration !== endedGeneration) {
         endedGeneration = status.endedGeneration;
         if (endBehavior === "advance" && (project?.tracks.length ?? 0) > 1) {
@@ -1174,6 +1220,22 @@
     } finally {
       spectrumRequestActive = false;
     }
+  }
+
+  async function refreshSystemMetrics(): Promise<void> {
+    try {
+      systemMetricsSnapshot = await systemMetrics();
+    } catch {
+      // System metrics are informational and must never affect playback.
+    }
+  }
+
+  function toggleTheme(): void {
+    const prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+    const isDark = preferences.theme === "dark" || (preferences.theme === "system" && !prefersLight);
+    preferences = { ...preferences, theme: isDark ? "light" : "dark" };
+    applyTheme();
+    void persistPreferences();
   }
 
   function schedulePracticeSave(delay = 700): void {
@@ -1354,26 +1416,37 @@
             <button class="project-name" data-tooltip={t("projectName")} onclick={renameCurrentProject}>{project.name}</button>
           {/if}
         </div>
-        <div class="project-path" aria-label={project.packagePath} title={project.packagePath}>
-          {#each [...projectPathParts].reverse() as part, index}
-            {#if index > 0}<span class="path-separator">/</span>{/if}
-            <button onclick={() => showPathInFileManager(part.path)}>{part.label}</button>
-          {/each}
-          {#if project.packagePath.startsWith("/")}<span class="path-separator">/</span>{/if}
+        <div class="project-path" aria-label={project.packagePath}>
+          {#if projectHeaderPath}
+            {#if projectHeaderPath.absolute}<span class="path-root">/</span>{/if}
+            {#each projectHeaderPath.directoryParts as part, index}
+              {#if index > 0}<span class="path-separator">/</span>{/if}
+              <button class:project-path-ellipsis={part.ellipsis} class="project-path-part" title={part.ellipsis ? projectHeaderPath.directoryPath : part.path} onclick={() => showPathInFileManager(part.path)}>{part.label}</button>
+            {/each}
+          {/if}
+          <button class="project-file" title={projectHeaderPath?.fullPath ?? project.packagePath} onclick={() => showPathInFileManager(project!.packagePath)}>
+            <span class="project-file-stem">{projectHeaderPath?.fileStem ?? project.name}</span><span class="project-file-extension">{projectHeaderPath?.fileExtension}</span>
+          </button>
         </div>
       {:else}
         <span class="project-empty">{t("noProject")}</span>
       {/if}
     </div>
+    <div class="header-metrics" aria-label={t("systemMetrics")}>
+      <span><small>{t("cpuUsage")}</small><strong>{systemMetricsSnapshot.cpuPercent === null ? "—" : `${systemMetricsSnapshot.cpuPercent.toFixed(1)}%`}</strong></span>
+      <span><small>{t("memoryUsage")}</small><strong>{systemMetricsSnapshot.memoryMegabytes === null ? "—" : `${systemMetricsSnapshot.memoryMegabytes} MB`}</strong></span>
+    </div>
     <div class="header-actions">
-      <button class="header-icon-link" aria-label={t("openGithub")} data-tooltip={t("openGithub")} onclick={() => openCommunityLink("github")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.77c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg></button>
-      <button class="header-icon-link donate" aria-label={t("supportProject")} data-tooltip={t("supportProject")} onclick={() => openCommunityLink("donate")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h12v3h1.5a3.5 3.5 0 0 1 0 7H17v1a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V5Zm12 5v3h1.5a1.5 1.5 0 0 0 0-3H17ZM7 7v9a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V7H7Zm1.5-5h2v2h-2V2Zm4 0h2v2h-2V2Z" /></svg></button>
+      <button class="header-icon-link" aria-label={t("toggleTheme")} data-tooltip={t("toggleTheme")} onclick={toggleTheme}>
+        <Icon name={preferences.theme === "dark" ? "moon" : "sun"} size="15px" />
+      </button>
+      <button class="header-icon-link" aria-label={t("preferences")} data-tooltip={t("preferences")} onclick={() => preferencesVisible = true}><Icon name="gear" size="15px" /></button>
       <div class="master-output" aria-label={t("masterVolume")}>
         <button class="master-mute" class:muted={volume === 0} onclick={toggleMute} aria-label={volume > 0 ? t("mute") : t("unmute")} data-tooltip={volume > 0 ? t("mute") : t("unmute")}>
           {#if volume > 0}
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" /><path d="M16 9.5a4 4 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10" /></svg>
+            <Icon name="volume-high" size="15px" />
           {:else}
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" /><path d="m17 9 4 6m0-6-4 6" /></svg>
+            <Icon name="volume-xmark" size="15px" />
           {/if}
         </button>
         <input aria-label={t("masterVolume")} type="range" min="0" max="1" step="0.01" value={volume} oninput={(event) => changeVolume(Number(event.currentTarget.value))} />
@@ -1382,6 +1455,9 @@
           {#each masterMeterLevels as level}<i class:active={masterPeak * masterMeterLevels.length >= level}></i>{/each}
         </div>
       </div>
+      <span class="header-separator" aria-hidden="true"></span>
+      <button class="header-icon-link" aria-label={t("openGithub")} data-tooltip={t("openGithub")} onclick={() => openCommunityLink("github")}><Icon name="github" size="15px" /></button>
+      <button class="header-icon-link donate" aria-label={t("supportProject")} data-tooltip={t("supportProject")} onclick={() => openCommunityLink("donate")}><Icon name="mug-hot" size="15px" /></button>
     </div>
   </header>
 
@@ -1389,7 +1465,7 @@
 
   <section class="workspace">
     <aside class="playlist panel">
-      <div class="panel-title playlist-title"><h2>{t("playlist")}</h2><div><span class="count-badge">{project?.trackCount ?? 0}</span>{#if importQueue.length}<button class:failed={importQueue.some((job) => job.state === "failed")} class:complete={activeImports.length === 0 && !importQueue.some((job) => job.state === "failed")} class="playlist-task-orb" style={`--progress:${importProgress * 360}deg`} aria-label={t("importQueue")} data-tooltip={t("importQueue")} onclick={() => tasksVisible = true}><i></i><b>{importQueue.length}</b></button>{/if}<button class="playlist-add" aria-label={t("addSongs")} data-tooltip={t("addSongs")} onclick={openImportCenter}>+</button></div></div>
+      <div class="panel-title playlist-title"><h2>{t("playlist")}</h2><div><span class="count-badge">{project?.trackCount ?? 0}</span>{#if importQueue.length}<button class:failed={importQueue.some((job) => job.state === "failed")} class:complete={activeImports.length === 0 && !importQueue.some((job) => job.state === "failed")} class="playlist-task-orb" style={`--progress:${importProgress * 360}deg`} aria-label={t("importQueue")} data-tooltip={t("importQueue")} onclick={() => tasksVisible = true}><i></i><b>{importQueue.length}</b></button>{/if}<button class="playlist-add" aria-label={t("addSongs")} data-tooltip={t("addSongs")} onclick={openImportCenter}><Icon name="plus" size="13px" /></button></div></div>
       {#if project && project.tracks.length > 0}
         <ol>
           {#each project.tracks as track, index}
@@ -1400,7 +1476,7 @@
               onpointerenter={() => { if (draggedTrackId) { dropTrackId = track.id; dropTrackIndex = index; } }}
               oncontextmenu={(event) => openTrackContextMenu(event, track.id)}
             >
-              <button class="drag-handle" aria-label={t("reorderSong")} data-tooltip={t("reorderSong")} onpointerdown={(event) => startTrackDrag(event, track.id)}>⠿</button>
+              <button class="drag-handle" aria-label={t("reorderSong")} data-tooltip={t("reorderSong")} onpointerdown={(event) => startTrackDrag(event, track.id)}><Icon name="grip-lines" size="12px" /></button>
               <button class="track-select" onclick={() => selectTrack(track)} aria-label={`${t("loadingTrack")} ${track.title}`}><span class="track-number">{#if track.id === loadingTrackId}<i class="mini-spinner" aria-label={t("loadingTrack")}></i>{:else}{String(index + 1).padStart(2, "0")}{/if}</span></button>
               <div class="track-info">
                 {#if editingTrackId === track.id}
@@ -1410,7 +1486,7 @@
                 {/if}
                 <button class="track-meta" onclick={() => selectTrack(track)}>{track.format.toUpperCase()} · {track.sampleRate ? `${track.sampleRate} Hz` : t("unknownRate")}</button>
               </div>
-              <button class="track-remove" aria-label={t("removeTrack")} data-tooltip={t("removeTrack")} onclick={(event) => { event.stopPropagation(); void removeTrack(track); }}><span aria-hidden="true">🗑</span></button>
+              <button class="track-remove" aria-label={t("removeTrack")} data-tooltip={t("removeTrack")} onclick={(event) => { event.stopPropagation(); void removeTrack(track); }}><Icon name="trash" size="13px" /></button>
             </li>
           {/each}
         </ol>
@@ -1421,7 +1497,7 @@
 
     <section class="main-stage">
       <div class="visualizer panel">
-        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{:else if detectedBpm !== null}<button class="bpm" data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}>↺ {detectedBpm.toFixed(1)} BPM</button>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded">✓ {t("audioReady")}</span>{/if}</div></div>
+        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{:else if detectedBpm !== null}<button class="bpm" data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}><Icon name="rotate-left" size="11px" /> {detectedBpm.toFixed(1)} BPM</button>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div></div>
         <div
           class="wave detailed-wave"
           class:dragging={waveformDragPointerId !== null}
@@ -1497,12 +1573,34 @@
         />
         <div class="loop-status">
           <span>A {loopA === null ? "—" : formatTime(loopA)}</span>
-          <span>{loopA !== null && loopB !== null ? `${loopEnabled ? t("loop") : t("loopOff")} ${formatTime(loopB - loopA)}` : t("noLoop")}</span>
+          <strong class="playback-position" aria-label={t("playbackPosition")}>{formatTime(currentSeconds)}</strong>
           <span>B {loopB === null ? "—" : formatTime(loopB)}</span>
         </div>
       </div>
 
       <div class="transport panel">
+        <div class="transport-parameters">
+          <NumericControl label={t("tempo")} value={playbackRate} defaultValue={1} minimum={0.5} maximum={2} step={0.01} buttonStep={0.05} shiftButtonStep={0.01} display={(value) => `${Math.round(value * 100)}%`} onChange={setPlaybackRate} tooltip={t("numericHelp")} />
+          <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} buttonStep={1} shiftButtonStep={0.01} display={formatPitch} onChange={setPitch} tooltip={t("pitchFineHelp")} />
+        </div>
+        <div class="transport-center">
+          <button disabled={audioLoading} aria-label={t("back5")} data-tooltip={t("back5")} onclick={() => jump(-5)}><Icon name="arrow-left" size="11px" />5s</button>
+          <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}><Icon name="backward-step" size="15px" /></button>
+          <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}<Icon name={isPlaying ? "pause" : "play"} size="15px" />{/if}</button>
+          <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}><Icon name="forward-step" size="15px" /></button>
+          <button disabled={audioLoading} aria-label={t("forward5")} data-tooltip={t("forward5")} onclick={() => jump(5)}>5s<Icon name="arrow-right" size="11px" /></button>
+        </div>
+        <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
+          <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}><Icon name="rotate-right" size="13px" /></button>
+          <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}><Icon name="forward-step" size="13px" /></button>
+          <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}><Icon name="stop" size="13px" /></button>
+        </div>
+      </div>
+
+      <div class="practice panel">
+        <div class="loop-controls">
+          <div class="control-group loop-actions"><button class="loop-action-a" onclick={setLoopA} data-tooltip={t("moveA")}>A</button><button onclick={clearLoop} data-tooltip={t("resetAB")} aria-label={t("resetAB")}><Icon name="xmark" size="11px" /></button><button class="loop-action-b" onclick={setLoopB} data-tooltip={t("moveB")}>B</button><button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} data-tooltip={t("toggleLoop")}><Icon name="rotate-right" size="11px" /> {t("loop")}</button></div>
+        </div>
         <div class="transport-trainer">
           <button class="trainer-toggle" class:active={trainerEnabled} aria-pressed={trainerEnabled} aria-label={t("loopTrainer")} data-tooltip={t("trainerHelp")} onclick={toggleLoopTrainer}><i class="stair-icon"><b></b><b></b><b></b></i><span>{trainerLoopCount}/{trainerRepetitions}</span></button>
           <NumericControl label={t("repetitions")} value={trainerRepetitions} defaultValue={3} minimum={1} maximum={99} step={1} display={(value) => String(value)} onChange={updateTrainerRepetitions} tooltip={t("numericHelp")} />
@@ -1510,49 +1608,37 @@
           <NumericControl label={t("targetTempo")} value={trainerTargetRate * 100} defaultValue={100} minimum={50} maximum={200} step={5} display={(value) => `${value}%`} onChange={updateTrainerTarget} tooltip={t("numericHelp")} />
           <div class="transport-trainer-progress"><i style={`width:${Math.max(0, Math.min(100, trainerLoopCount / trainerRepetitions * 100))}%`}></i></div>
         </div>
-        <div class="transport-center">
-          <button disabled={audioLoading} aria-label={t("back5")} data-tooltip={t("back5")} onclick={() => jump(-5)}>−5s</button>
-          <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}>◀</button>
-          <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}{isPlaying ? "Ⅱ" : "▶"}{/if}</button>
-          <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}>▶</button>
-          <button disabled={audioLoading} aria-label={t("forward5")} data-tooltip={t("forward5")} onclick={() => jump(5)}>+5s</button>
-          <div class="readout"><small>{t("position")}</small><strong>{formatTime(currentSeconds)} / {formatTime(durationSeconds)}</strong></div>
-        </div>
-        <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
-          <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}>↶</button>
-          <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}>⇥</button>
-          <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}>■</button>
-        </div>
-      </div>
-
-      <div class="practice panel">
-        <div class="loop-controls">
-          <div class="control-group loop-actions"><button onclick={setLoopA} data-tooltip={t("moveA")}>A</button><button onclick={clearLoop} data-tooltip={t("resetAB")}>×</button><button onclick={setLoopB} data-tooltip={t("moveB")}>B</button><button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} data-tooltip={t("toggleLoop")}>↻ {t("loop")}</button></div>
-        </div>
-        <NumericControl label={t("tempo")} value={playbackRate} defaultValue={1} minimum={0.5} maximum={2} step={0.01} buttonStep={0.05} shiftButtonStep={0.01} display={(value) => `${Math.round(value * 100)}%`} onChange={setPlaybackRate} tooltip={t("numericHelp")} />
-        <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} buttonStep={1} shiftButtonStep={0.01} display={formatPitch} onChange={setPitch} tooltip={t("pitchFineHelp")} />
       </div>
 
       <div class="tempo-grid panel">
-        <div class="tempo-editor"><NumericControl label={t("gridTempo")} value={gridBpm ?? detectedBpm ?? 120} defaultValue={detectedBpm ?? 120} minimum={30} maximum={300} step={0.1} display={(value) => `${value.toFixed(1)} BPM`} onChange={changeGridBpm} onTap={tapTempo} tooltip={t("tapTempoHelp")} /><button class="reset-value" disabled={detectedBpm === null} data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}><i>↺</i><span><small>{t("detected")}</small><strong>{detectedBpm === null ? "—" : `${detectedBpm.toFixed(1)} BPM`}</strong></span></button></div>
+        <div class="tempo-editor"><NumericControl label={t("gridTempo")} value={gridBpm ?? detectedBpm ?? 120} defaultValue={detectedBpm ?? 120} minimum={30} maximum={300} step={0.1} display={(value) => `${value.toFixed(1)} BPM`} onChange={changeGridBpm} onTap={tapTempo} tooltip={t("tapTempoHelp")} /><button class="reset-value" disabled={detectedBpm === null} data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}><Icon name="rotate-left" size="12px" /><span><small>{t("detected")}</small><strong>{detectedBpm === null ? "—" : `${detectedBpm.toFixed(1)} BPM`}</strong></span></button></div>
         <div class="grid-anchor">
           <button class="align-first-beat" disabled={gridBpm === null} data-tooltip={t("setGridAnchorHelp")} onclick={setBeatGridAnchor}><i>Ⅰ</i><span>{t("setGridAnchor")}</span></button>
-          <button class="reset-value" disabled={gridBpm === null || beatGridOffsetSeconds === 0} data-tooltip={t("resetGridOriginHelp")} onclick={resetBeatGridOrigin}><i>↺</i><span><small>{t("gridAnchor")}</small><strong>{formatTimePrecise(0)}</strong></span></button>
+          <button class="reset-value" disabled={gridBpm === null || beatGridOffsetSeconds === 0} data-tooltip={t("resetGridOriginHelp")} onclick={resetBeatGridOrigin}><Icon name="rotate-left" size="12px" /><span><small>{t("gridAnchor")}</small><strong>{formatTimePrecise(0)}</strong></span></button>
           <div class="compact-controls"><button disabled={gridBpm === null} data-tooltip={t("nudgeGridBack")} onclick={() => nudgeBeatGrid(-10)}>−10 ms</button><button disabled={gridBpm === null} data-tooltip={t("nudgeGridForward")} onclick={() => nudgeBeatGrid(10)}>+10 ms</button></div>
           <output>{t("gridAnchor")}: {formatTimePrecise(beatGridOffsetSeconds)}</output>
         </div>
         <div class="metronome-control">
-          <button class:active={metronomeEnabled} disabled={gridBpm === null} aria-pressed={metronomeEnabled} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}>♩ {t("metronome")}</button>
+          <button class:active={metronomeEnabled} disabled={gridBpm === null} aria-pressed={metronomeEnabled} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}><Icon name="music" size="12px" /> {t("metronome")}</button>
           <NumericControl label={t("metronomeVolume")} value={metronomeVolume} defaultValue={0.55} minimum={0} maximum={1} step={0.05} display={(value) => `${Math.round(value * 100)}%`} onChange={changeMetronomeVolume} tooltip={t("numericHelp")} />
         </div>
       </div>
 
-      <div class="spectrum panel">
-        <div class="panel-title"><h2>{t("spectrum")}</h2><span>30 Hz — 20 kHz · FFT 2048</span></div>
-        <div class="spectrum-bars" aria-label={t("spectrum")}>
-          {#each spectrumBands as magnitude, index}<i style={`height:${Math.max(1, magnitude * 100)}%;--band:${index}`}></i>{/each}
+      <div class="visualization-row">
+        <div class="spectrum panel">
+          <div class="panel-title"><h2>{t("spectrum")}</h2><span>30 Hz — 20 kHz · FFT 2048</span></div>
+          <div class="spectrum-bars" aria-label={t("spectrum")}>
+            {#each spectrumBands as magnitude, index}<i style={`height:${Math.max(1, magnitude * 100)}%;--band:${index}`}></i>{/each}
+          </div>
+          <div class="spectrum-scale"><span>30</span><span>100</span><span>1k</span><span>10k</span><span>20k Hz</span></div>
         </div>
-        <div class="spectrum-scale"><span>30</span><span>100</span><span>1k</span><span>10k</span><span>20k Hz</span></div>
+        <div class="stereo-meter panel">
+          <div class="panel-title"><h2>{t("stereoMeter")}</h2><span>L / R</span></div>
+          <div class="stereo-meter-channels">
+            <div class="stereo-channel"><span>L</span><div class="stereo-track" role="meter" aria-label={`${t("leftChannel")} ${Math.round(masterPeakLeft * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakLeft * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakLeft * 100))}%`}></i></div><output>{Math.round(masterPeakLeft * 100)}%</output></div>
+            <div class="stereo-channel"><span>R</span><div class="stereo-track" role="meter" aria-label={`${t("rightChannel")} ${Math.round(masterPeakRight * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakRight * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakRight * 100))}%`}></i></div><output>{Math.round(masterPeakRight * 100)}%</output></div>
+          </div>
+        </div>
       </div>
 
       <div class="lower-grid">
@@ -1578,11 +1664,15 @@
     </section>
   </section>
 
-  <footer><span>{busy ? t("working") : t("ready")}</span><button class="link" onclick={showDiagnostics}>{t("diagnostics")}</button></footer>
+  <footer>
+    <span>{busy ? t("working") : t("ready")}</span>
+    <div class="help-strip" aria-live="polite"><Icon name="lightbulb" size="12px" /><span>{helpMessage || t("helpHover")}</span></div>
+    <button class="link" onclick={showDiagnostics}>{t("diagnostics")}</button>
+  </footer>
 
   {#if consoleVisible}
     <section class="app-console" aria-label={t("applicationConsole")}>
-      <header><div><strong>{t("applicationConsole")}</strong><span>{appLogs.length} {t("logEntries")}</span></div><button aria-label={t("hideConsole")} data-tooltip={t("hideConsole")} onclick={toggleConsole}>×</button></header>
+      <header><div><strong>{t("applicationConsole")}</strong><span>{appLogs.length} {t("logEntries")}</span></div><button aria-label={t("hideConsole")} data-tooltip={t("hideConsole")} onclick={toggleConsole}><Icon name="xmark" size="12px" /></button></header>
       <div class="console-output">
         {#if appLogs.length === 0}<p class="console-empty">{t("noLogs")}</p>{/if}
         {#each appLogs as entry}
@@ -1591,10 +1681,6 @@
       </div>
     </section>
   {/if}
-
-  <div class="background-tools">
-    <button class:active={preferences.smartClipboard} class="clipboard-watch" data-tooltip={t("smartClipboard")} onclick={() => { preferences = { ...preferences, smartClipboard: !preferences.smartClipboard }; clipboardDetected = 0; void persistPreferences(); }}>⌘{clipboardDetected ? ` ${clipboardDetected}` : ""}</button>
-  </div>
 
   {#if closePromptVisible}
     <Modal title={t("saveTemporaryTitle")} close={() => closePromptVisible = false}>
@@ -1628,9 +1714,27 @@
 
   {#if importVisible}
     <Modal title={t("importCenter")} wide close={() => importVisible = false}>
-      <div class:drop-active={importDropActive} class="import-center" role="region" aria-label={t("importCenter")} ondragover={(event) => { event.preventDefault(); importDropActive = true; }} ondragleave={() => importDropActive = false} ondrop={(event) => { event.preventDefault(); importDropActive = false; const text = event.dataTransfer?.getData("text/plain"); if (text) { importText = [importText, text].filter(Boolean).join("\n"); void analyzeImports(); } }}>
-        <div class="import-toolbar"><button onclick={chooseImportFiles}>{t("addFiles")}</button><span>{t("importLimit")}</span></div>
-        <textarea bind:value={importText} oninput={scheduleImportAnalysis} placeholder={t("importPlaceholder")}></textarea>
+      <div class="import-center" role="region" aria-label={t("importCenter")}>
+        <div class="import-toolbar">
+          <div class="import-toolbar-actions">
+            <button onclick={chooseImportFiles}>{t("addFiles")}</button>
+            <button
+              class:active={preferences.smartClipboard}
+              class="clipboard-toggle"
+              type="button"
+              aria-pressed={preferences.smartClipboard}
+              aria-label={t("smartClipboard")}
+              data-tooltip={t("smartClipboard")}
+              onclick={() => { preferences = { ...preferences, smartClipboard: !preferences.smartClipboard }; clipboardDetected = 0; void persistPreferences(); }}
+            >
+              <Icon name="clipboard" size="12px" />
+              <span>{t("smartClipboard")}</span>
+              {#if clipboardDetected}<b>{clipboardDetected}</b>{/if}
+            </button>
+          </div>
+          <span>{t("importLimit")}</span>
+        </div>
+        <textarea bind:this={importTextarea} class:drop-active={importDropActive} bind:value={importText} oninput={scheduleImportAnalysis} ondragover={(event) => { event.preventDefault(); importDropActive = true; }} ondragleave={() => importDropActive = false} ondrop={(event) => { event.preventDefault(); importDropActive = false; const text = event.dataTransfer?.getData("text/plain"); if (text) { importText = [importText, text].filter(Boolean).join("\n"); void analyzeImports(); } }} placeholder={t("importPlaceholder")}></textarea>
         <div class="import-analysis-state">
           {#if importAnalyzing}<span><i class="mini-spinner"></i>{t("analyzingSources")}</span>
           {:else if importAnalysisError}<span class="failed">{importAnalysisError}</span>
@@ -1649,7 +1753,7 @@
   {/if}
 
   {#if tasksVisible}
-    <Modal title={t("importQueue")} wide close={() => tasksVisible = false}>{#if !importQueue.length}<p>{t("noTasks")}</p>{:else}<div class="job-list">{#each [...importQueue].reverse() as job}<article class:failed={job.state === "failed"}><div class="job-heading"><span><strong>{job.label}</strong><span>{t(job.state as MessageKey)} · {Math.round(job.progress * 100)}%</span></span><button class="job-remove" aria-label={t("cancelImport")} data-tooltip={t("cancelImport")} onclick={() => void cancelImportJob(job.id)}>×</button></div><i><b style={`width:${job.progress * 100}%`}></b></i>{#if job.error}<p>{job.error}</p>{/if}{#if job.suggestion}<small>{job.suggestion}</small>{/if}{#if job.diagnostic}<details><summary>{t("technicalDetails")}</summary><pre>{job.diagnostic}</pre></details>{/if}</article>{/each}</div>{/if}<button onclick={() => tasksVisible = false}>{t("close")}</button></Modal>
+    <Modal title={t("importQueue")} wide close={() => tasksVisible = false}>{#if !importQueue.length}<p>{t("noTasks")}</p>{:else}<div class="job-list">{#each [...importQueue].reverse() as job}<article class:failed={job.state === "failed"}><div class="job-heading"><span><strong>{job.label}</strong><span>{t(job.state as MessageKey)} · {Math.round(job.progress * 100)}%</span></span><button class="job-remove" aria-label={t("cancelImport")} data-tooltip={t("cancelImport")} onclick={() => void cancelImportJob(job.id)}><Icon name="xmark" size="11px" /></button></div><i><b style={`width:${job.progress * 100}%`}></b></i>{#if job.error}<p>{job.error}</p>{/if}{#if job.suggestion}<small>{job.suggestion}</small>{/if}{#if job.diagnostic}<details><summary>{t("technicalDetails")}</summary><pre>{job.diagnostic}</pre></details>{/if}</article>{/each}</div>{/if}<button onclick={() => tasksVisible = false}>{t("close")}</button></Modal>
   {/if}
 
   {#if trackContextMenu}
