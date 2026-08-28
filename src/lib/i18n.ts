@@ -1,0 +1,58 @@
+export type Language = "en" | "fr";
+
+const messages = {
+  en: {
+    tagline: "Dive into the music.", noProject: "Use the native File menu to create or open a project.", playlist: "Playlist",
+    emptyPlaylist: "Create or open a project, then import WAV, MP3, or FLAC files.", waveform: "Waveform", phase: "Phase 0",
+    waveformLoading: "Preparing waveform…", loadingAudio: "Loading audio…", loadingTrack: "Loading track", audioReady: "Audio ready", waveformEmpty: "Select a track to generate its waveform.", waveformHelp: "Wheel/pinch to zoom · drag to navigate · click to seek",
+    noLoop: "No loop range", loop: "Loop", loopOff: "Loop off", position: "Position", playbackPosition: "Playback position", tempo: "Tempo", pitch: "Pitch",
+    stems: "Stems", idle: "Off", mix: "Mix", vocals: "Vocals", bass: "Bass", drums: "Drums", other: "Other", chords: "Chords", notAnalyzed: "Not analyzed",
+    enableStems: "Enable 4-stem mode", disableStems: "Disable stems", stemHelp: "Separate this track locally with HTDemucs. The first run downloads an 84 MB model; results are cached in the project.", downloadingModel: "Downloading HTDemucs model…", separatingStems: "Separating vocals, drums, bass and other…", stemsReady: "4-stem mix ready", stemFailed: "Stem separation failed", solo: "Solo",
+    working: "Working…", ready: "Ready", diagnostics: "Diagnostics", close: "Close", preferences: "Preferences", language: "Language",
+    preferencesHelp: "Choose the language used by the interface, help, and native menus.", english: "English", french: "Français",
+    shortcuts: "Keyboard Shortcuts", playPause: "Play/Pause", jump: "Jump", loopAB: "Loop A / B", clearLoop: "Clear loop",
+    version: "Version", architecture: "Architecture", logging: "Logging", unknownRate: "Unknown rate",
+    chooseProjectFolder: "Choose a project folder", projectName: "Project name", defaultProjectName: "My Band", openProject: "Open a SonArcan project",
+    trackName: "Track name", chooseDestination: "Choose the destination folder", copyName: "Name for the project copy", copySuffix: "Copy",
+    importAudio: "Import audio", supportedAudio: "Supported audio", waveformError: "Waveform generation failed", playbackError: "Playback failed", saveError: "Could not save practice state",
+    moveA: "Move A to the playhead", moveB: "Move B to the playhead", resetAB: "Reset A and B", toggleLoop: "Enable or disable repeating between A and B",
+    adjustA: "Select A for precise adjustment", adjustLoop: "Select the whole loop to move it", adjustB: "Select B for precise adjustment",
+    moveRegion: "Drag to move the complete loop without changing its duration", moveStart: "Drag the A slider to change the loop start", moveEnd: "Drag the B slider to change the loop end",
+    seekHelp: "Click to seek. Drag to pan. Use the wheel or pinch gesture to zoom.", overviewHelp: "Full-song overview. Click to seek; drag A and B to adjust the loop.",
+    back5: "Jump back five seconds", forward5: "Jump forward five seconds", previous: "Previous track", next: "Next track", play: "Play", pause: "Pause",
+    mute: "Mute", unmute: "Unmute", volume: "Volume", renameTrack: "Double-click to rename this track", slower: "Slow down by 5% without changing pitch", faster: "Speed up by 5% without changing pitch", resetTempo: "Reset playback speed to 100%", pitchDown: "Transpose down one semitone", pitchUp: "Transpose up one semitone", resetPitch: "Reset pitch to the original key", bpmAnalyzing: "Detecting tempo…", bpmUnknown: "Tempo not detected", bpmDetected: "Detected tempo",
+    gridTempo: "Grid BPM", editBpmHelp: "Edit the musical tempo used by the beat grid and metronome", bpmDown: "Decrease grid tempo by 0.1 BPM", bpmUp: "Increase grid tempo by 0.1 BPM", detected: "Detected", setGridAnchor: "Align grid here", setGridAnchorHelp: "Align the first accented grid line with the current playhead", gridAnchor: "Grid origin", nudgeGridBack: "Move the complete beat grid 10 ms earlier", nudgeGridForward: "Move the complete beat grid 10 ms later", metronome: "Metronome", metronomeHelp: "Enable the Rust real-time metronome (M)", metronomeVolume: "Metronome volume",
+    tapTempo: "Tap", tapTempoHelp: "Click repeatedly on the BPM value in time, or press T. Drag vertically, use the wheel, or double-click to reset.", numericHelp: "Drag vertically, use the mouse wheel while focused, use +/−, or double-click to reset", pitchFineHelp: "Fine tuning in cents: drag vertically, use the wheel or +/− in 1-cent steps; double-click to reset",
+    loopTrainer: "Loop Trainer", trainerHelp: "In Loop mode, count A/B repeats. In normal mode, replay and count the complete track. Increase speed after each group until the target.", loops: "loops", cycles: "cycles", repetitions: "Repetitions", increment: "Increment", targetTempo: "Target", spectrum: "Spectrum",
+    endBehavior: "End-of-track behavior", restartAtEnd: "Restart this track from the beginning", advanceAtEnd: "Continue with the next playlist track", stopAtEnd: "Stop playback at the end of this track",
+  },
+  fr: {
+    tagline: "Plongez au cœur de la musique.", noProject: "Utilisez le menu Fichier pour créer ou ouvrir un projet.", playlist: "Playlist",
+    emptyPlaylist: "Créez ou ouvrez un projet, puis importez des fichiers WAV, MP3 ou FLAC.", waveform: "Forme d’onde", phase: "Phase 0",
+    waveformLoading: "Préparation de la forme d’onde…", loadingAudio: "Chargement audio…", loadingTrack: "Chargement du morceau", audioReady: "Audio prêt", waveformEmpty: "Sélectionnez un morceau pour générer sa forme d’onde.", waveformHelp: "Molette/pincement pour zoomer · glisser pour naviguer · cliquer pour se déplacer",
+    noLoop: "Aucune plage de boucle", loop: "Boucle", loopOff: "Boucle désactivée", position: "Position", playbackPosition: "Position de lecture", tempo: "Vitesse", pitch: "Hauteur",
+    stems: "Pistes séparées", idle: "Désactivé", mix: "Mix", vocals: "Voix", bass: "Basse", drums: "Batterie", other: "Autres", chords: "Accords", notAnalyzed: "Non analysé",
+    enableStems: "Activer le mode 4 pistes", disableStems: "Désactiver les pistes", stemHelp: "Sépare ce morceau localement avec HTDemucs. Le premier lancement télécharge un modèle de 84 Mo ; le résultat est mis en cache dans le projet.", downloadingModel: "Téléchargement du modèle HTDemucs…", separatingStems: "Séparation de la voix, batterie, basse et autres…", stemsReady: "Mix 4 pistes prêt", stemFailed: "Échec de la séparation", solo: "Solo",
+    working: "Traitement…", ready: "Prêt", diagnostics: "Diagnostic", close: "Fermer", preferences: "Préférences", language: "Langue",
+    preferencesHelp: "Choisissez la langue de l’interface, de l’aide et des menus natifs.", english: "English", french: "Français",
+    shortcuts: "Raccourcis clavier", playPause: "Lecture/Pause", jump: "Déplacement", loopAB: "Boucle A / B", clearLoop: "Effacer la boucle",
+    version: "Version", architecture: "Architecture", logging: "Journalisation", unknownRate: "Fréquence inconnue",
+    chooseProjectFolder: "Choisir le dossier du projet", projectName: "Nom du projet", defaultProjectName: "Mon groupe", openProject: "Ouvrir un projet SonArcan",
+    trackName: "Nom du morceau", chooseDestination: "Choisir le dossier de destination", copyName: "Nom de la copie du projet", copySuffix: "Copie",
+    importAudio: "Importer de l’audio", supportedAudio: "Audio pris en charge", waveformError: "Échec de génération de la forme d’onde", playbackError: "Échec de la lecture", saveError: "Impossible d’enregistrer l’état de travail",
+    moveA: "Placer A sur la tête de lecture", moveB: "Placer B sur la tête de lecture", resetAB: "Réinitialiser A et B", toggleLoop: "Activer ou désactiver la répétition entre A et B",
+    adjustA: "Sélectionner A pour un réglage précis", adjustLoop: "Sélectionner toute la boucle pour la déplacer", adjustB: "Sélectionner B pour un réglage précis",
+    moveRegion: "Glisser pour déplacer toute la boucle sans modifier sa durée", moveStart: "Glisser le curseur A pour modifier le début", moveEnd: "Glisser le curseur B pour modifier la fin",
+    seekHelp: "Cliquez pour vous déplacer. Glissez pour naviguer. Utilisez la molette ou le pincement pour zoomer.", overviewHelp: "Vue globale du morceau. Cliquez pour vous déplacer ; glissez A et B pour régler la boucle.",
+    back5: "Reculer de cinq secondes", forward5: "Avancer de cinq secondes", previous: "Morceau précédent", next: "Morceau suivant", play: "Lire", pause: "Pause",
+    mute: "Couper le son", unmute: "Rétablir le son", volume: "Volume", renameTrack: "Double-cliquez pour renommer ce morceau", slower: "Ralentir de 5 % sans modifier la hauteur", faster: "Accélérer de 5 % sans modifier la hauteur", resetTempo: "Rétablir la vitesse à 100 %", pitchDown: "Transposer d’un demi-ton vers le bas", pitchUp: "Transposer d’un demi-ton vers le haut", resetPitch: "Rétablir la tonalité d’origine", bpmAnalyzing: "Détection du tempo…", bpmUnknown: "Tempo non détecté", bpmDetected: "Tempo détecté",
+    gridTempo: "BPM de grille", editBpmHelp: "Modifier le tempo musical utilisé par la grille et le métronome", bpmDown: "Réduire le tempo de grille de 0,1 BPM", bpmUp: "Augmenter le tempo de grille de 0,1 BPM", detected: "Détecté", setGridAnchor: "Aligner la grille ici", setGridAnchorHelp: "Aligner la première ligne accentuée de la grille sur la tête de lecture", gridAnchor: "Origine de grille", nudgeGridBack: "Déplacer toute la grille 10 ms plus tôt", nudgeGridForward: "Déplacer toute la grille 10 ms plus tard", metronome: "Métronome", metronomeHelp: "Activer le métronome temps réel Rust (M)", metronomeVolume: "Volume du métronome",
+    tapTempo: "Tap", tapTempoHelp: "Cliquez plusieurs fois en rythme sur la valeur BPM, ou appuyez sur T. Glissez verticalement, utilisez la molette ou double-cliquez pour réinitialiser.", numericHelp: "Glissez verticalement, utilisez la molette avec le focus, les boutons +/− ou double-cliquez pour réinitialiser", pitchFineHelp: "Accord fin en cents : glissez verticalement, utilisez la molette ou +/− par pas de 1 cent ; double-cliquez pour réinitialiser",
+    loopTrainer: "Loop Trainer", trainerHelp: "En mode Boucle, compter les répétitions A/B. En mode normal, relire et compter le morceau complet. Augmenter ensuite la vitesse jusqu’à la cible.", loops: "boucles", cycles: "cycles", repetitions: "Répétitions", increment: "Incrément", targetTempo: "Cible", spectrum: "Spectre",
+    endBehavior: "Comportement en fin de morceau", restartAtEnd: "Reprendre ce morceau depuis le début", advanceAtEnd: "Enchaîner avec le morceau suivant de la playlist", stopAtEnd: "Arrêter la lecture à la fin de ce morceau",
+  },
+} as const;
+
+export type MessageKey = keyof typeof messages.en;
+export const translate = (language: Language, key: MessageKey): string => messages[language][key];
+export const systemLanguage = (): Language => navigator.language.toLowerCase().startsWith("fr") ? "fr" : "en";
