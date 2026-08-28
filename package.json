@@ -7,6 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "node --test src/lib/*.test.ts",
+    "format:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked",
+    "quality": "npm run check && npm run test && npm run build && npm run format:rust && npm run lint:rust && npm run test:rust",
+    "security:npm": "npm audit --package-lock-only --audit-level=low",
+    "security:osv": "osv-scanner scan source --recursive --config osv-scanner.toml .",
+    "security": "npm run security:npm && npm run security:osv",
     "tauri": "tauri"
   },
   "dependencies": {

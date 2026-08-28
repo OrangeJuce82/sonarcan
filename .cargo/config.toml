@@ -1,0 +1,8 @@
+[build]
+rustflags = ["-D", "warnings"]
+
+# Cargo otherwise repeats a future-incompatibility summary for the `block`
+# crate pulled by Metal/wgpu. The exception is tracked and time-bounded in
+# SECURITY.md; compiler warnings in SonArcan remain hard errors above.
+[future-incompat-report]
+frequency = "never"

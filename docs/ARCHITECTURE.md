@@ -19,6 +19,20 @@ Rust application services
 
 The Rust core must remain usable and testable without a webview. UI commands validate input, call a core service, and serialize a result. Business rules do not belong in Tauri command handlers or Svelte components.
 
+## Frontend structure
+
+`App.svelte` is the composition shell, not a destination for new domain logic.
+Reusable visual controls live in `src/lib/*.svelte`; serialized contracts live in
+`src/lib/types.ts`; IPC calls live in `src/lib/backend.ts`; pure formatting,
+waveform reduction, beat-grid projection, and similar calculations live in typed
+modules with Node tests. Larger UI responsibilities are extracted only after
+their state and event boundary is stable.
+
+House components remain lightweight and dependency-free. Shared CSS custom
+properties define the visual language. Every interactive component implements
+keyboard operation, visible focus, disabled state, and accessible naming where
+native semantics are insufficient.
+
 ## Frontend boundary
 
 The frontend uses TypeScript interfaces matching serialized Rust DTOs. Commands are appropriate for finite request/response operations such as opening a project. Versioned events or channels will be used for job progress and playback state.
@@ -39,6 +53,10 @@ Imported media is copied into the project `Audio/` directory and the original so
 
 Playback now uses the dedicated Rust/CPAL engine. The earlier webview media prototype has been removed.
 
+Project manifests are untrusted input. A stored media path is canonicalized and
+must resolve to a regular file below the package's `Audio` directory before audio
+read or deletion. This also prevents symlink and traversal escapes.
+
 ## Real-time audio contract
 
 The audio callback must never:
@@ -51,6 +69,11 @@ The audio callback must never:
 - emit synchronous logs.
 
 Control messages will use bounded queues and preallocated buffers. Dropout and underrun counters will be exported through non-real-time diagnostics.
+
+UI polling is bounded and guarded against overlapping requests. Prefer versioned
+events when they reduce IPC frequency without introducing callback work. Optional
+analysis and model initialization stays lazy; the selected track is loaded first,
+and background cache warming must yield to active user work.
 
 ## Error model
 

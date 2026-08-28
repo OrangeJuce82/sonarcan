@@ -39,7 +39,7 @@ Requirements: Node.js 22+, stable Rust 1.78+, and the [Tauri 2 platform prerequi
 
 ```bash
 npm install
-npm run check
+npm run quality
 npm run tauri dev
 ```
 
@@ -49,13 +49,10 @@ Frontend-only development:
 npm run dev
 ```
 
-Rust validation:
+Dependency security audit (requires OSV-Scanner):
 
 ```bash
-cd src-tauri
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+npm run security
 ```
 
 ## Project format
@@ -76,7 +73,8 @@ The versioned `project.json` manifest is human-readable. Generated analysis and 
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [Development](docs/DEVELOPMENT.md)
+- [Architecture](docs/ARCHITECTURE.md) · [Quality plan](docs/QUALITY.md) · [Development](docs/DEVELOPMENT.md)
+- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Roadmap](docs/ROADMAP.md)
 - [Practice workflow](docs/PRACTICE_WORKFLOW.md) · [Project management](docs/PROJECT_MANAGEMENT.md)
 - [Waveforms](docs/WAVEFORM.md) · [Real-time audio](docs/AUDIO_ENGINE.md) · [Native menus](docs/NATIVE_MENUS.md)
 - [Product specification](CAHIER_DES_CHARGES.md) — French specification; implementation documentation and code are written in English.

@@ -7,7 +7,8 @@
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
-  import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, TempoAnalysis, TrackSummary, UserPreferences, WaveformData, WaveformPeak } from "./lib/types";
+  import { buildProjectPath, calculateBeatLines, formatPitch, formatTime, formatTimePrecise, visiblePeaks } from "./lib/presentation";
+  import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
@@ -92,23 +93,11 @@
   const loadingWave = Array.from({ length: 72 }, (_, index) => Math.min(0.95, 0.12 + Math.abs(Math.sin(index * 0.71) * Math.cos(index * 0.17)) * 0.78));
   const warmedProjects = new Set<string>();
   type LoopDragMode = "a" | "b" | "region";
-  type ProjectPathPart = { label: string; path: string };
   let loopDrag: { mode: LoopDragMode; pointerId: number; originTime: number; a: number; b: number } | null = null;
   let language: Language = systemLanguage();
   const t = (key: MessageKey): string => translate(language, key);
 
   $: projectPathParts = project ? buildProjectPath(project.packagePath) : [];
-
-  function buildProjectPath(packagePath: string): ProjectPathPart[] {
-    const normalized = packagePath.replaceAll("\\", "/");
-    const absolute = normalized.startsWith("/");
-    const segments = normalized.split("/").filter(Boolean);
-    let current = absolute ? "/" : "";
-    return segments.map((label) => {
-      current = current === "/" ? `/${label}` : current ? `${current}/${label}` : label;
-      return { label, path: current };
-    });
-  }
 
   function focusOnMount(node: HTMLInputElement): void {
     queueMicrotask(() => {
@@ -855,27 +844,6 @@
     selectTrack(project.tracks[nextIndex]);
   }
 
-  function formatTime(value: number): string {
-    if (!Number.isFinite(value) || value < 0) return "00:00";
-    const minutes = Math.floor(value / 60);
-    const seconds = Math.floor(value % 60);
-    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-
-  function formatTimePrecise(value: number): string {
-    if (!Number.isFinite(value) || value < 0) return "00:00.000";
-    const minutes = Math.floor(value / 60);
-    const seconds = value % 60;
-    return `${String(minutes).padStart(2, "0")}:${seconds.toFixed(3).padStart(6, "0")}`;
-  }
-
-  function formatPitch(value: number): string {
-    const cents = Math.round(value * 100);
-    return Math.abs(value) < 1
-      ? `${cents > 0 ? "+" : ""}${cents} ct`
-      : `${value > 0 ? "+" : ""}${value.toFixed(2)} st`;
-  }
-
   function seek(position: number): void {
     if (!Number.isFinite(position)) return;
     currentSeconds = Math.max(0, Math.min(position, durationSeconds));
@@ -976,23 +944,14 @@
   }
 
   function beatLines(detailed: boolean): { percent: number; accent: boolean }[] {
-    if (gridBpm === null || durationSeconds <= 0) return [];
-    const period = 60 / gridBpm;
-    const visibleStart = detailed ? waveformStart * durationSeconds : 0;
-    const visibleEnd = detailed ? (waveformStart + 1 / waveformZoom) * durationSeconds : durationSeconds;
-    const firstBeat = Math.ceil((visibleStart - beatGridOffsetSeconds) / period);
-    const lastBeat = Math.floor((visibleEnd - beatGridOffsetSeconds) / period);
-    const count = Math.min(500, Math.max(0, lastBeat - firstBeat + 1));
-    const lines: { percent: number; accent: boolean }[] = [];
-    for (let index = 0; index < count; index += 1) {
-      const beat = firstBeat + index;
-      const seconds = beatGridOffsetSeconds + beat * period;
-      const percent = detailed
-        ? (seconds / durationSeconds - waveformStart) * waveformZoom * 100
-        : seconds / durationSeconds * 100;
-      lines.push({ percent, accent: ((beat % 4) + 4) % 4 === 0 });
-    }
-    return lines;
+    return calculateBeatLines({
+      bpm: gridBpm,
+      durationSeconds,
+      offsetSeconds: beatGridOffsetSeconds,
+      detailed,
+      zoom: waveformZoom,
+      start: waveformStart,
+    });
   }
 
   function setLoopA(): void {
@@ -1203,23 +1162,6 @@
     } catch (error) {
       errorMessage = `${t("saveError")}: ${error instanceof Error ? error.message : String(error)}`;
     }
-  }
-
-  function visiblePeaks(source: WaveformPeak[], zoom: number, start: number, maximum: number): WaveformPeak[] {
-    if (source.length === 0) return [];
-    const first = Math.floor(start * source.length);
-    const count = Math.max(1, Math.ceil(source.length / zoom));
-    const selection = source.slice(first, Math.min(source.length, first + count));
-    const groupSize = Math.max(1, Math.ceil(selection.length / maximum));
-    const result: WaveformPeak[] = [];
-    for (let index = 0; index < selection.length; index += groupSize) {
-      const group = selection.slice(index, index + groupSize);
-      result.push({
-        min: Math.min(...group.map((peak) => peak.min)),
-        max: Math.max(...group.map((peak) => peak.max)),
-      });
-    }
-    return result;
   }
 
   function zoomWaveform(event: WheelEvent): void {
