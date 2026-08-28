@@ -4,7 +4,6 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, createProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, updatePracticeState } from "./lib/backend";
-  import appIconUrl from "../src-tauri/icons/icon.png?url";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
@@ -73,6 +72,8 @@
   let dropTrackId: string | null = null;
   let dropTrackIndex: number | null = null;
   let trackContextMenu: { trackId: string; x: number; y: number } | null = null;
+  let editingProjectName = false;
+  let projectNameDraft = "";
   let endBehavior: EndBehavior = "stop";
   let endedGeneration = 0;
   let waveformZoom = 1;
@@ -91,9 +92,23 @@
   const loadingWave = Array.from({ length: 72 }, (_, index) => Math.min(0.95, 0.12 + Math.abs(Math.sin(index * 0.71) * Math.cos(index * 0.17)) * 0.78));
   const warmedProjects = new Set<string>();
   type LoopDragMode = "a" | "b" | "region";
+  type ProjectPathPart = { label: string; path: string };
   let loopDrag: { mode: LoopDragMode; pointerId: number; originTime: number; a: number; b: number } | null = null;
   let language: Language = systemLanguage();
   const t = (key: MessageKey): string => translate(language, key);
+
+  $: projectPathParts = project ? buildProjectPath(project.packagePath) : [];
+
+  function buildProjectPath(packagePath: string): ProjectPathPart[] {
+    const normalized = packagePath.replaceAll("\\", "/");
+    const absolute = normalized.startsWith("/");
+    const segments = normalized.split("/").filter(Boolean);
+    let current = absolute ? "/" : "";
+    return segments.map((label) => {
+      current = current === "/" ? `/${label}` : current ? `${current}/${label}` : label;
+      return { label, path: current };
+    });
+  }
 
   function focusOnMount(node: HTMLInputElement): void {
     queueMicrotask(() => {
@@ -314,11 +329,22 @@
 
   function renameCurrentProject(): void {
     if (!project) return;
-    const name = window.prompt(t("projectName"), project.name)?.trim();
+    editingProjectName = true;
+    projectNameDraft = project.name;
+  }
+
+  function commitProjectName(): void {
+    if (!editingProjectName || !project) return;
+    editingProjectName = false;
+    const name = projectNameDraft.trim();
     if (!name || name === project.name) return;
     void run(async () => {
       project = await renameProject(project!.packagePath, name);
     });
+  }
+
+  function cancelProjectName(): void {
+    editingProjectName = false;
   }
 
   function startTrackRename(track: TrackSummary): void {
@@ -616,11 +642,14 @@
     });
   }
 
-  function showProjectInFileManager(): void {
-    if (!project) return;
-    void revealProject(project.packagePath).catch((error) => {
+  function showPathInFileManager(path: string): void {
+    void revealProject(path).catch((error) => {
       errorMessage = error instanceof Error ? error.message : String(error);
     });
+  }
+
+  function showProjectInFileManager(): void {
+    if (project) showPathInFileManager(project.packagePath);
   }
 
   function openCommunityLink(target: "github" | "donate"): void {
@@ -1245,13 +1274,37 @@
 
 <main class="shell" class:console-open={consoleVisible}>
   <header class="topbar">
-    <div class="app-identity"><img src={appIconUrl} alt="SonArcan" /></div>
-    <button class="project-context" disabled={!project} data-tooltip={project ? t("revealProject") : t("noProject")} onclick={showProjectInFileManager}>{project ? project.packagePath : t("noProject")}</button>
+    <div class="project-header">
+      {#if project}
+        <div class="project-name-wrap">
+          {#if editingProjectName}
+            <input class="project-name-input" bind:value={projectNameDraft} aria-label={t("projectName")} use:focusOnMount onblur={commitProjectName} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") cancelProjectName(); }} />
+          {:else}
+            <button class="project-name" data-tooltip={t("projectName")} onclick={renameCurrentProject}>{project.name}</button>
+          {/if}
+        </div>
+        <div class="project-path" aria-label={project.packagePath} title={project.packagePath}>
+          {#each [...projectPathParts].reverse() as part, index}
+            {#if index > 0}<span class="path-separator">/</span>{/if}
+            <button onclick={() => showPathInFileManager(part.path)}>{part.label}</button>
+          {/each}
+          {#if project.packagePath.startsWith("/")}<span class="path-separator">/</span>{/if}
+        </div>
+      {:else}
+        <span class="project-empty">{t("noProject")}</span>
+      {/if}
+    </div>
     <div class="header-actions">
       <button class="header-icon-link" aria-label={t("openGithub")} data-tooltip={t("openGithub")} onclick={() => openCommunityLink("github")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.77c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg></button>
       <button class="header-icon-link donate" aria-label={t("supportProject")} data-tooltip={t("supportProject")} onclick={() => openCommunityLink("donate")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h12v3h1.5a3.5 3.5 0 0 1 0 7H17v1a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V5Zm12 5v3h1.5a1.5 1.5 0 0 0 0-3H17ZM7 7v9a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V7H7Zm1.5-5h2v2h-2V2Zm4 0h2v2h-2V2Z" /></svg></button>
       <div class="master-output" aria-label={t("masterVolume")}>
-        <button class="master-mute" class:muted={volume === 0} onclick={toggleMute} aria-label={volume > 0 ? t("mute") : t("unmute")} data-tooltip={volume > 0 ? t("mute") : t("unmute")}>{volume > 0 ? "◖" : "×"}</button>
+        <button class="master-mute" class:muted={volume === 0} onclick={toggleMute} aria-label={volume > 0 ? t("mute") : t("unmute")} data-tooltip={volume > 0 ? t("mute") : t("unmute")}>
+          {#if volume > 0}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" /><path d="M16 9.5a4 4 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10" /></svg>
+          {:else}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" /><path d="m17 9 4 6m0-6-4 6" /></svg>
+          {/if}
+        </button>
         <input aria-label={t("masterVolume")} type="range" min="0" max="1" step="0.01" value={volume} oninput={(event) => changeVolume(Number(event.currentTarget.value))} />
         <output>{Math.round(volume * 100)}%</output>
         <div class="master-meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`}><i style={`width:${Math.min(100, masterPeak * 100)}%`}></i></div>
