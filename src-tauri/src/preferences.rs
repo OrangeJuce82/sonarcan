@@ -1,0 +1,154 @@
+use std::{fs, path::PathBuf, sync::Mutex};
+
+use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
+
+use crate::error::AppError;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct UserPreferences {
+    pub theme: Theme,
+    pub language: String,
+    pub smart_clipboard: bool,
+    pub search_mode: SearchMode,
+    pub max_import_batch: usize,
+    pub concurrent_downloads: usize,
+    pub conversion_format: ConversionFormat,
+    pub sample_rate: SampleRatePreference,
+    pub channels: ChannelPreference,
+    pub mp3_quality: Mp3Quality,
+    pub master_volume: f32,
+    pub metronome_volume: f32,
+    pub default_playback_rate: f64,
+    pub default_pitch_semitones: f64,
+    pub default_trainer_enabled: bool,
+    pub default_trainer_repetitions: u32,
+    pub default_trainer_increment: f64,
+    pub default_trainer_target_rate: f64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    System,
+    Dark,
+    Light,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchMode {
+    AutomaticFirst,
+    ChooseFive,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversionFormat {
+    Keep,
+    Mp3,
+    Wav,
+    Flac,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SampleRatePreference {
+    Preserve,
+    Hz44100,
+    Hz48000,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChannelPreference {
+    Preserve,
+    Stereo,
+    Mono,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Mp3Quality {
+    VbrHigh,
+    Kbps320,
+    Kbps256,
+    Kbps192,
+}
+
+impl Default for UserPreferences {
+    fn default() -> Self {
+        Self {
+            theme: Theme::System,
+            language: "en".into(),
+            smart_clipboard: false,
+            search_mode: SearchMode::ChooseFive,
+            max_import_batch: 10,
+            concurrent_downloads: 3,
+            conversion_format: ConversionFormat::Mp3,
+            sample_rate: SampleRatePreference::Preserve,
+            channels: ChannelPreference::Stereo,
+            mp3_quality: Mp3Quality::VbrHigh,
+            master_volume: 0.8,
+            metronome_volume: 0.55,
+            default_playback_rate: 1.0,
+            default_pitch_semitones: 0.0,
+            default_trainer_enabled: false,
+            default_trainer_repetitions: 3,
+            default_trainer_increment: 0.05,
+            default_trainer_target_rate: 1.0,
+        }
+    }
+}
+
+pub struct PreferencesStore(Mutex<UserPreferences>);
+
+impl PreferencesStore {
+    pub fn load() -> Self {
+        let preferences = preference_path()
+            .and_then(|path| fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        Self(Mutex::new(preferences))
+    }
+
+    pub fn get(&self) -> UserPreferences {
+        self.0.lock().map(|value| value.clone()).unwrap_or_default()
+    }
+
+    pub fn save(&self, mut value: UserPreferences) -> Result<UserPreferences, AppError> {
+        validate(&mut value);
+        let path = preference_path().ok_or_else(|| {
+            AppError::BackgroundTask("preferences directory is unavailable".into())
+        })?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| AppError::io(parent, error))?;
+        }
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, serde_json::to_vec_pretty(&value)?)
+            .map_err(|error| AppError::io(&temporary, error))?;
+        fs::rename(&temporary, &path).map_err(|error| AppError::io(&path, error))?;
+        *self
+            .0
+            .lock()
+            .map_err(|_| AppError::BackgroundTask("preferences state is unavailable".into()))? =
+            value.clone();
+        Ok(value)
+    }
+}
+
+fn preference_path() -> Option<PathBuf> {
+    ProjectDirs::from("music", "SonArcan", "SonArcan")
+        .map(|dirs| dirs.config_dir().join("preferences.json"))
+}
+fn validate(value: &mut UserPreferences) {
+    value.max_import_batch = value.max_import_batch.clamp(1, 100);
+    value.concurrent_downloads = value.concurrent_downloads.clamp(1, 8);
+    value.master_volume = value.master_volume.clamp(0.0, 1.0);
+    value.metronome_volume = value.metronome_volume.clamp(0.0, 1.0);
+    value.default_playback_rate = value.default_playback_rate.clamp(0.5, 2.0);
+    value.default_pitch_semitones = value.default_pitch_semitones.clamp(-12.0, 12.0);
+    value.default_trainer_repetitions = value.default_trainer_repetitions.clamp(1, 99);
+    value.default_trainer_increment = value.default_trainer_increment.clamp(0.01, 0.25);
+    value.default_trainer_target_rate = value.default_trainer_target_rate.clamp(0.5, 2.0);
+    if value.language != "fr" {
+        value.language = "en".into();
+    }
+}

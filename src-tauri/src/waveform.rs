@@ -1,25 +1,21 @@
-use std::{fs, fs::File, path::Path};
+use std::{fs, path::Path};
 
 use serde::{Deserialize, Serialize};
-use symphonia::core::{
-    audio::SampleBuffer, codecs::DecoderOptions, errors::Error as SymphoniaError,
-    formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint,
-};
 use uuid::Uuid;
 
-use crate::{error::AppError, project};
+use crate::{audio_engine::DecodedAudio, error::AppError};
 
 const CACHE_VERSION: u32 = 1;
 const TARGET_BUCKETS: usize = 32_768;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WaveformPeak {
     pub min: f32,
     pub max: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WaveformData {
     pub cache_version: u32,
@@ -28,21 +24,42 @@ pub struct WaveformData {
     pub peaks: Vec<WaveformPeak>,
 }
 
-pub fn load_or_generate(package_path: &Path, track_id: Uuid) -> Result<WaveformData, AppError> {
-    let cache_path = package_path
-        .join("Analysis")
-        .join("waveform")
-        .join(format!("{track_id}.json"));
-    if let Ok(bytes) = fs::read(&cache_path) {
-        if let Ok(cached) = serde_json::from_slice::<WaveformData>(&bytes) {
-            if cached.cache_version == CACHE_VERSION && cached.track_id == track_id {
-                return Ok(cached);
-            }
-        }
-    }
+pub fn load_cached(package_path: &Path, track_id: Uuid) -> Option<WaveformData> {
+    let cache_path = cache_path(package_path, track_id);
+    let bytes = fs::read(cache_path).ok()?;
+    let cached = serde_json::from_slice::<WaveformData>(&bytes).ok()?;
+    (cached.cache_version == CACHE_VERSION && cached.track_id == track_id).then_some(cached)
+}
 
-    let media_path = project::track_media_path(package_path, track_id)?;
-    let waveform = generate(&media_path, track_id)?;
+pub fn generate_and_store_from_decoded(
+    package_path: &Path,
+    track_id: Uuid,
+    audio: &DecodedAudio,
+) -> Result<WaveformData, AppError> {
+    if let Some(cached) = load_cached(package_path, track_id) {
+        return Ok(cached);
+    }
+    let frames_per_bucket = audio.frames.div_ceil(TARGET_BUCKETS).max(1);
+    let peaks = audio
+        .samples
+        .chunks(audio.channels * frames_per_bucket)
+        .map(|samples| WaveformPeak {
+            min: samples.iter().copied().fold(1.0, f32::min),
+            max: samples.iter().copied().fold(-1.0, f32::max),
+        })
+        .collect();
+    let waveform = WaveformData {
+        cache_version: CACHE_VERSION,
+        track_id,
+        duration_seconds: audio.frames as f64 / audio.sample_rate as f64,
+        peaks,
+    };
+    store(package_path, &waveform)?;
+    Ok(waveform)
+}
+
+fn store(package_path: &Path, waveform: &WaveformData) -> Result<(), AppError> {
+    let cache_path = cache_path(package_path, waveform.track_id);
     if let Some(parent) = cache_path.parent() {
         fs::create_dir_all(parent).map_err(|error| AppError::io(parent, error))?;
     }
@@ -50,120 +67,43 @@ pub fn load_or_generate(package_path: &Path, track_id: Uuid) -> Result<WaveformD
     let bytes = serde_json::to_vec(&waveform)?;
     fs::write(&temporary, bytes).map_err(|error| AppError::io(&temporary, error))?;
     fs::rename(&temporary, &cache_path).map_err(|error| AppError::io(&cache_path, error))?;
-    Ok(waveform)
+    Ok(())
 }
 
-fn generate(path: &Path, track_id: Uuid) -> Result<WaveformData, AppError> {
-    let file = File::open(path).map_err(|error| AppError::io(path, error))?;
-    let source = MediaSourceStream::new(Box::new(file), Default::default());
-    let mut hint = Hint::new();
-    if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
-        hint.with_extension(extension);
-    }
-    let probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            source,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|error| invalid_audio(path, error))?;
-    let mut format = probed.format;
-    let track = format
-        .default_track()
-        .ok_or_else(|| AppError::InvalidAudio {
-            path: path.to_path_buf(),
-            reason: "the file contains no default audio track".to_owned(),
-        })?;
-    let decoder_track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate.unwrap_or(44_100);
-    let expected_frames = track.codec_params.n_frames.unwrap_or(0) as usize;
-    let frames_per_bucket = if expected_frames == 0 {
-        2_048
-    } else {
-        expected_frames.div_ceil(TARGET_BUCKETS).max(1)
-    };
-    let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &DecoderOptions::default())
-        .map_err(|error| invalid_audio(path, error))?;
+fn cache_path(package_path: &Path, track_id: Uuid) -> std::path::PathBuf {
+    package_path
+        .join("Analysis")
+        .join("waveform")
+        .join(format!("{track_id}.json"))
+}
 
-    let mut peaks = Vec::with_capacity(TARGET_BUCKETS.min(expected_frames));
-    let mut bucket_min = 1.0_f32;
-    let mut bucket_max = -1.0_f32;
-    let mut bucket_frames = 0_usize;
-    let mut decoded_frames = 0_u64;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    loop {
-        let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(SymphoniaError::IoError(error))
-                if error.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break
-            }
-            Err(error) => return Err(invalid_audio(path, error)),
+    #[test]
+    fn generates_and_reuses_a_project_waveform_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let package_path = temp.path().join("Waveform Test.sac");
+        let track_id = Uuid::new_v4();
+        let samples = (0..8_000)
+            .map(|index| if index % 100 < 50 { 0.5 } else { -0.5 })
+            .collect();
+        let audio = DecodedAudio {
+            samples,
+            channels: 1,
+            sample_rate: 8_000,
+            frames: 8_000,
         };
-        if packet.track_id() != decoder_track_id {
-            continue;
-        }
-        let decoded = match decoder.decode(&packet) {
-            Ok(decoded) => decoded,
-            Err(SymphoniaError::DecodeError(_)) => continue,
-            Err(error) => return Err(invalid_audio(path, error)),
-        };
-        let channels = decoded.spec().channels.count();
-        let mut samples = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
-        samples.copy_interleaved_ref(decoded);
-        for frame in samples.samples().chunks(channels) {
-            for sample in frame {
-                bucket_min = bucket_min.min(*sample);
-                bucket_max = bucket_max.max(*sample);
-            }
-            bucket_frames += 1;
-            decoded_frames += 1;
-            if bucket_frames >= frames_per_bucket {
-                peaks.push(WaveformPeak {
-                    min: bucket_min,
-                    max: bucket_max,
-                });
-                bucket_min = 1.0;
-                bucket_max = -1.0;
-                bucket_frames = 0;
-            }
-        }
-    }
-    if bucket_frames > 0 {
-        peaks.push(WaveformPeak {
-            min: bucket_min,
-            max: bucket_max,
-        });
-    }
-    if peaks.len() > TARGET_BUCKETS {
-        peaks = reduce_peaks(&peaks, TARGET_BUCKETS);
-    }
 
-    Ok(WaveformData {
-        cache_version: CACHE_VERSION,
-        track_id,
-        duration_seconds: decoded_frames as f64 / sample_rate as f64,
-        peaks,
-    })
-}
+        let generated = generate_and_store_from_decoded(&package_path, track_id, &audio).unwrap();
+        let cached = generate_and_store_from_decoded(&package_path, track_id, &audio).unwrap();
 
-fn reduce_peaks(source: &[WaveformPeak], target: usize) -> Vec<WaveformPeak> {
-    let group_size = source.len().div_ceil(target);
-    source
-        .chunks(group_size)
-        .map(|group| WaveformPeak {
-            min: group.iter().map(|peak| peak.min).fold(1.0, f32::min),
-            max: group.iter().map(|peak| peak.max).fold(-1.0, f32::max),
-        })
-        .collect()
-}
-
-fn invalid_audio(path: &Path, error: SymphoniaError) -> AppError {
-    AppError::InvalidAudio {
-        path: path.to_path_buf(),
-        reason: error.to_string(),
+        assert!(!generated.peaks.is_empty());
+        assert_eq!(generated, cached);
+        assert!(package_path
+            .join("Analysis/waveform")
+            .join(format!("{track_id}.json"))
+            .is_file());
     }
 }

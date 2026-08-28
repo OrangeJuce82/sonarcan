@@ -3,6 +3,7 @@ name = "sonarcan"
 version = "0.1.0"
 description = "Dive into the music."
 authors = ["SonArcan contributors"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.78"
 
@@ -15,12 +16,24 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+arc-swap = "1"
+arboard = "3.6"
+burn = { version = "0.20.1", default-features = false, features = ["std", "wgpu", "ndarray", "simd"] }
+burn-ndarray = { version = "0.20.1", default-features = false, features = ["std", "simd", "multi-threads"] }
+cpal = "0.16"
+demucs-core = { git = "https://github.com/nikhilunni/demucs-rs.git", rev = "5d9f61a2e15987c5ea9a9fe92300b64d994bcd12", features = ["wgpu", "ndarray"] }
+pollster = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+rusty-chromaprint = "0.3.0"
+sha2 = "0.10"
+rustfft = "6.4"
 directories = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+signalsmith-stretch = "0.1.3"
 symphonia = { version = "0.5", features = ["mp3", "flac", "wav"] }
 thiserror = "2"
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
