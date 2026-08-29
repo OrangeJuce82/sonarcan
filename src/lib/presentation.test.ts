@@ -11,8 +11,11 @@ import {
   formatTimePrecise,
   isMetronomeBeatActive,
   moveWaveformViewport,
+  panWaveformViewportFromWheel,
   resizeWaveformViewport,
+  trackLoadPosition,
   visiblePeaks,
+  waveformWheelAxis,
   zoomWaveformViewport,
 } from "./presentation.ts";
 
@@ -43,6 +46,13 @@ test("default loop bounds cover a track without enabling loop mode", () => {
   assert.deepEqual(defaultLoopBounds(null, null, 123.5), { a: 0, b: 123.5 });
   assert.deepEqual(defaultLoopBounds(null, null, 0), { a: 0, b: null });
   assert.deepEqual(defaultLoopBounds(12, null, 123.5), { a: 12, b: null });
+});
+
+test("track loads always start at zero unless an active loop is configured to start at A", () => {
+  assert.equal(trackLoadPosition(false, 12.5, "loopStart"), 0);
+  assert.equal(trackLoadPosition(true, 12.5, "beginning"), 0);
+  assert.equal(trackLoadPosition(true, 12.5, "loopStart"), 12.5);
+  assert.equal(trackLoadPosition(true, null, "loopStart"), 0);
 });
 
 test("time and pitch formatters handle boundaries", () => {
@@ -112,6 +122,16 @@ test("waveform viewport movement preserves its span and stays in bounds", () => 
   assert.deepEqual(moveWaveformViewport(0.25, 4, 0.1), { start: 0.35, zoom: 4 });
   assert.deepEqual(moveWaveformViewport(0.75, 4, 0.5), { start: 0.75, zoom: 4 });
   assert.deepEqual(moveWaveformViewport(0.25, 4, -0.5), { start: 0, zoom: 4 });
+});
+
+test("trackpad gestures pan horizontally and lock one axis per gesture", () => {
+  assert.equal(waveformWheelAxis(24, 3, null), "horizontal");
+  assert.equal(waveformWheelAxis(3, 24, null), "vertical");
+  assert.equal(waveformWheelAxis(2, 30, "horizontal"), "horizontal");
+  assert.deepEqual(panWaveformViewportFromWheel(0.25, 4, 100, 1_000), {
+    start: 0.275,
+    zoom: 4,
+  });
 });
 
 test("waveform viewport edges resize independently down to the minimum span", () => {

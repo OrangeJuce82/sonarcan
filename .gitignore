@@ -9,7 +9,8 @@ __pycache__/
 .venv/
 tools/sonarcan-mlx-worker/.venv/
 src-tauri/resources/mlx-runtime/runtime/
-src-tauri/resources/audio-tools/
+src-tauri/resources/audio-tools/*
+!src-tauri/resources/audio-tools/README.md
 src-tauri/resources/models/demucs-mlx/*.safetensors
 src-tauri/resources/models/demucs-mlx/*_config.json
 release-artifacts/

@@ -2,7 +2,7 @@
 
 ## Session restoration
 
-At startup, SonArcan opens the most recent project that is still present on disk. Its first playlist track is loaded into the Rust audio engine without starting playback, and the persisted practice position is restored. Restoration is best-effort: a missing, inaccessible, or invalid recent project never prevents the application from opening.
+At startup, SonArcan opens the most recent project that is still present on disk. Its remembered playlist track is loaded into the Rust audio engine without starting playback. Like every other track load, it starts at zero unless Loop is active and the user preference selects point A. Restoration is best-effort: a missing, inaccessible, or invalid recent project never prevents the application from opening.
 
 ## Autosave model
 

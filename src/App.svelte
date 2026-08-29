@@ -11,10 +11,11 @@
   import { droppedAudioPaths } from "./lib/importPaths";
   import { ImportSearchCache } from "./lib/importSearchCache";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
+  import { shouldHandleGlobalShortcut } from "./lib/globalShortcuts";
   import Icon from "./lib/Icon.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
-  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, isMetronomeBeatActive, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
+  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, isMetronomeBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, trackLoadPosition, visiblePeaks, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
@@ -81,7 +82,7 @@
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
   let stemExportCompletedPath = "";
-  let preferences: UserPreferences = { theme: "system", language: "en", concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  let preferences: UserPreferences = { theme: "system", language: "en", concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
   let importCandidateGroups: ImportCandidateGroup[] = [];
@@ -132,6 +133,8 @@
   let seekAnimationFrame: number | undefined;
   let pendingSeekPosition: number | null = null;
   let seekRequestActive = false;
+  let activeWaveformWheelAxis: WaveformWheelAxis | null = null;
+  let waveformWheelAxisTimer: number | undefined;
   let statusRequestActive = false;
   let systemMetricsSnapshot: SystemMetrics = { cpuPercent: null, memoryMegabytes: null };
   let trackSelectionGeneration = 0;
@@ -188,21 +191,29 @@
       void openRequestedProject();
     });
     const handleKeydown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape" && document.querySelector("dialog[open]")) return;
+      if (document.querySelector("dialog[open]") || !shouldHandleGlobalShortcut(event)) return;
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable='true']") || !project) return;
-      if (event.code === "Space") {
+      const key = event.key.toLowerCase();
+      if (key === "c") {
+        event.preventDefault();
+        if (!event.repeat) toggleConsole();
+      }
+      else if (key === "h") {
+        event.preventDefault();
+        if (!event.repeat) toggleHelp();
+      }
+      else if (target?.closest("button, a[href]") || !project) return;
+      else if (event.code === "Space") {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) togglePlayback();
       }
-      else if (event.key.toLowerCase() === "a") { event.preventDefault(); setLoopA(); }
-      else if (event.key.toLowerCase() === "b") { event.preventDefault(); setLoopB(); }
-      else if (event.key.toLowerCase() === "l") { event.preventDefault(); toggleLoop(); }
+      else if (key === "a") { event.preventDefault(); setLoopA(); }
+      else if (key === "b") { event.preventDefault(); setLoopB(); }
+      else if (key === "l") { event.preventDefault(); toggleLoop(); }
       else if (event.key === "Escape") { event.preventDefault(); clearLoop(); }
-      else if (event.key.toLowerCase() === "m") { event.preventDefault(); toggleMetronome(); }
-      else if (event.key.toLowerCase() === "t") { event.preventDefault(); tapTempo(); }
-      else if (target?.matches("button")) return;
+      else if (key === "m") { event.preventDefault(); toggleMetronome(); }
+      else if (key === "t") { event.preventDefault(); tapTempo(); }
       else if (event.key === "ArrowLeft") { event.preventDefault(); jump(-5); }
       else if (event.key === "ArrowRight") { event.preventDefault(); jump(5); }
       else if (event.key === "-" || event.key === "_") { event.preventDefault(); changePlaybackRate(-0.05); }
@@ -442,7 +453,7 @@
     project = nextProject;
     const rememberedId = rememberedTrackId(window.localStorage, nextProject.packagePath);
     const track = preferredTrack(nextProject.tracks, rememberedId);
-    if (track) selectTrack(track, false);
+    if (track) selectTrack(track, { autoplay: false });
     else forgetTrackSelection(window.localStorage, nextProject.packagePath);
   }
 
@@ -596,7 +607,7 @@
       if (wasCurrent) {
         await resetTrackState();
         const replacement = project.tracks[deletedIndex] ?? project.tracks[project.tracks.length - 1];
-        if (replacement) selectTrack(replacement, false);
+        if (replacement) selectTrack(replacement, { autoplay: false });
         else forgetTrackSelection(window.localStorage, packagePath);
       }
     });
@@ -934,7 +945,7 @@
         if (currentTrack) currentTrack = project.tracks.find((track) => track.id === currentTrack?.id) ?? currentTrack;
         else {
           const track = preferredTrack(project.tracks, rememberedTrackId(window.localStorage, project.packagePath));
-          if (track) selectTrack(track, false);
+          if (track) selectTrack(track, { autoplay: false });
         }
       }
     } catch { /* Background status is best-effort during shutdown. */ }
@@ -962,8 +973,12 @@
     });
   }
 
-  function selectTrack(track: TrackSummary, autoplay = true): void {
+  function selectTrack(
+    track: TrackSummary,
+    options: { autoplay?: boolean } = {},
+  ): void {
     if (!project) return;
+    const { autoplay = true } = options;
     cancelPendingSeek();
     const packagePath = project.packagePath;
     const selectionGeneration = ++trackSelectionGeneration;
@@ -984,7 +999,6 @@
     loadingTrackId = track.id;
     currentTrack = track;
     rememberTrackSelection(window.localStorage, packagePath, track.id);
-    currentSeconds = track.practice.positionSeconds;
     durationSeconds = track.durationSeconds ?? 0;
     playbackRate = track.practice.playbackRate;
     pitchSemitones = track.practice.pitchSemitones ?? 0;
@@ -994,6 +1008,7 @@
     const loopBounds = defaultLoopBounds(track.practice.loopASeconds, track.practice.loopBSeconds, durationSeconds);
     loopA = loopBounds.a;
     loopB = loopBounds.b;
+    currentSeconds = trackLoadPosition(loopEnabled, loopA, preferences.loopLoadPosition);
     usingDefaultLoopBounds = track.practice.loopASeconds === null && track.practice.loopBSeconds === null;
     gridBpm = track.practice.gridBpm ?? null;
     beatGridOffsetSeconds = loopA ?? 0;
@@ -1231,7 +1246,7 @@
   }
 
   async function play(): Promise<void> {
-    if (!currentTrack && project?.tracks.length) selectTrack(project.tracks[0], false);
+    if (!currentTrack && project?.tracks.length) selectTrack(project.tracks[0], { autoplay: false });
     if (!currentTrack || audioLoading) return;
     try {
       await audioPlay();
@@ -1707,19 +1722,32 @@
     }
   }
 
-  function zoomWaveform(event: WheelEvent): void {
+  function navigateWaveformWithWheel(event: WheelEvent, overview: boolean): void {
     event.preventDefault();
-    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const anchor = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
-    const factor = Math.exp(-event.deltaY * 0.002);
-    const anchorPosition = waveformStart + anchor / waveformZoom;
-    applyWaveformViewport(zoomWaveformViewport(waveformStart, waveformZoom, factor, anchorPosition));
-  }
-
-  function zoomOverviewWaveform(event: WheelEvent): void {
-    event.preventDefault();
-    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const anchorPosition = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    const target = event.currentTarget as HTMLElement;
+    const bounds = target.getBoundingClientRect();
+    const axis = event.ctrlKey
+      ? "vertical"
+      : waveformWheelAxis(event.deltaX, event.deltaY, activeWaveformWheelAxis);
+    activeWaveformWheelAxis = axis;
+    window.clearTimeout(waveformWheelAxisTimer);
+    waveformWheelAxisTimer = window.setTimeout(() => {
+      activeWaveformWheelAxis = null;
+      waveformWheelAxisTimer = undefined;
+    }, 140);
+    if (axis === "horizontal") {
+      applyWaveformViewport(panWaveformViewportFromWheel(
+        waveformStart,
+        waveformZoom,
+        event.deltaX,
+        bounds.width,
+      ));
+      return;
+    }
+    const pointerRatio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    const anchorPosition = overview
+      ? pointerRatio
+      : waveformStart + pointerRatio / waveformZoom;
     applyWaveformViewport(zoomWaveformViewport(
       waveformStart,
       waveformZoom,
@@ -1942,7 +1970,7 @@
           role="application"
           aria-label={t("waveform")}
           data-tooltip={t("seekHelp")}
-          onwheel={zoomWaveform}
+          onwheel={(event) => navigateWaveformWithWheel(event, false)}
           onpointerdown={startWaveformDrag}
           onpointermove={dragWaveform}
           onpointerup={finishWaveformDrag}
@@ -1974,7 +2002,7 @@
           {/if}
         </div>
         <div class="zoom-info"><span>{waveformZoom.toFixed(1)}×</span><span>{t("waveformHelp")}</span></div>
-        <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheel={zoomOverviewWaveform} onpointerdown={seekFromOverview}>
+        <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheel={(event) => navigateWaveformWithWheel(event, true)} onpointerdown={seekFromOverview}>
           {#if waveformLoading}<div class="overview-skeleton"><svg viewBox={`0 0 ${loadingWave.length} 60`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={30 - height * 27} y2={30 + height * 27}></line>{/each}</svg><i></i></div>
           {:else if overviewPeaks.length > 0}
             <svg viewBox={`0 0 ${overviewPeaks.length} 60`} preserveAspectRatio="none" aria-hidden="true">
@@ -2211,14 +2239,14 @@
       <div class="preferences-grid">
         <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label></section>
         <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
-        <section><h3>{t("practiceDefaults")}</h3><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
+        <section><h3>{t("practiceDefaults")}</h3><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section><h3>Audio</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label></section>
       </div><div class="modal-actions"><button onclick={() => preferencesVisible = false}>{t("close")}</button><button class="primary" onclick={() => { void persistPreferences(); preferencesVisible = false; }}>{t("savePreferences")}</button></div>
     </Modal>
   {/if}
 
   {#if shortcutsVisible}
-    <Modal title={t("shortcuts")} close={() => shortcutsVisible = false}><dl><dt>{t("playPause")}</dt><dd>Space</dd><dt>{t("jump")}</dt><dd>← / →</dd><dt>{t("loopAB")}</dt><dd>A / B</dd><dt>{t("clearLoop")}</dt><dd>Escape</dd><dt>{t("tempo")}</dt><dd>− / +</dd><dt>{t("tapTempo")}</dt><dd>T</dd><dt>{t("metronome")}</dt><dd>M</dd></dl><button onclick={() => shortcutsVisible = false}>{t("close")}</button></Modal>
+    <Modal title={t("shortcuts")} close={() => shortcutsVisible = false}><dl><dt>{t("playPause")}</dt><dd>Space</dd><dt>{t("jump")}</dt><dd>← / →</dd><dt>{t("loopAB")}</dt><dd>A / B</dd><dt>{t("clearLoop")}</dt><dd>Escape</dd><dt>{t("tempo")}</dt><dd>− / +</dd><dt>{t("tapTempo")}</dt><dd>T</dd><dt>{t("metronome")}</dt><dd>M</dd><dt>{t("showConsole")}</dt><dd>C</dd><dt>{t("showHelp")}</dt><dd>H</dd></dl><button onclick={() => shortcutsVisible = false}>{t("close")}</button></Modal>
   {/if}
 
   {#if importVisible}

@@ -1,4 +1,4 @@
-import type { WaveformPeak } from "./types";
+import type { LoopLoadPosition, WaveformPeak } from "./types";
 
 export interface ProjectPathPart {
   label: string;
@@ -40,6 +40,7 @@ export interface WaveformViewport {
 }
 
 export type WaveformViewportEdge = "start" | "end";
+export type WaveformWheelAxis = "horizontal" | "vertical";
 
 export const WAVEFORM_MAX_ZOOM = 128;
 
@@ -50,6 +51,19 @@ export function defaultLoopBounds(
 ): { a: number | null; b: number | null } {
   if (savedA !== null || savedB !== null) return { a: savedA, b: savedB };
   return { a: 0, b: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null };
+}
+
+export function trackLoadPosition(
+  loopEnabled: boolean,
+  loopASeconds: number | null,
+  preference: LoopLoadPosition,
+): number {
+  return loopEnabled
+    && preference === "loopStart"
+    && loopASeconds !== null
+    && Number.isFinite(loopASeconds)
+    ? Math.max(0, loopASeconds)
+    : 0;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -72,6 +86,25 @@ export function moveWaveformViewport(start: number, zoom: number, delta: number)
     start: clamp(current.start + (Number.isFinite(delta) ? delta : 0), 0, 1 - span),
     zoom: current.zoom,
   };
+}
+
+export function waveformWheelAxis(
+  deltaX: number,
+  deltaY: number,
+  lockedAxis: WaveformWheelAxis | null,
+): WaveformWheelAxis {
+  if (lockedAxis) return lockedAxis;
+  return Math.abs(deltaX) > Math.abs(deltaY) ? "horizontal" : "vertical";
+}
+
+export function panWaveformViewportFromWheel(
+  start: number,
+  zoom: number,
+  deltaX: number,
+  width: number,
+): WaveformViewport {
+  if (!Number.isFinite(width) || width <= 0) return moveWaveformViewport(start, zoom, 0);
+  return moveWaveformViewport(start, zoom, deltaX / width / zoom);
 }
 
 export function resizeWaveformViewport(

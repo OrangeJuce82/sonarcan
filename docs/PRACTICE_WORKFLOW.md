@@ -19,9 +19,14 @@ This document translates the useful interaction model observed in musician pract
 - configurable backward and forward jumps;
 - previous and next track;
 - volume;
-- restore the last playback position.
+- apply the configured start rule consistently whenever a track loads.
 
-The current implementation persists position, tempo, volume, and A/B boundaries per track in `project.json`. Saves are debounced during playback and flushed immediately when playback pauses or the active track changes.
+The current implementation persists position, tempo, volume, and A/B boundaries per track in `project.json`. Saves are debounced during playback and flushed immediately when playback pauses or the active track changes. The stored position remains project state but does not determine where a newly loaded track starts.
+
+Every track load, including project restoration and playlist switches, uses the
+same start rule. A track with Loop off starts at the beginning. A track with
+Loop on starts at the beginning by default, while the user preference can make
+it start at A instead.
 
 The last selected track is remembered per project as local user-interface state.
 Reopening a known project restores that track; a missing remembered track falls

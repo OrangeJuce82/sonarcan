@@ -12,7 +12,12 @@ loop region. A and B markers and the region are visible on the waveforms only
 when Loop is on. For tracks without saved bounds, the inactive default is A at
 the beginning and B at the end of the track.
 
-The `A` and `B` keyboard shortcuts always move the corresponding loop point to the playhead, including after a toolbar button has received focus. `L` toggles looping and `Escape` clears the range. Text inputs remain exempt so project and track names can be edited normally.
+The `A` and `B` keyboard shortcuts move the corresponding loop point to the
+playhead, `L` toggles looping, and `Escape` clears the range. `C` toggles the
+application console and `H` toggles contextual help. Global shortcuts are
+suspended while a dialog is open and never intercept text inputs, text areas,
+selects, editable content, IME composition, or modified system shortcuts such
+as Command/Ctrl+C. Transport shortcuts also yield to focused buttons and links.
 
 ## Generation
 
@@ -38,13 +43,18 @@ The detailed view renders only the visible peak range, reduced to a bounded numb
 
 Interactions:
 
-- mouse wheel or trackpad pinch: zoom around the pointer;
+- vertical mouse-wheel/trackpad movement or trackpad pinch: zoom around the pointer;
+- horizontal two-finger trackpad movement: pan like a waveform grab;
 - horizontal drag: navigate through the detailed waveform;
 - click: seek to an exact visible position;
 - overview background click: seek and recenter the detailed viewport;
 - overview viewport drag: move the detailed window without changing its zoom;
 - overview viewport edge drag: resize the detailed window and update its zoom;
-- overview mouse wheel or trackpad pinch: zoom around the pointer.
+- overview vertical mouse-wheel/trackpad movement or pinch: zoom around the pointer;
+- overview horizontal two-finger trackpad movement: move the detailed viewport.
+
+Wheel gestures lock to their first dominant axis until input pauses briefly, so
+a diagonal trackpad gesture cannot pan and zoom at the same time.
 
 Zoom is bounded between `1×` and `128×`. Loop markers share the same time-to-screen transform as the playhead so they remain aligned at every zoom level.
 

@@ -20,6 +20,7 @@ pub struct UserPreferences {
     pub metronome_volume: f32,
     pub default_playback_rate: f64,
     pub default_pitch_semitones: f64,
+    pub loop_load_position: LoopLoadPosition,
     pub default_trainer_start_rate: f64,
     pub default_trainer_repetitions: u32,
     pub default_trainer_increment: f64,
@@ -64,6 +65,13 @@ pub enum Mp3Quality {
     Kbps192,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LoopLoadPosition {
+    Beginning,
+    LoopStart,
+}
+
 impl Default for UserPreferences {
     fn default() -> Self {
         Self {
@@ -78,6 +86,7 @@ impl Default for UserPreferences {
             metronome_volume: 0.55,
             default_playback_rate: 1.0,
             default_pitch_semitones: 0.0,
+            loop_load_position: LoopLoadPosition::Beginning,
             default_trainer_start_rate: 0.5,
             default_trainer_repetitions: 1,
             default_trainer_increment: 0.05,
@@ -154,6 +163,7 @@ mod tests {
         assert_eq!(preferences.default_trainer_target_rate, 1.0);
         assert_eq!(preferences.default_trainer_increment, 0.05);
         assert_eq!(preferences.default_trainer_repetitions, 1);
+        assert_eq!(preferences.loop_load_position, LoopLoadPosition::Beginning);
     }
 
     #[test]
