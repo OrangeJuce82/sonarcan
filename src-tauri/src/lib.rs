@@ -9,6 +9,7 @@ mod preferences;
 mod project;
 mod recent;
 mod spectrum;
+mod stem_contract;
 mod stems;
 mod system_metrics;
 mod tempo;

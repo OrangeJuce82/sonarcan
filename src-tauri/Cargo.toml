@@ -18,11 +18,7 @@ tauri-build = { version = "2", features = [] }
 chrono = { version = "0.4", features = ["serde"] }
 arc-swap = "1"
 arboard = "3.6"
-burn = { version = "0.20.1", default-features = false, features = ["std", "wgpu", "ndarray", "simd"] }
-burn-ndarray = { version = "0.20.1", default-features = false, features = ["std", "simd", "multi-threads"] }
 cpal = "0.16"
-demucs-core = { git = "https://github.com/nikhilunni/demucs-rs.git", rev = "5d9f61a2e15987c5ea9a9fe92300b64d994bcd12", features = ["wgpu", "ndarray"] }
-pollster = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 rusty-chromaprint = "0.3.0"
 sha2 = "0.10"

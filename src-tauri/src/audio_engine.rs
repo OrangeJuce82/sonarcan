@@ -23,7 +23,7 @@ use symphonia::core::{
 };
 use tracing::info;
 
-use crate::{error::AppError, spectrum};
+use crate::{error::AppError, spectrum, stem_contract::STEM_COUNT};
 
 const NO_LOOP: u64 = u64::MAX;
 const CROSSFADE_SECONDS: f64 = 0.005;
@@ -45,7 +45,7 @@ pub(crate) struct DecodedAudio {
 }
 
 pub(crate) struct StemSet {
-    pub(crate) stems: [Arc<DecodedAudio>; 4],
+    pub(crate) stems: [Arc<DecodedAudio>; STEM_COUNT],
 }
 
 struct CachedAudio {
@@ -64,9 +64,9 @@ struct DecodeCache {
 struct SharedState {
     audio: ArcSwapOption<DecodedAudio>,
     stems: ArcSwapOption<StemSet>,
-    stem_gain_bits: [AtomicU32; 4],
-    stem_muted: [AtomicBool; 4],
-    stem_soloed: [AtomicBool; 4],
+    stem_gain_bits: [AtomicU32; STEM_COUNT],
+    stem_muted: [AtomicBool; STEM_COUNT],
+    stem_soloed: [AtomicBool; STEM_COUNT],
     playing: AtomicBool,
     position_bits: AtomicU64,
     position_generation: AtomicU64,
@@ -407,7 +407,7 @@ impl AudioEngine {
     pub(crate) fn activate_stems(
         &self,
         source_path: &Path,
-        stems: [Arc<DecodedAudio>; 4],
+        stems: [Arc<DecodedAudio>; STEM_COUNT],
     ) -> Result<(), AppError> {
         let expected = source_path
             .canonicalize()
@@ -451,7 +451,7 @@ impl AudioEngine {
     }
 
     pub fn set_stem_mix(&self, index: usize, gain: f32, muted: bool, soloed: bool) {
-        if index >= 4 {
+        if index >= STEM_COUNT {
             return;
         }
         self.shared.stem_gain_bits[index].store(gain.clamp(0.0, 2.0).to_bits(), Ordering::Release);
@@ -673,7 +673,7 @@ struct RealtimeRenderer {
     smoothed_rate: f64,
     smoothed_pitch: f32,
     smoothed_volume: f32,
-    smoothed_stem_gains: [f32; 4],
+    smoothed_stem_gains: [f32; STEM_COUNT],
     gains_initialized: bool,
     dsp_active: bool,
     seek_transition: SeekTransition,
@@ -753,7 +753,7 @@ impl RealtimeRenderer {
             smoothed_rate: 1.0,
             smoothed_pitch: 0.0,
             smoothed_volume: 0.8,
-            smoothed_stem_gains: [1.0; 4],
+            smoothed_stem_gains: [1.0; STEM_COUNT],
             gains_initialized: false,
             dsp_active: false,
             seek_transition: SeekTransition::new(channels, output_rate),
@@ -821,7 +821,7 @@ impl RealtimeRenderer {
         rate: f64,
         pitch: f32,
         volume: f32,
-        stem_gains: &[f32; 4],
+        stem_gains: &[f32; STEM_COUNT],
     ) where
         T: SizedSample + FromSample<f32>,
     {
@@ -900,7 +900,7 @@ impl RealtimeRenderer {
                     }
                 }
                 for channel in 0..self.channels {
-                    // This is the only DSP path: select/mix the four stems at
+                    // This is the only DSP path: select/mix the six stems at
                     // the source position first, then feed that single mix to
                     // Signalsmith once for combined tempo and pitch changes.
                     self.input[frame * self.channels + channel] = playback_sample(
@@ -981,7 +981,7 @@ impl RealtimeRenderer {
         loop_a: u64,
         loop_b: u64,
         valid_loop: bool,
-        stem_gains: &[f32; 4],
+        stem_gains: &[f32; STEM_COUNT],
     ) {
         self.stretch.reset();
         self.rate_remainder = 0.0;
@@ -1082,7 +1082,7 @@ fn render_with_gains<T>(
     output_rate: u32,
     shared: &SharedState,
     volume: f32,
-    stem_gains: &[f32; 4],
+    stem_gains: &[f32; STEM_COUNT],
     mut seek_transition: Option<&mut SeekTransition>,
 ) where
     T: SizedSample + FromSample<f32>,
@@ -1215,7 +1215,7 @@ fn smooth_gain(current: &mut f32, target: f32, blend: f32) {
     }
 }
 
-fn target_stem_gains(shared: &SharedState) -> [f32; 4] {
+fn target_stem_gains(shared: &SharedState) -> [f32; STEM_COUNT] {
     let any_solo = shared
         .stem_soloed
         .iter()
@@ -1325,7 +1325,7 @@ fn playback_sample(
     loop_a: u64,
     loop_b: u64,
     valid_loop: bool,
-    stem_gains: &[f32; 4],
+    stem_gains: &[f32; STEM_COUNT],
 ) -> f32 {
     let Some(stems) = shared.stems.load_full() else {
         return sample_with_loop_crossfade(
@@ -1540,6 +1540,10 @@ fn decode(path: &Path) -> Result<DecodedAudio, AppError> {
         sample_rate,
         frames,
     })
+}
+
+pub(crate) fn decode_stem_file(path: &Path) -> Result<DecodedAudio, AppError> {
+    decode(path)
 }
 
 fn invalid_audio(path: &Path, error: SymphoniaError) -> AppError {
@@ -1917,7 +1921,14 @@ mod tests {
         let shared = SharedState {
             audio: ArcSwapOption::from(Some(Arc::clone(&silent))),
             stems: ArcSwapOption::from(Some(Arc::new(StemSet {
-                stems: [tone, Arc::clone(&silent), Arc::clone(&silent), silent],
+                stems: [
+                    tone,
+                    Arc::clone(&silent),
+                    Arc::clone(&silent),
+                    Arc::clone(&silent),
+                    Arc::clone(&silent),
+                    silent,
+                ],
             }))),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),

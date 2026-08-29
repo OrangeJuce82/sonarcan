@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{audio, audio_fingerprint, error::AppError};
+use crate::{audio, audio_fingerprint, error::AppError, stem_contract::STEM_COUNT};
 
 pub const PROJECT_FORMAT_VERSION: u32 = 1;
 const MANIFEST_NAME: &str = "project.json";
@@ -87,7 +87,7 @@ pub struct PracticeState {
     #[serde(default)]
     pub stems_enabled: bool,
     #[serde(default = "default_stem_mix")]
-    pub stem_mix: [StemMixState; 4],
+    pub stem_mix: [StemMixState; STEM_COUNT],
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -106,9 +106,10 @@ impl Default for StemMixState {
         }
     }
 }
-fn default_stem_mix() -> [StemMixState; 4] {
+fn default_stem_mix() -> [StemMixState; STEM_COUNT] {
     std::array::from_fn(|_| StemMixState::default())
 }
+
 const fn legacy_master_volume() -> f64 {
     0.8
 }
@@ -1201,6 +1202,18 @@ mod tests {
             update_practice_state(&project.package_path, track_id, invalid),
             Err(AppError::InvalidPracticeState(_))
         ));
+    }
+
+    #[test]
+    fn rejects_the_obsolete_four_stem_contract_without_migration() {
+        let mut value = serde_json::to_value(PracticeState::default()).unwrap();
+        value["stemMix"] = serde_json::json!([
+            StemMixState::default(),
+            StemMixState::default(),
+            StemMixState::default(),
+            StemMixState::default()
+        ]);
+        assert!(serde_json::from_value::<PracticeState>(value).is_err());
     }
 
     fn minimal_pcm_wave() -> Vec<u8> {

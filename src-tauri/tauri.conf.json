@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run verify:mlx-release && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -31,10 +31,17 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "resources/mlx-runtime": "mlx-runtime",
+      "resources/models/demucs-mlx": "models/demucs-mlx"
+    },
     "icon": [],
     "targets": "all",
     "category": "Music",
     "shortDescription": "Professional music learning workspace",
-    "longDescription": "Learn, isolate, analyze, and rehearse music in one focused workspace."
+    "longDescription": "Learn, isolate, analyze, and rehearse music in one focused workspace.",
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    }
   }
 }

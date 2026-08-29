@@ -42,6 +42,9 @@ pub fn make_writer() -> TeeWriter {
 pub fn push_frontend(level: &str, message: &str) {
     push("webview", level, message);
 }
+pub(crate) fn push_external(origin: &str, level: &str, message: &str) {
+    push(origin, level, message);
+}
 pub fn snapshot() -> Vec<LogEntry> {
     logs()
         .lock()
