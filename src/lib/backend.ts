@@ -20,6 +20,11 @@ export async function initializeProject(): Promise<StartupProject> {
   return invoke<StartupProject>("initialize_project");
 }
 
+export async function takeOpenProjectRequest(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("take_open_project_request");
+}
+
 export async function openProject(packagePath: string): Promise<ProjectSummary> {
   if (!isTauri()) {
     throw new Error("Opening a project requires the Tauri desktop runtime.");
@@ -112,6 +117,7 @@ export const stemStatus = (): Promise<StemStatus> => invoke("stem_status");
 export const stemDisable = (): Promise<void> => invoke("stem_disable");
 export const stemSetEnabled = (enabled: boolean): Promise<boolean> => invoke("stem_set_enabled", { enabled });
 export const stemSetMix = (index: number, gain: number, pan: number, muted: boolean, soloed: boolean): Promise<void> => invoke("stem_set_mix", { index, gain, pan, muted, soloed });
+export const exportStems = (packagePath: string, trackId: string, destination: string, format: "wav" | "mp3", displayNames: string[]): Promise<void> => invoke("stem_export", { packagePath, trackId, destination, format, displayNames });
 export const getPreferences = (): Promise<UserPreferences> => invoke("get_preferences");
 export const savePreferences = (value: UserPreferences): Promise<UserPreferences> => invoke("save_preferences", { value });
 export const analyzeImportText = (text: string): Promise<ImportCandidate[]> => invoke("analyze_import_text", { text });

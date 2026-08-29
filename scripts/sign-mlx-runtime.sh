@@ -3,6 +3,7 @@ set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 runtime_dir="$repository_root/src-tauri/resources/mlx-runtime/runtime"
+audio_tools_dir="$repository_root/src-tauri/resources/audio-tools/bin"
 identity="${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY is required}"
 signed_count=0
 
@@ -19,12 +20,12 @@ while IFS= read -r -d '' candidate; do
     codesign --verify --strict "$candidate"
     signed_count=$((signed_count + 1))
   fi
-done < <(find "$runtime_dir" -type f -print0)
+done < <(find "$runtime_dir" "$audio_tools_dir" -type f -print0)
 
 if [[ "$signed_count" -eq 0 ]]; then
-  echo "No Mach-O file was found in the MLX runtime." >&2
+  echo "No Mach-O file was found in the release resources." >&2
   exit 1
 fi
 "$runtime_dir/bin/python3.13" -m sonarcan_mlx_worker.refresh_records \
   "$runtime_dir/lib/python3.13/site-packages"
-echo "Signed and verified $signed_count MLX runtime binaries."
+echo "Signed and verified $signed_count release resource binaries."

@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
+    ffmpeg,
     preferences::{ConversionFormat, PreferencesStore, UserPreferences},
     project,
 };
@@ -364,9 +365,9 @@ fn convert_local(
     };
     let output =
         std::env::temp_dir().join(format!("sonarcan-import-{}.{}", Uuid::new_v4(), extension));
-    let ffmpeg = find_ffmpeg().ok_or_else(|| {
+    let ffmpeg = ffmpeg::find().ok_or_else(|| {
         AppError::BackgroundTask(
-            "FFmpeg is required for this local audio conversion. Install FFmpeg or choose Keep supported formats.".into(),
+            "FFmpeg is required for this local audio conversion. Repair the application bundle, or install FFmpeg when running a development build.".into(),
         )
     })?;
     let mut command = Command::new(ffmpeg);
@@ -432,25 +433,6 @@ fn needs_local_conversion(source: &Path, preferences: &UserPreferences) -> bool 
     format_differs || audio_shape_differs
 }
 
-fn find_ffmpeg() -> Option<PathBuf> {
-    let mut candidates = vec![PathBuf::from("ffmpeg")];
-    #[cfg(target_os = "macos")]
-    candidates.extend([
-        PathBuf::from("/opt/homebrew/bin/ffmpeg"),
-        PathBuf::from("/usr/local/bin/ffmpeg"),
-    ]);
-    #[cfg(target_os = "windows")]
-    candidates.push(PathBuf::from("ffmpeg.exe"));
-    candidates.into_iter().find(|candidate| {
-        Command::new(candidate)
-            .arg("-version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    })
-}
-
 fn download_remote(
     inner: &Arc<ImportInner>,
     id: Uuid,
@@ -461,6 +443,11 @@ fn download_remote(
     preferences: &UserPreferences,
 ) -> Result<(), AppError> {
     let tool = ensure_ytdlp()?;
+    let ffmpeg = ffmpeg::find().ok_or_else(|| {
+        AppError::BackgroundTask(
+            "FFmpeg is required to convert this audio. Install a complete SonArcan release or repair the application bundle, then retry.".into(),
+        )
+    })?;
     let staging = package.join("Cache").join("Downloads").join(id.to_string());
     fs::create_dir_all(&staging).map_err(|error| AppError::io(&staging, error))?;
     update(inner, id, JobState::Downloading, 0.01, None);
@@ -471,6 +458,10 @@ fn download_remote(
             "--ignore-config",
             "--newline",
             "--no-warnings",
+            "--ffmpeg-location",
+        ])
+        .arg(&ffmpeg)
+        .args([
             "--playlist-end",
             "10",
             "--progress-template",
@@ -495,7 +486,10 @@ fn download_remote(
         preferences.conversion_format,
         ConversionFormat::Mp3 | ConversionFormat::Keep
     ) {
-        command.args(["--audio-quality", mp3_quality(preferences)]);
+        command.args([
+            "--audio-quality",
+            ytdlp_mp3_quality(preferences.mp3_quality),
+        ]);
     }
     command
         .arg("--")
@@ -648,11 +642,11 @@ fn apply_conversion_args(command: &mut Command, preferences: &UserPreferences) {
         _ => {}
     }
     if matches!(preferences.conversion_format, ConversionFormat::Mp3) {
-        command.args(["-q:a", mp3_quality(preferences)]);
+        ffmpeg::apply_mp3_quality(command, preferences.mp3_quality);
     }
 }
-fn mp3_quality(preferences: &UserPreferences) -> &'static str {
-    match preferences.mp3_quality {
+fn ytdlp_mp3_quality(quality: crate::preferences::Mp3Quality) -> &'static str {
+    match quality {
         crate::preferences::Mp3Quality::VbrHigh => "0",
         crate::preferences::Mp3Quality::Kbps320 => "320K",
         crate::preferences::Mp3Quality::Kbps256 => "256K",

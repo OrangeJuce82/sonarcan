@@ -136,7 +136,7 @@ and publishes each group's candidates as soon as that query finishes. A failed
 query remains isolated in its group and does not hide completed results or stop
 later searches.
 
-Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Automatically downloaded `yt-dlp` releases are checked against the publisher's SHA-256 manifest before execution.
+Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Automatically downloaded `yt-dlp` releases are checked against the publisher's SHA-256 manifest before execution.
 
 Duplicate prevention has two deliberately separate layers. Text analysis removes
 obvious repeats by normalized URL, search text, or case-insensitive local

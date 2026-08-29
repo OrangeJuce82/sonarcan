@@ -3,10 +3,11 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, updatePracticeState } from "./lib/backend";
+  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
+  import { shouldConfirmDialogOnEnter } from "./lib/dialogKeyboard";
   import { droppedAudioPaths } from "./lib/importPaths";
   import { ImportSearchCache } from "./lib/importSearchCache";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
@@ -77,6 +78,9 @@
   let stemNames: string[] = [...canonicalStemNames];
   let stemPeaks = Array<number>(6).fill(0);
   let stemStatusRequestActive = false;
+  let stemExportVisible = false;
+  let stemExportFormat: "wav" | "mp3" = "wav";
+  let stemExportCompletedPath = "";
   let preferences: UserPreferences = { theme: "system", language: "en", concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
@@ -175,9 +179,14 @@
     let unlistenDrag: (() => void) | undefined;
     let unlistenClose: (() => void) | undefined;
     let unlistenExit: UnlistenFn | undefined;
+    let unlistenProjectOpen: UnlistenFn | undefined;
     const appWindow = getCurrentWindow();
     void listen<string>("native-menu", (event) => handleNativeMenu(event.payload)).then((stop) => unlisten = stop);
     void listen<void>("application-exit-requested", () => closePromptVisible = true).then((stop) => unlistenExit = stop);
+    void listen<void>("project-open-requested", () => void openRequestedProject()).then((stop) => {
+      unlistenProjectOpen = stop;
+      void openRequestedProject();
+    });
     const handleKeydown = (event: KeyboardEvent): void => {
       if (event.key === "Escape" && document.querySelector("dialog[open]")) return;
       const target = event.target as HTMLElement | null;
@@ -294,6 +303,7 @@
       unlistenDrag?.();
       unlistenClose?.();
       unlistenExit?.();
+      unlistenProjectOpen?.();
     };
   });
 
@@ -377,6 +387,16 @@
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  async function openRequestedProject(): Promise<void> {
+    const packagePath = await takeOpenProjectRequest();
+    if (!packagePath) return;
+    await run(async () => {
+      window.clearTimeout(practiceSaveTimer);
+      if (!await persistCurrentPracticeState()) return;
+      await activateProject(await openProject(packagePath));
+    });
   }
 
   async function run(action: () => Promise<void>): Promise<void> {
@@ -873,6 +893,14 @@
     });
   }
 
+  function handleImportDialogKeydown(event: KeyboardEvent): void {
+    const canImport = selectedImports.size > 0 && !importAnalyzing && !busy;
+    if (!shouldConfirmDialogOnEnter(event, canImport)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void startImports();
+  }
+
   async function enqueueImportInputs(inputs: string[]): Promise<void> {
     if (!project) await activateProject(await createTemporaryProject());
     const activeProject = project;
@@ -1063,6 +1091,33 @@
   function stemMeterLevel(peak: number): number {
     if (peak <= 0.001) return 0;
     return Math.min(1, Math.max(0, (20 * Math.log10(peak) + 60) / 60));
+  }
+
+  function openStemExport(): void {
+    if (stems.state !== "ready" || stems.trackId !== currentTrack?.id) return;
+    stemExportFormat = preferences.conversionFormat === "mp3" ? "mp3" : "wav";
+    stemExportCompletedPath = "";
+    stemExportVisible = true;
+  }
+
+  function safeStemExportFolderName(value: string): string {
+    return value.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 80) || "Stems";
+  }
+
+  async function exportCurrentStems(): Promise<void> {
+    if (!project || !currentTrack || stems.state !== "ready" || stems.trackId !== currentTrack.id) return;
+    const track = currentTrack;
+    const packagePath = project.packagePath;
+    const destination = await save({
+      title: t("exportStemsDestination"),
+      defaultPath: `${safeStemExportFolderName(track.title)} - Stems`,
+    });
+    if (!destination) return;
+    stemExportCompletedPath = "";
+    await run(async () => {
+      await exportStems(packagePath, track.id, destination, stemExportFormat, stemNames.map((_, index) => stemDisplayName(index)));
+      stemExportCompletedPath = destination;
+    });
   }
 
   async function loadTrackTempo(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
@@ -2030,7 +2085,10 @@
               <input type="checkbox" role="switch" checked={stems.enabled} disabled={!currentTrack || stems.state === "failed"} onchange={(event) => void toggleStemMode(event)} />
               <i aria-hidden="true"><b></b></i><strong>STEMS</strong>
             </label>
-            <div class="stem-heading-status">{#if stems.computeBackend}<span class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? stems.enabled ? t("stemsReady") : t("stemsBypassed") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div>
+            <div class="stem-header-actions">
+              <div class="stem-heading-status">{#if stems.computeBackend}<span class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? stems.enabled ? t("stemsReady") : t("stemsBypassed") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div>
+              <button class="stem-export-button" disabled={stems.state !== "ready" || stems.trackId !== currentTrack?.id || busy} aria-label={t("exportStems")} data-tooltip={stems.state === "ready" ? t("exportStems") : t("exportStemsUnavailable")} onclick={openStemExport}><Icon name="cloud-arrow-down" size="13px" /></button>
+            </div>
           </div>
           {#if stems.state === "disabled"}
             <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={enableStems}>{t("enableStems")}</button><small>HTDemucs 6s · 6 stems · MLX</small></div>
@@ -2124,6 +2182,18 @@
     <Modal title={t("diagnostics")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
   {/if}
 
+  {#if stemExportVisible}
+    <Modal title={t("exportStems")} close={() => stemExportVisible = false}>
+      <p class="stem-export-description">{t("exportStemsHelp")}</p>
+      <div class="stem-export-formats" role="radiogroup" aria-label={t("stemExportFormat")}>
+        <button class:active={stemExportFormat === "wav"} role="radio" aria-checked={stemExportFormat === "wav"} onclick={() => { stemExportFormat = "wav"; stemExportCompletedPath = ""; }}><strong>WAV</strong><small>{t("stemExportWavHelp")}</small></button>
+        <button class:active={stemExportFormat === "mp3"} role="radio" aria-checked={stemExportFormat === "mp3"} onclick={() => { stemExportFormat = "mp3"; stemExportCompletedPath = ""; }}><strong>MP3</strong><small>{t("stemExportMp3Help")}</small></button>
+      </div>
+      {#if stemExportCompletedPath}<p class="stem-export-success" role="status"><Icon name="check" size="12px" /> {t("stemExportComplete")}</p>{/if}
+      <div class="modal-actions"><button onclick={() => stemExportVisible = false}>{t("close")}</button><button class="primary" disabled={busy || stems.state !== "ready"} onclick={() => void exportCurrentStems()}>{busy ? t("working") : t("export")}</button></div>
+    </Modal>
+  {/if}
+
   {#if trainingSettingsVisible}
     <Modal title={t("trainingSettings")} close={() => trainingSettingsVisible = false}>
       <div class="training-settings-form">
@@ -2140,7 +2210,7 @@
     <Modal title={t("preferences")} wide close={() => preferencesVisible = false}>
       <div class="preferences-grid">
         <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label></section>
-        <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
+        <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
         <section><h3>{t("practiceDefaults")}</h3><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section><h3>Audio</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label></section>
       </div><div class="modal-actions"><button onclick={() => preferencesVisible = false}>{t("close")}</button><button class="primary" onclick={() => { void persistPreferences(); preferencesVisible = false; }}>{t("savePreferences")}</button></div>
@@ -2152,7 +2222,7 @@
   {/if}
 
   {#if importVisible}
-    <Modal title={t("importCenter")} wide close={() => importVisible = false}>
+    <Modal title={t("importCenter")} wide close={() => importVisible = false} keydown={handleImportDialogKeydown}>
       <div class="import-center" role="region" aria-label={t("importCenter")}>
         <div class="import-toolbar">
           <div class="import-toolbar-actions">
@@ -2188,7 +2258,7 @@
           <div class="import-empty">{t("noSourcesFound")}</div>
         {/if}
         <small class="authorized-note">{t("authorizedOnly")}</small>
-        <div class="modal-actions"><button onclick={() => importVisible = false}>{t("close")}</button><button class="primary" disabled={selectedImports.size === 0 || importAnalyzing} onclick={startImports}>{t("startImport")} ({selectedImports.size})</button></div>
+        <div class="modal-actions"><button onclick={() => importVisible = false}>{t("close")}</button><button class="primary" disabled={selectedImports.size === 0 || importAnalyzing || busy} onclick={startImports}>{t("startImport")} ({selectedImports.size})</button></div>
       </div>
     </Modal>
   {/if}

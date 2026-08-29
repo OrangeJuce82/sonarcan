@@ -22,6 +22,13 @@ The pinned `htdemucs_6s` model is supplied as a release resource and verified ag
 
 Completed WAV stems are decoded and aligned to the source sample rate and frame count before being committed under `Stems/<track-id>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, model revision, track identifier, source size, and nanosecond modification time. Only after all six stems validate does the engine swap an immutable six-buffer set into the callback. Per-stem gain, pan, mute, solo, bypass, and peak values remain atomic and allocation-free in the callback. Bypass selects the original immutable audio buffer without releasing the stem set, enabling immediate original/mix comparisons.
 
+Once the cache is valid, the selected track's six stems can be exported from the
+mixer header. WAV export streams the cached float PCM into lossless 32-bit float
+WAVE files without loading all stems into memory. MP3 export performs the same
+bounded WAV staging one stem at a time, then invokes FFmpeg with the user's MP3
+quality preference. Export is unavailable until all six stems validate, writes
+into a newly selected directory, and never runs on the audio callback.
+
 The master volume is the final output gain: it applies to the combined music,
 stem mix, and metronome signal. Master volume changes, mute/unmute transitions,
 stem gain/pan changes, and stem mute/solo changes use a 40 ms callback-side ramp to

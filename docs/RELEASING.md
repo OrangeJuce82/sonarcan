@@ -9,6 +9,10 @@ provide this stem engine and must be presented as a separate reduced edition.
 Do not publish a universal binary by combining the ARM runtime with an Intel
 binary: it would install successfully and fail when stems are enabled.
 
+GitHub builds on an ARM64 macOS 15 runner while every embedded FFmpeg binary is
+compiled and inspected with a macOS 14.0 deployment target. This avoids tying a
+release accidentally to the newer operating system used by CI.
+
 The direct-download DMG is the supported distribution channel. The MLX runtime
 contains executable Python code, so this architecture is not suitable for a Mac
 App Store build that downloads or modifies executable code after review.
@@ -22,8 +26,12 @@ App Store build that downloads or modifies executable code after review.
   `demucs-mlx` before conversion;
 - the generated safetensors SHA-256 is embedded in its safe config and checked
   by the worker before every load;
-- the relocatable Python/MLX environment and model are signed inside the final
-  notarized application bundle. No package manager runs on the user's Mac.
+- FFmpeg 8.0.3 and LAME 3.100 are built from their verified source archives as
+  static ARM64 command-line tools; their source SHA-256 values are recorded in
+  `scripts/build-ffmpeg-runtime.sh` and the generated runtime manifest;
+- the relocatable Python/MLX environment, model, FFmpeg, and FFprobe are signed
+  inside the final notarized application bundle. No package manager runs on the
+  user's Mac and imports do not depend on Homebrew.
 
 The release workflow signs every Mach-O executable, dynamic library, and Python
 extension in the embedded runtime before Tauri signs the outer application.
@@ -62,14 +70,24 @@ npm run mlx:sync
 npm run mlx:model
 npm run mlx:runtime
 npm run verify:mlx-release
+npm run ffmpeg:runtime
+npm run verify:ffmpeg-release
 npm run quality
 npm run security
 ```
 
+Build only the local application bundle with `npm run build:macos:app`, or the
+DMG with `npm run build:macos:dmg`. `npm run register:macos-app` registers the
+local qualification bundle with Launch Services so `.sac` package appearance
+and double-click opening can be tested without copying the app to
+`/Applications`. The installed, signed release is registered automatically by
+macOS.
+
 Then run a real separation smoke test on representative music, inspect all six
-outputs, and test cancellation, cache reload, sleep/wake, and a fresh macOS user
-account. `npm run tauri build -- --target aarch64-apple-darwin --bundles app,dmg`
-builds the local bundle when signing/notarization environment variables are set.
+outputs, import a YouTube result that requires conversion, export stems as MP3,
+and test cancellation, cache reload, sleep/wake, and a fresh macOS user account.
+`npm run tauri build -- --target aarch64-apple-darwin --bundles app,dmg` builds
+the local bundle when signing/notarization environment variables are set.
 
 ## Publishing a version
 
@@ -85,17 +103,18 @@ builds the local bundle when signing/notarization environment variables are set.
    ```
 
 5. The `Release macOS Apple Silicon` workflow checks version consistency,
-   restores or converts the official model, builds the pinned runtime, runs the
-   complete quality gate, signs and notarizes the app, creates the DMG, and
-   uploads everything to a **draft** GitHub Release.
-6. The workflow verifies that `SonArcan.app/Contents/Info.plist` declares the
-   application icon and that the referenced `.icns` file is present in the
-   signed bundle.
+   restores or converts the official model, builds the pinned MLX and FFmpeg
+   runtimes, runs the complete quality gate, signs and notarizes the app,
+   creates the DMG, and uploads everything to a **draft** GitHub Release.
+6. The workflow verifies the application icon, the `.sac` document-package
+   declaration, and executes the bundled FFmpeg and FFprobe from inside the
+   signed `.app`.
 7. Download the draft DMG on a different Apple-silicon Mac. Verify with
    `codesign --verify --deep --strict --verbose=2 /Applications/SonArcan.app`
    and `spctl --assess --type execute --verbose=4 /Applications/SonArcan.app`,
    confirm that Finder and the Dock show the SonArcan icon, then exercise
-   six-stem separation.
+   YouTube import/conversion, MP3 export, and six-stem separation without
+   installing Homebrew or FFmpeg.
 8. Edit the generated notes and publish the draft. If any validation fails,
    delete the draft/tag, fix the versioned source, and create a new version; do
    not replace a public signed binary silently.

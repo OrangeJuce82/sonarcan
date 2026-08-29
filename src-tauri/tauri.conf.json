@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run verify:mlx-release && npm run build",
+    "beforeBuildCommand": "npm run verify:mlx-release && npm run verify:ffmpeg-release && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -33,7 +33,8 @@
     "active": true,
     "resources": {
       "resources/mlx-runtime": "mlx-runtime",
-      "resources/models/demucs-mlx": "models/demucs-mlx"
+      "resources/models/demucs-mlx": "models/demucs-mlx",
+      "resources/audio-tools": "audio-tools"
     },
     "icon": [
       "icons/32x32.png",
@@ -47,6 +48,7 @@
     "longDescription": "Learn, isolate, analyze, and rehearse music in one focused workspace.",
     "macOS": {
       "minimumSystemVersion": "14.0",
+      "infoPlist": "Info.plist",
       "dmg": {
         "background": "dmg/background-v2.png",
         "windowSize": {

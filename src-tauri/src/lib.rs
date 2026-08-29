@@ -3,6 +3,7 @@ mod audio;
 mod audio_engine;
 mod audio_fingerprint;
 mod error;
+mod ffmpeg;
 mod importer;
 mod native_menu;
 mod preferences;
@@ -18,7 +19,10 @@ mod waveform;
 use std::{
     io::Read,
     path::PathBuf,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
 };
 
 use project::{PracticeState, ProjectSummary};
@@ -49,9 +53,33 @@ struct StartupProject {
 struct ProjectSession {
     temporary: AtomicBool,
     exit_allowed: AtomicBool,
+    pending_open_project: Mutex<Option<PathBuf>>,
 }
 
 const APPLICATION_EXIT_REQUESTED: &str = "application-exit-requested";
+const PROJECT_OPEN_REQUESTED: &str = "project-open-requested";
+
+impl ProjectSession {
+    fn queue_open_project(&self, path: PathBuf) {
+        *self
+            .pending_open_project
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(path);
+    }
+
+    fn take_open_project(&self) -> Option<PathBuf> {
+        self.pending_open_project
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+}
+
+fn is_sonarcan_project_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("sac"))
+}
 
 #[tauri::command]
 fn create_project(app: AppHandle, package_path: PathBuf) -> Result<ProjectSummary, AppError> {
@@ -69,9 +97,26 @@ fn create_temporary_project(app: AppHandle) -> Result<ProjectSummary, AppError> 
 }
 
 #[tauri::command]
-fn initialize_project(app: AppHandle) -> Result<StartupProject, AppError> {
+fn initialize_project(
+    app: AppHandle,
+    session: State<'_, ProjectSession>,
+) -> Result<StartupProject, AppError> {
     let mut unavailable_project_path = None;
-    if let Some(path) = recent::latest() {
+    if let Some(path) = session.take_open_project() {
+        match project::open_project(&path) {
+            Ok(project) => {
+                remember_project(&app, &project.package_path)?;
+                return Ok(StartupProject {
+                    project,
+                    unavailable_project_path,
+                });
+            }
+            Err(error) => {
+                warn!(path = %path.display(), %error, "requested project is unavailable");
+                unavailable_project_path = Some(path);
+            }
+        }
+    } else if let Some(path) = recent::latest() {
         match project::open_project(&path) {
             Ok(project) => {
                 remember_project(&app, &project.package_path)?;
@@ -95,6 +140,11 @@ fn initialize_project(app: AppHandle) -> Result<StartupProject, AppError> {
         project,
         unavailable_project_path,
     })
+}
+
+#[tauri::command]
+fn take_open_project_request(session: State<'_, ProjectSession>) -> Option<PathBuf> {
+    session.take_open_project()
 }
 
 #[tauri::command]
@@ -541,6 +591,30 @@ fn remember_project(app: &AppHandle, path: &std::path::Path) -> Result<(), AppEr
 }
 
 #[tauri::command]
+async fn stem_export(
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+    destination: PathBuf,
+    format: stems::StemExportFormat,
+    display_names: Vec<String>,
+    preferences: State<'_, preferences::PreferencesStore>,
+) -> Result<(), AppError> {
+    let preferences = preferences.get();
+    tauri::async_runtime::spawn_blocking(move || {
+        stems::export(
+            &package_path,
+            track_id,
+            &destination,
+            format,
+            &display_names,
+            &preferences,
+        )
+    })
+    .await
+    .map_err(|error| AppError::BackgroundTask(error.to_string()))?
+}
+
+#[tauri::command]
 async fn get_waveform(
     app: AppHandle,
     package_path: PathBuf,
@@ -608,6 +682,9 @@ pub fn run() {
         .menu(native_menu::build)
         .on_menu_event(|app, event| native_menu::handle_event(app, event.id().as_ref()))
         .setup(|app| {
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                ffmpeg::configure_bundled(&resource_dir);
+            }
             app.manage(audio_engine::AudioEngine::new()?);
             app.manage(stems::StemService::default());
             app.manage(preferences::PreferencesStore::load());
@@ -619,6 +696,7 @@ pub fn run() {
             create_project,
             create_temporary_project,
             initialize_project,
+            take_open_project_request,
             open_project,
             import_audio,
             rename_project,
@@ -668,12 +746,13 @@ pub fn run() {
             stem_disable,
             stem_set_enabled,
             stem_set_mix,
+            stem_export,
             diagnostics_snapshot
         ])
         .build(tauri::generate_context!())
         .expect("SonArcan runtime initialization failed");
-    app.run(|app, event| {
-        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+    app.run(|app, event| match event {
+        tauri::RunEvent::ExitRequested { api, .. } => {
             let session = app.state::<ProjectSession>();
             if session.temporary.load(Ordering::Acquire)
                 && !session.exit_allowed.load(Ordering::Acquire)
@@ -682,6 +761,23 @@ pub fn run() {
                 let _ = app.emit(APPLICATION_EXIT_REQUESTED, ());
             }
         }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls } => {
+            if let Some(path) = urls
+                .into_iter()
+                .filter_map(|url| url.to_file_path().ok())
+                .find(|path| is_sonarcan_project_path(path))
+            {
+                info!(path = %path.display(), "received macOS project open request");
+                app.state::<ProjectSession>().queue_open_project(path);
+                let _ = app.emit(PROJECT_OPEN_REQUESTED, ());
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        }
+        _ => {}
     });
 }
 
@@ -699,5 +795,20 @@ mod tests {
             read_import_text_files(vec![path.clone()]),
             Err(AppError::ImportTextTooLarge(rejected)) if rejected == path
         ));
+    }
+
+    #[test]
+    fn recognizes_sonarcan_project_extensions_case_insensitively() {
+        assert!(is_sonarcan_project_path(std::path::Path::new("Band.sac")));
+        assert!(is_sonarcan_project_path(std::path::Path::new("Band.SAC")));
+        assert!(!is_sonarcan_project_path(std::path::Path::new("Band.zip")));
+    }
+
+    #[test]
+    fn queued_project_open_request_is_consumed_once() {
+        let session = ProjectSession::default();
+        session.queue_open_project(PathBuf::from("Band.sac"));
+        assert_eq!(session.take_open_project(), Some(PathBuf::from("Band.sac")));
+        assert_eq!(session.take_open_project(), None);
     }
 }

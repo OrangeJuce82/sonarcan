@@ -27,8 +27,10 @@ be reviewed before public distribution.
 - Tauri — Apache License 2.0 or MIT License.
 - Svelte — MIT License.
 - `yt-dlp` — The Unlicense.
-- FFmpeg is an external executable and is governed by the license of the
-  particular build installed on the user's system.
+- FFmpeg 8.0.3 — LGPL-2.1-or-later. Release builds include a static ARM64
+  command-line runtime and its complete LGPL 2.1 license text.
+- LAME 3.100 — LGPL-2.0-or-later. It provides MP3 encoding in the bundled
+  FFmpeg runtime; its complete license text is shipped beside the executable.
 
 This notice is informational and is not a substitute for the complete notices
 shipped by each dependency.

@@ -21,6 +21,7 @@ mkdir -p "$(dirname "$runtime_dir")" "$model_dir"
 managed_python="$(uv python find --managed-python 3.13.5)"
 managed_root="$(cd "$(dirname "$managed_python")/.." && pwd)"
 cp -R "$managed_root" "$runtime_dir"
+find "$runtime_dir" -name .DS_Store -type f -delete
 uv export --quiet --project "$worker_root" --locked --no-dev --no-editable \
   --output-file "$runtime_dir/requirements.lock.txt"
 (

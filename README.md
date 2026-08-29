@@ -41,6 +41,7 @@ Chord analysis, editable time signatures, and grid gestures are tracked in the [
 - Node.js 22 or later and npm;
 - stable Rust 1.78 or later with Cargo;
 - uv exactly `0.9.26`;
+- FFmpeg for local audio conversion and MP3 stem export during development;
 - the [Tauri 2 macOS prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 The worker pins CPython `3.13.5` in
@@ -49,6 +50,7 @@ Install the pinned tools when needed:
 
 ```bash
 rustup toolchain install stable
+brew install ffmpeg
 curl -LsSf https://astral.sh/uv/0.9.26/install.sh | sh
 uv python install 3.13.5
 ```
@@ -106,8 +108,10 @@ npm run security
 ### Local Apple-silicon release
 
 The release embeds its own relocatable CPython `3.13.5`, locked MLX packages,
-worker, and verified `htdemucs_6s` model. uv and Python are never installed or
-downloaded on the user's Mac.
+worker, verified `htdemucs_6s` model, and ARM64 FFmpeg `8.0.3`/LAME `3.100`
+runtime. uv, Python, and FFmpeg are never installed or downloaded on the user's
+Mac. In development, SonArcan uses the embedded runtime when present and falls
+back to FFmpeg from `PATH`, `/opt/homebrew/bin`, or `/usr/local/bin`.
 
 Prepare and verify those resources, then build the `.app` and DMG:
 
@@ -117,8 +121,10 @@ npm run mlx:sync
 npm run mlx:model
 npm run mlx:runtime
 npm run verify:mlx-release
+npm run ffmpeg:runtime
+npm run verify:ffmpeg-release
 npm run quality
-npm run tauri build -- --target aarch64-apple-darwin --bundles app,dmg
+npm run build:macos:dmg
 ```
 
 Generated artifacts are written to:
@@ -139,6 +145,22 @@ must be Developer ID signed and Apple-notarized through the release workflow.
 The DMG uses the project background at
 [`src-tauri/dmg/background-v2.png`](src-tauri/dmg/background-v2.png).
 
+### Test `.sac` packages locally
+
+macOS discovers document packages from an application bundle, not from
+`npm run tauri dev`. Build and register the local `.app` once to make Finder
+treat `.sac` directories as SonArcan documents and enable double-click opening:
+
+```bash
+npm run build:macos:app
+npm run register:macos-app
+```
+
+The registration points Launch Services to the qualification app inside
+`src-tauri/target`; it does not copy anything to `/Applications`. Re-run it
+after moving the app. A public signed app installed from the DMG registers
+itself automatically when macOS discovers it.
+
 ### GitHub release
 
 The repository workflow
@@ -148,14 +170,15 @@ semantic-version tag is pushed. Keep the version identical in `package.json`,
 
 ```bash
 npm run verify:release-version
-git tag -s v0.2.0 -m "SonArcan 0.2.0"
-git push origin v0.2.0
+git tag -s v<version> -m "SonArcan <version>"
+git push origin v<version>
 ```
 
-GitHub Actions rebuilds the pinned runtime/model, runs the quality gate, signs
-and notarizes the application, creates the DMG, and uploads a draft GitHub
-Release for manual validation. Apple certificate and notarization secrets must
-first be configured as described in [the release guide](docs/RELEASING.md).
+GitHub Actions rebuilds the pinned MLX and FFmpeg runtimes, runs the quality
+gate, signs and notarizes the application, creates the DMG, and uploads a draft
+GitHub Release for manual validation. Apple certificate and notarization
+secrets must first be configured as described in
+[the release guide](docs/RELEASING.md).
 
 The supported complete release is `aarch64-apple-darwin` on macOS 14+. An Intel
 Tauri shell can still be compiled separately, but Apple MLX and therefore the
@@ -164,7 +187,9 @@ MLX runtime with an Intel executable.
 
 ## Project format
 
-Each project is an inspectable directory:
+Each project is an inspectable directory. In a built macOS application, the
+`.sac` extension is registered as a document package, so Finder presents this
+directory as one SonArcan document and opens it by double-click:
 
 ```text
 My-Band.sac/
