@@ -54,19 +54,16 @@ Review deadline: **2026-11-30**.
   supported macOS build. Before distributing Linux builds, update/migrate the
   upstream GUI stack or demonstrate that the affected API is unreachable.
 - Tauri's `urlpattern` graph carries five unmaintained `unic` crates.
-- Burn/Demucs carries unmaintained `bincode` and `paste` crates. SonArcan does not
-  deserialize bincode input; these are still upgrade debt and must be reassessed
-  with the pinned Demucs/Burn stack.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
 
 These are maintenance advisories, not permission to ignore a vulnerability.
 Any advisory reporting memory safety, code execution, path escape, data loss, or
 denial of service in a reachable supported-target path blocks release.
 
-Cargo's repeated future-incompatibility summary for `block 0.1.6` is disabled in
-`.cargo/config.toml`; this crate is inherited from Metal/wgpu through Burn. Rust
-warnings in SonArcan are still denied globally. Revisit the exception whenever
-Burn/wgpu changes and no later than the review deadline above.
+The MLX worker, Python interpreter, packages, and model are fixed release inputs.
+Release assembly validates the lockfile and model checksum; the application does
+not install uv or resolve Python packages at runtime. Dependency and model
+updates require a fresh audit and regenerated signed release resources.
 
 ## Reporting and response
 

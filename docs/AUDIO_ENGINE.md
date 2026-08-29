@@ -10,13 +10,13 @@ Rapid selections use monotonically increasing load generations. A slow, obsolete
 
 The real-time callback never locks or reads this cache. It only sees the selected immutable audio buffer through `ArcSwap`.
 
-## Optional HTDemucs stem mode
+## Optional HTDemucs 6s stem mode
 
-Stem mode is disabled by default and never delays ordinary track loading. Enabling it starts the pinned HTDemucs standard model on a dedicated Rust worker. The model runs through Burn's native WGPU backend (Metal on macOS and Vulkan-compatible adapters on Linux and Windows); Python and the webview never receive or process audio samples.
+Stem mode is disabled by default and never delays ordinary track loading. On an Apple-silicon Mac, enabling it starts the private `sonarcan-mlx-worker` process with the exact `demucs-mlx` environment from `tools/sonarcan-mlx-worker/uv.lock`. Development uses uv-managed Python 3.13.5. Release assembly copies uv's complete standalone CPython distribution and synchronizes the locked production packages into it; uv is not installed or executed on the user's Mac.
 
-The 84 MB model is downloaded on first use to the application cache and then reused. HTDemucs emits vocals, drums, bass, and other in one inference pass. Completed stems are normalized to the source frame count and committed under `Stems/<track-id>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, HTDemucs model revision, track identifier, source size, and nanosecond modification time. A temporary sibling file and atomic rename prevent partial caches from being treated as valid.
+The pinned `htdemucs_6s` model is supplied as a release resource and verified against the SHA-256 in its config before MLX loads it. The worker emits bounded newline-delimited JSON for stage changes, segment progress, logs, errors, and completion. Rust supervises and can terminate the child process, treats every event and output path as untrusted, and accepts only the exact vocals, drums, bass, other, guitar, piano contract.
 
-When the cache becomes ready, the engine swaps an immutable four-buffer stem set into the callback. Per-stem gain, mute, and solo values are atomics. The callback reads them without locks or allocation, sums the four aligned samples, and feeds that mix into the existing loop, time-stretch, pitch, metronome, and master-gain chain. Disabling stem mode atomically returns playback to the original decoded mix.
+Completed WAV stems are decoded and aligned to the source sample rate and frame count before being committed under `Stems/<track-id>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, model revision, track identifier, source size, and nanosecond modification time. Only after all six stems validate does the engine swap an immutable six-buffer set into the callback. Per-stem gain, mute, and solo values remain atomic and allocation-free in the callback.
 
 The master volume is the final output gain: it applies to the combined music,
 stem mix, and metronome signal. Master volume changes, mute/unmute transitions,
@@ -35,7 +35,9 @@ The bounded `AudioStatus` snapshot exposes the decaying master peak and
 independent left/right output peaks for the UI meters. These scalar values are
 the only output-level data crossing IPC; raw audio never leaves the engine.
 
-The current model revision is pinned in `Cargo.toml`. Updating it requires changing the stem cache revision and repeating separation parity and performance tests.
+Python, uv, worker dependencies, and the model revision are pinned in the worker project and `stem_contract.rs`. Updating any of them requires regenerating the lockfile and runtime, changing the cache revision when output compatibility changes, and repeating separation parity and performance tests.
+
+`demucs-mlx 1.4.6` rejects a numeric key found only in the official checkpoint's unused `training_args` metadata. The release model builder strips that one optional metadata field before invoking the package's restricted loader and converter. Constructor data, tensor state, official signature, source checksum, and generated safetensors checksum continue through the upstream validation path. Remove this narrow workaround when the pinned upstream version accepts its official checkpoint unchanged.
 
 When looping is enabled, playback may start anywhere in the track. A position
 before A is preserved as a lead-in, while a position at or after B is moved to A

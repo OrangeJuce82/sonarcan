@@ -111,8 +111,8 @@ export interface SystemMetrics {
   memoryMegabytes: number | null;
 }
 
-export type StemState = "disabled" | "ready" | "downloading" | "separating" | "failed";
-export interface StemStatus { state: StemState; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; computeBackend: "CPU" | "GPU" | null; }
+export type StemState = "disabled" | "ready" | "separating" | "failed";
+export interface StemStatus { state: StemState; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; computeBackend: "MLX" | null; }
 export interface StemMix { gain: number; muted: boolean; soloed: boolean; }
 
 export type Theme = "system" | "dark" | "light";

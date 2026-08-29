@@ -63,16 +63,6 @@ reason = "Unmaintained build-time macro in the GTK3/Tauri graph; no runtime vuln
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
-id = "RUSTSEC-2024-0436"
-reason = "Unmaintained macro dependency of Burn; no runtime vulnerability is reported."
-ignoreUntil = 2026-11-30
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2025-0141"
-reason = "Unmaintained serialization dependency of pinned Burn; no vulnerability is reported and SonArcan does not deserialize bincode input."
-ignoreUntil = 2026-11-30
-
-[[IgnoredVulns]]
 id = "RUSTSEC-2025-0075"
 reason = "Unmaintained Unicode dependency of Tauri urlpattern; no vulnerability is reported."
 ignoreUntil = 2026-11-30

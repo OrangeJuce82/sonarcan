@@ -1,0 +1,85 @@
+name: Release macOS Apple Silicon
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt, clippy
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: tools/sonarcan-mlx-worker/uv.lock
+      - run: npm ci
+      - run: npm run verify:release-version
+      - name: Restore converted MLX model
+        id: mlx-model-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
+          key: mlx-model-htdemucs-6s-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/sonarcan-mlx-worker/uv.lock', 'tools/sonarcan-mlx-worker/src/sonarcan_mlx_worker/build_model.py') }}
+      - name: Convert official HTDemucs 6s model
+        if: steps.mlx-model-cache.outputs.cache-hit != 'true'
+        run: npm run mlx:model
+      - name: Assemble pinned release runtime
+        run: npm run mlx:runtime
+      - run: npm run verify:mlx-release
+      - run: npm run quality
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain_password="$(uuidgen)"
+          echo "::add-mask::$keychain_password"
+          keychain_path="$RUNNER_TEMP/sonarcan-signing.keychain-db"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain_path" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          signing_identity="$(security find-identity -v -p codesigning "$keychain_path" | awk -F'"' '/Developer ID Application/{print $2; exit}')"
+          test -n "$signing_identity"
+          echo "APPLE_SIGNING_IDENTITY=$signing_identity" >> "$GITHUB_ENV"
+      - name: Sign embedded Python and MLX binaries
+        run: npm run sign:mlx-runtime
+      - name: Build, sign, notarize and create draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: SonArcan ${{ github.ref_name }}
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: false
+          args: --target aarch64-apple-darwin --bundles app,dmg

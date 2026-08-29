@@ -53,13 +53,13 @@
 - [x] Rust real-time metronome synchronized to speed changes, seeks, and loops
 - [x] bounded concurrent background import queue with progress and error diagnostics
 - [ ] background-job cancellation
-- [x] optional HTDemucs standard four-stem separation in native Rust
-- [x] Metal/Vulkan/WebGPU inference backend through Burn
+- [x] optional HTDemucs 6s separation through the supervised `demucs-mlx` worker
+- [x] pinned Apple MLX, CPython, uv lockfile, model, and release runtime
 - [x] versioned, source-fingerprinted per-track stem cache
-- [x] sample-synchronous vocals/drums/bass/other real-time mixer
-- [x] explicit one-time HTDemucs WGPU runtime initialization and panic-to-error reporting
-- [ ] benchmark HTDemucs cold start and full-song inference across supported hardware
-- [ ] cancellation and queued separation jobs when switching tracks during inference
+- [x] sample-synchronous vocals/drums/bass/other/guitar/piano real-time mixer
+- [x] structured MLX logs, segment progress, failure reporting, and process cancellation
+- [ ] benchmark HTDemucs cold start and full-song inference across supported Apple-silicon Macs
+- [ ] queued separation jobs when switching tracks during inference
 - [ ] CPU/memory/audio profiling report
 
 ## Phase 1 — durable core

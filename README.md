@@ -24,7 +24,7 @@ SonArcan helps musicians work through a band playlist without the complexity of 
 - Progressive Loop Trainer and a Rust FFT spectrum worker
 - Persistent decoded PCM caches for fast playlist navigation across sessions
 - Cached, zoomable waveforms with an editable loop region
-- Optional local HTDemucs four-stem separation with a cached Rust mixer
+- Optional local HTDemucs 6s separation through Apple MLX with a cached six-channel Rust mixer
 - Unified local/YouTube Import Center with bounded background downloads and one-pass conversion
 - English/French preferences, smart clipboard detection, and native desktop menus
 - A colored in-app console combining Rust and WebView logs for diagnostics
@@ -35,13 +35,17 @@ Chord analysis, editable time signatures, and grid gestures are tracked in the [
 
 ## Development
 
-Requirements: Node.js 22+, stable Rust 1.78+, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+Requirements: Node.js 22+, stable Rust 1.78+, uv 0.9.26, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). MLX separation requires an Apple-silicon Mac.
 
 ```bash
 npm install
+npm run mlx:sync
+npm run mlx:model
 npm run quality
 npm run tauri dev
 ```
+
+`npm run mlx:runtime` assembles the release-only relocatable Python 3.13.5 environment and verified `htdemucs_6s` resource. uv is a build/development tool and is not included in the shipped application.
 
 Frontend-only development:
 
@@ -74,6 +78,7 @@ The versioned `project.json` manifest is human-readable. Generated analysis and 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) · [Quality plan](docs/QUALITY.md) · [Development](docs/DEVELOPMENT.md)
+- [macOS release and GitHub deployment](docs/RELEASING.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Roadmap](docs/ROADMAP.md)
 - [Practice workflow](docs/PRACTICE_WORKFLOW.md) · [Project management](docs/PROJECT_MANAGEMENT.md)
 - [Waveforms](docs/WAVEFORM.md) · [Real-time audio](docs/AUDIO_ENGINE.md) · [Native menus](docs/NATIVE_MENUS.md)

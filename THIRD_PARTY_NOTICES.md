@@ -12,14 +12,15 @@ Their license terms remain authoritative.
 
 ## Stem separation
 
-- `demucs-rs` / `demucs-core` — Apache License 2.0.
+- `demucs-mlx` — MIT License.
+- Apple MLX — MIT License.
+- Python — Python Software Foundation License.
 - Demucs source architecture — MIT License, Meta Platforms, Inc.
-- Burn — Apache License 2.0 or MIT License.
 
-The HTDemucs model file is not part of the SonArcan source repository or the
-SonArcan license. It is downloaded separately when the user enables stem
-separation. Any model-specific terms supplied by its distributor apply to that
-file.
+The HTDemucs 6s model file is not part of the SonArcan source repository or the
+SonArcan license. Release builders supply it as a verified binary resource. Any
+model-specific terms supplied by its distributor remain authoritative and must
+be reviewed before public distribution.
 
 ## Desktop and import tooling
 

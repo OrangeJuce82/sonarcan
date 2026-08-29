@@ -58,7 +58,7 @@
   let spectrumBands = Array<number>(64).fill(0);
   let spectrumRequestActive = false;
   let stems: StemStatus = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-  let stemMix: StemMix[] = Array.from({ length: 4 }, () => ({ gain: 1, muted: false, soloed: false }));
+  let stemMix: StemMix[] = Array.from({ length: 6 }, () => ({ gain: 1, muted: false, soloed: false }));
   let stemStatusRequestActive = false;
   let preferences: UserPreferences = { theme: "system", language: "en", smartClipboard: false, searchMode: "chooseFive", maxImportBatch: 10, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, defaultTrainerEnabled: false, defaultTrainerRepetitions: 3, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
@@ -441,7 +441,7 @@
     endedGeneration = 0;
     spectrumBands = Array<number>(64).fill(0);
     stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-    stemMix = Array.from({ length: 4 }, () => ({ gain: 1, muted: false, soloed: false }));
+    stemMix = Array.from({ length: 6 }, () => ({ gain: 1, muted: false, soloed: false }));
     editingTrackId = null;
     draggedTrackId = null;
     dropTrackId = null;
@@ -917,7 +917,7 @@
     trainerRepetitions = track.practice.trainerRepetitions ?? 3;
     trainerIncrement = track.practice.trainerIncrement ?? 0.05;
     trainerTargetRate = track.practice.trainerTargetRate ?? 1;
-    stemMix = track.practice.stemMix ?? Array.from({ length: 4 }, () => ({ gain: 1, muted: false, soloed: false }));
+    stemMix = track.practice.stemMix;
     stemMix.forEach((value, index) => void stemSetMix(index, value.gain, value.muted, value.soloed));
     trainerLoopCount = 0;
     spectrumBands = Array<number>(64).fill(0);
@@ -1851,16 +1851,16 @@
 
       <div class="lower-grid">
         <div class="panel stem-panel">
-          <div class="panel-title"><h2>{t("stems")}</h2><div class="stem-heading-status">{#if stems.computeBackend}<span class:cpu={stems.computeBackend === "CPU"} class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? t("stemsReady") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div></div>
+          <div class="panel-title"><h2>{t("stems")}</h2><div class="stem-heading-status">{#if stems.computeBackend}<span class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? t("stemsReady") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div></div>
           {#if stems.state === "disabled"}
-            <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={enableStems}>{t("enableStems")}</button><small>HTDemucs · 4 stems · local</small></div>
-          {:else if stems.state === "downloading" || stems.state === "separating"}
-            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.state === "downloading" ? t("downloadingModel") : stems.stage === "cpuFallback" ? t("cpuStemFallback") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
+            <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={enableStems}>{t("enableStems")}</button><small>HTDemucs 6s · 6 stems · MLX</small></div>
+          {:else if stems.state === "separating"}
+            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.stage === "loadingModel" ? t("loadingStemModel") : stems.stage === "loadingAudio" ? t("loadingStemAudio") : stems.stage === "writingStems" || stems.stage === "validatingStems" ? t("writingStems") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
           {:else if stems.state === "failed"}
             <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><button onclick={enableStems}>{t("enableStems")}</button></div>
           {:else}
             <div class="stem-mixer">
-              {#each [t("vocals"), t("drums"), t("bass"), t("other")] as name, index}
+              {#each [t("vocals"), t("drums"), t("bass"), t("other"), t("guitar"), t("piano")] as name, index}
                 <section class="stem-strip"><strong>{name}</strong><output>{Math.round(stemMix[index].gain * 100)}%</output><input aria-label={`${name} ${t("volume")}`} type="range" min="0" max="2" step="0.01" value={stemMix[index].gain} oninput={(event) => updateStem(index, { gain: Number(event.currentTarget.value) })} /><div><button class:active={stemMix[index].muted} onclick={() => updateStem(index, { muted: !stemMix[index].muted })}>M</button><button class:active={stemMix[index].soloed} onclick={() => updateStem(index, { soloed: !stemMix[index].soloed })}>S</button></div></section>
               {/each}
             </div>
@@ -1892,7 +1892,7 @@
       <div class="console-output">
         {#if appLogs.length === 0}<p class="console-empty">{t("noLogs")}</p>{/if}
         {#each appLogs as entry}
-          <div class={`console-line ${entry.level}`}><time>{new Date(entry.timestampMs).toLocaleTimeString(language, { hour12: false })}</time><b>{entry.origin === "rust" ? "RUST" : "WEB"}</b><em>{entry.level.toUpperCase()}</em><pre>{entry.message}</pre></div>
+          <div class={`console-line ${entry.level}`}><time>{new Date(entry.timestampMs).toLocaleTimeString(language, { hour12: false })}</time><b>{entry.origin === "rust" ? "RUST" : entry.origin === "mlx" ? "MLX" : "WEB"}</b><em>{entry.level.toUpperCase()}</em><pre>{entry.message}</pre></div>
         {/each}
       </div>
     </section>

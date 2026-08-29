@@ -112,6 +112,8 @@ Expected failures use typed Rust errors and are serialized as actionable message
 
 The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
 
+The six-stem MLX process is an implementation detail behind the Rust stem service. It receives only canonical project media/model paths through a direct argument array and returns bounded NDJSON status; raw audio never crosses Tauri IPC. Debug builds resolve the locked uv environment. Release builds resolve the preassembled Python/MLX runtime and model from signed application resources, and never bootstrap uv or packages on the user's machine.
+
 ## Import pipeline
 
 Local paths and remote sources enter one Rust-owned background queue. Each queued item retains its destination project and the preference snapshot active when it was submitted, so concurrent imports cannot leak into another project. Concurrency and batch size are bounded.
