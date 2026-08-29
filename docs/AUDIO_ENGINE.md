@@ -16,11 +16,11 @@ Stem mode is disabled by default and never delays ordinary track loading. On an 
 
 The pinned `htdemucs_6s` model is supplied as a release resource and verified against the SHA-256 in its config before MLX loads it. The worker emits bounded newline-delimited JSON for stage changes, segment progress, logs, errors, and completion. Rust supervises and can terminate the child process, treats every event and output path as untrusted, and accepts only the exact vocals, drums, bass, other, guitar, piano contract.
 
-Completed WAV stems are decoded and aligned to the source sample rate and frame count before being committed under `Stems/<track-id>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, model revision, track identifier, source size, and nanosecond modification time. Only after all six stems validate does the engine swap an immutable six-buffer set into the callback. Per-stem gain, mute, and solo values remain atomic and allocation-free in the callback.
+Completed WAV stems are decoded and aligned to the source sample rate and frame count before being committed under `Stems/<track-id>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, model revision, track identifier, source size, and nanosecond modification time. Only after all six stems validate does the engine swap an immutable six-buffer set into the callback. Per-stem gain, pan, mute, solo, bypass, and peak values remain atomic and allocation-free in the callback. Bypass selects the original immutable audio buffer without releasing the stem set, enabling immediate original/mix comparisons.
 
 The master volume is the final output gain: it applies to the combined music,
 stem mix, and metronome signal. Master volume changes, mute/unmute transitions,
-stem gain changes, and stem mute/solo changes use a 40 ms callback-side ramp to
+stem gain/pan changes, and stem mute/solo changes use a 40 ms callback-side ramp to
 avoid clicks and zipper noise. The ramp keeps the real-time path allocation-free
 and lock-free.
 
@@ -74,7 +74,7 @@ Linear interpolation currently handles source/output sample-rate differences. Th
 
 ## Time stretch and pitch shift
 
-The callback owns one preconfigured Signalsmith Stretch processor and all of its input, output, and preroll buffers. When stems are active, their gain/mute/solo mix is computed first; the resulting stereo mix passes through this processor exactly once. The UI sends only atomic control values:
+The callback owns one preconfigured Signalsmith Stretch processor and all of its input, output, and preroll buffers. When stems are active, their gain/pan/mute/solo mix is computed first; the resulting stereo mix passes through this processor exactly once. Peak values for the six UI meters are reduced inside the current block and published through six atomics only once per callback. The UI sends only bounded control values:
 
 - playback speed from 50% to 200%, independently of pitch;
 - pitch transposition from -12 to +12 semitones, independently of speed.

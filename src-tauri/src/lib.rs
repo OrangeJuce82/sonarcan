@@ -532,14 +532,24 @@ fn stem_disable(
 }
 
 #[tauri::command]
+fn stem_set_enabled(
+    engine: State<'_, audio_engine::AudioEngine>,
+    service: State<'_, stems::StemService>,
+    enabled: bool,
+) -> bool {
+    service.set_enabled(&engine, enabled)
+}
+
+#[tauri::command]
 fn stem_set_mix(
     engine: State<'_, audio_engine::AudioEngine>,
     index: usize,
     gain: f32,
+    pan: f32,
     muted: bool,
     soloed: bool,
 ) {
-    engine.set_stem_mix(index, gain, muted, soloed);
+    engine.set_stem_mix(index, gain, pan, muted, soloed);
 }
 
 fn remember_project(app: &AppHandle, path: &std::path::Path) -> Result<(), AppError> {
@@ -680,6 +690,7 @@ pub fn run() {
             stem_start,
             stem_status,
             stem_disable,
+            stem_set_enabled,
             stem_set_mix,
             diagnostics_snapshot
         ])

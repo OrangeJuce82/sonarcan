@@ -8,7 +8,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{audio, audio_fingerprint, error::AppError, stem_contract::STEM_COUNT};
+use crate::{
+    audio, audio_fingerprint,
+    error::AppError,
+    stem_contract::{STEM_COUNT, STEM_NAMES},
+};
 
 pub const PROJECT_FORMAT_VERSION: u32 = 1;
 const MANIFEST_NAME: &str = "project.json";
@@ -55,7 +59,7 @@ pub struct Track {
     pub practice: PracticeState,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PracticeState {
     pub position_seconds: f64,
@@ -84,16 +88,16 @@ pub struct PracticeState {
     pub trainer_increment: f64,
     #[serde(default = "default_trainer_target_rate")]
     pub trainer_target_rate: f64,
-    #[serde(default)]
     pub stems_enabled: bool,
-    #[serde(default = "default_stem_mix")]
     pub stem_mix: [StemMixState; STEM_COUNT],
+    pub stem_names: [String; STEM_COUNT],
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StemMixState {
     pub gain: f64,
+    pub pan: f64,
     pub muted: bool,
     pub soloed: bool,
 }
@@ -101,6 +105,7 @@ impl Default for StemMixState {
     fn default() -> Self {
         Self {
             gain: 1.0,
+            pan: 0.0,
             muted: false,
             soloed: false,
         }
@@ -108,6 +113,10 @@ impl Default for StemMixState {
 }
 fn default_stem_mix() -> [StemMixState; STEM_COUNT] {
     std::array::from_fn(|_| StemMixState::default())
+}
+
+fn default_stem_names() -> [String; STEM_COUNT] {
+    STEM_NAMES.map(str::to_owned)
 }
 
 const fn legacy_master_volume() -> f64 {
@@ -134,6 +143,7 @@ impl Default for PracticeState {
             trainer_target_rate: default_trainer_target_rate(),
             stems_enabled: false,
             stem_mix: default_stem_mix(),
+            stem_names: default_stem_names(),
         }
     }
 }
@@ -598,7 +608,7 @@ pub fn update_practice_state(
     track_id: Uuid,
     state: PracticeState,
 ) -> Result<ProjectSummary, AppError> {
-    validate_practice_state(state)?;
+    validate_practice_state(&state)?;
     let mut manifest = load(package_path)?;
     let track = manifest
         .tracks
@@ -788,7 +798,7 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validate_practice_state(state: PracticeState) -> Result<(), AppError> {
+fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
     let finite = [
         state.position_seconds,
         state.playback_rate,
@@ -817,10 +827,16 @@ fn validate_practice_state(state: PracticeState) -> Result<(), AppError> {
         || !(1..=99).contains(&state.trainer_repetitions)
         || !(0.01..=0.25).contains(&state.trainer_increment)
         || !(0.5..=2.0).contains(&state.trainer_target_rate)
-        || state
-            .stem_mix
-            .iter()
-            .any(|stem| !stem.gain.is_finite() || !(0.0..=2.0).contains(&stem.gain))
+        || state.stem_mix.iter().any(|stem| {
+            !stem.gain.is_finite()
+                || !(0.0..=2.0).contains(&stem.gain)
+                || !stem.pan.is_finite()
+                || !(-1.0..=1.0).contains(&stem.pan)
+        })
+        || state.stem_names.iter().any(|name| {
+            let name = name.trim();
+            name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control)
+        })
     {
         return Err(AppError::InvalidPracticeState(
             "values are outside the supported range".to_owned(),
@@ -1181,16 +1197,17 @@ mod tests {
             trainer_target_rate: 1.1,
             stems_enabled: true,
             stem_mix: default_stem_mix(),
+            stem_names: default_stem_names(),
         };
 
-        update_practice_state(&project.package_path, track_id, state).unwrap();
+        update_practice_state(&project.package_path, track_id, state.clone()).unwrap();
         let reopened = open_project(&project.package_path).unwrap();
         let expected = PracticeState {
             // Master and metronome volumes are global user preferences and are
             // deliberately excluded from track persistence.
             volume: legacy_master_volume(),
             metronome_volume: default_metronome_volume(),
-            ..state
+            ..state.clone()
         };
         assert_eq!(reopened.tracks[0].practice, expected);
 
@@ -1214,6 +1231,24 @@ mod tests {
             StemMixState::default()
         ]);
         assert!(serde_json::from_value::<PracticeState>(value).is_err());
+    }
+
+    #[test]
+    fn new_six_stem_mix_starts_centered_with_canonical_names() {
+        let state = PracticeState::default();
+        assert!(state.stem_mix.iter().all(|stem| stem.pan == 0.0));
+        assert_eq!(state.stem_names, default_stem_names());
+    }
+
+    #[test]
+    fn rejects_invalid_stem_pan_and_names() {
+        let mut invalid_pan = PracticeState::default();
+        invalid_pan.stem_mix[2].pan = 1.01;
+        assert!(validate_practice_state(&invalid_pan).is_err());
+
+        let mut invalid_name = PracticeState::default();
+        invalid_name.stem_names[4] = "  ".into();
+        assert!(validate_practice_state(&invalid_name).is_err());
     }
 
     fn minimal_pcm_wave() -> Vec<u8> {

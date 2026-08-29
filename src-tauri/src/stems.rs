@@ -3,13 +3,14 @@
 
 use std::{
     fs::{self, File},
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
+    time::Instant,
 };
 
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,7 @@ const MAX_STEM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 #[serde(rename_all = "camelCase")]
 pub struct StemStatus {
     pub state: StemState,
+    pub enabled: bool,
     pub progress: f32,
     pub stage: String,
     pub track_id: Option<Uuid>,
@@ -55,6 +57,7 @@ impl Default for StemStatus {
     fn default() -> Self {
         Self {
             state: StemState::Disabled,
+            enabled: false,
             progress: 0.0,
             stage: "disabled".into(),
             track_id: None,
@@ -142,6 +145,27 @@ impl StemService {
         app_log::push_external("mlx", "info", "stem separation disabled");
     }
 
+    pub fn set_enabled(&self, engine: &AudioEngine, enabled: bool) -> bool {
+        let ready = self
+            .status
+            .lock()
+            .is_ok_and(|status| status.state == StemState::Ready);
+        let enabled = ready && engine.set_stems_enabled(enabled);
+        if let Ok(mut status) = self.status.lock() {
+            status.enabled = enabled;
+        }
+        app_log::push_external(
+            "mlx",
+            "info",
+            if enabled {
+                "stem mix enabled; original audio remains loaded"
+            } else {
+                "stem mix bypassed; separated buffers remain loaded"
+            },
+        );
+        enabled
+    }
+
     pub fn start(
         &self,
         app: AppHandle,
@@ -180,6 +204,7 @@ impl StemService {
                             &status,
                             StemStatus {
                                 state: StemState::Failed,
+                                enabled: false,
                                 progress: 0.0,
                                 stage: "failed".into(),
                                 track_id: Some(track_id),
@@ -233,8 +258,20 @@ fn separate_or_load(
         app.state::<AudioEngine>()
             .activate_stems(&media_path, stems)?;
         set_status(status, ready_status(track_id, true));
+        app_log::push_external(
+            "mlx",
+            "info",
+            &format!("{MODEL_NAME}: loaded the verified six-stem cache"),
+        );
         return Ok(());
     }
+    set_status(status, active_status(track_id, 0.0, "separatingStems"));
+    let separation_started = Instant::now();
+    app_log::push_external(
+        "mlx",
+        "info",
+        &format!("{MODEL_NAME}: starting six-stem generation with demucs-mlx"),
+    );
     let worker = resolve_worker(app)?;
     let source = app
         .state::<AudioEngine>()
@@ -260,7 +297,18 @@ fn separate_or_load(
             return Err(AppError::StemSeparation("separation cancelled".into()));
         }
         set_status(status, active_status(track_id, 0.985, "validatingStems"));
+        let validation_started = Instant::now();
         let stems = load_worker_stems(&output_dir, &source)?;
+        app_log::push_external(
+            "mlx",
+            "info",
+            &format!(
+                "{MODEL_NAME}: six stems decoded and validated in {:.2}s",
+                validation_started.elapsed().as_secs_f64()
+            ),
+        );
+        set_status(status, active_status(track_id, 0.995, "cachingStems"));
+        let cache_started = Instant::now();
         store_cache(
             package_path,
             track_id,
@@ -268,9 +316,25 @@ fn separate_or_load(
             modified_ns(&metadata),
             &stems,
         )?;
+        app_log::push_external(
+            "mlx",
+            "info",
+            &format!(
+                "{MODEL_NAME}: six-stem cache written in {:.2}s",
+                cache_started.elapsed().as_secs_f64()
+            ),
+        );
         app.state::<AudioEngine>()
             .activate_stems(&media_path, stems)?;
         set_status(status, ready_status(track_id, false));
+        app_log::push_external(
+            "mlx",
+            "info",
+            &format!(
+                "{MODEL_NAME}: six-stem generation completed in {:.2}s",
+                separation_started.elapsed().as_secs_f64()
+            ),
+        );
         info!(%track_id, model = MODEL_NAME, "six-stem MLX cache is ready");
         Ok(())
     });
@@ -428,7 +492,17 @@ fn validated_worker(
     prefix_arguments: Vec<String>,
     model_dir: PathBuf,
 ) -> Result<WorkerCommand, AppError> {
-    let executable = executable.canonicalize().map_err(|_| {
+    // Preserve the final virtualenv symlink. Python uses the invoked path to
+    // discover pyvenv.cfg; resolving it would silently run uv's base Python
+    // without the pinned environment in development.
+    let file_name = executable
+        .file_name()
+        .ok_or_else(|| AppError::StemSeparation("the pinned MLX runtime path is invalid".into()))?;
+    let executable = executable
+        .parent()
+        .and_then(|parent| parent.canonicalize().ok())
+        .map(|parent| parent.join(file_name))
+        .ok_or_else(|| {
         AppError::StemSeparation(format!(
             "the pinned MLX runtime is missing; run `npm run mlx:sync` in development or install a release containing it ({})",
             executable.display()
@@ -477,6 +551,9 @@ fn load_worker_stems(
 }
 
 fn align_stem(stem: DecodedAudio, target_rate: u32, target_frames: usize) -> DecodedAudio {
+    if stem.channels == 2 && stem.sample_rate == target_rate && stem.frames == target_frames {
+        return stem;
+    }
     let channels = stem.channels.max(1);
     let mut samples = vec![0.0; target_frames.saturating_mul(2)];
     if stem.frames > 0 && stem.sample_rate > 0 && target_rate > 0 {
@@ -505,6 +582,7 @@ fn align_stem(stem: DecodedAudio, target_rate: u32, target_frames: usize) -> Dec
 fn active_status(track_id: Uuid, progress: f32, stage: &str) -> StemStatus {
     StemStatus {
         state: StemState::Separating,
+        enabled: true,
         progress: progress.clamp(0.0, 1.0),
         stage: stage.chars().take(64).collect(),
         track_id: Some(track_id),
@@ -516,6 +594,7 @@ fn active_status(track_id: Uuid, progress: f32, stage: &str) -> StemStatus {
 fn ready_status(track_id: Uuid, cached: bool) -> StemStatus {
     StemStatus {
         state: StemState::Ready,
+        enabled: true,
         progress: 1.0,
         stage: "ready".into(),
         track_id: Some(track_id),
@@ -554,17 +633,25 @@ fn store_cache(
     for (name, stem) in STEM_NAMES.iter().zip(stems) {
         let path = directory.join(format!("{name}.pcm"));
         let temporary = path.with_extension("pcm.tmp");
-        let mut file = File::create(&temporary).map_err(|error| AppError::io(&temporary, error))?;
+        let file = File::create(&temporary).map_err(|error| AppError::io(&temporary, error))?;
+        let mut file = BufWriter::with_capacity(1024 * 1024, file);
         file.write_all(STEM_MAGIC)
             .and_then(|_| file.write_all(&stem.sample_rate.to_le_bytes()))
             .and_then(|_| file.write_all(&(stem.frames as u64).to_le_bytes()))
             .map_err(|error| AppError::io(&temporary, error))?;
-        for sample in &stem.samples {
-            file.write_all(&sample.to_le_bytes())
+        const CACHE_WRITE_SAMPLES: usize = 256 * 1024;
+        let mut encoded = Vec::with_capacity(CACHE_WRITE_SAMPLES * size_of::<f32>());
+        for samples in stem.samples.chunks(CACHE_WRITE_SAMPLES) {
+            encoded.clear();
+            for sample in samples {
+                encoded.extend_from_slice(&sample.to_le_bytes());
+            }
+            file.write_all(&encoded)
                 .map_err(|error| AppError::io(&temporary, error))?;
         }
-        file.sync_all()
+        file.flush()
             .map_err(|error| AppError::io(&temporary, error))?;
+        drop(file);
         fs::rename(&temporary, &path).map_err(|error| AppError::io(&path, error))?;
     }
     let manifest = StemManifest {
@@ -649,6 +736,32 @@ fn set_status(target: &Arc<Mutex<StemStatus>>, value: StemStatus) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_virtualenv_python_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let bin = directory.path().join(".venv/bin");
+        let model = directory.path().join("model");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir(&model).unwrap();
+        let base_python = directory.path().join("base-python");
+        fs::write(&base_python, b"python").unwrap();
+        let virtualenv_python = bin.join("python");
+        symlink(&base_python, &virtualenv_python).unwrap();
+
+        let worker = validated_worker(virtualenv_python.clone(), Vec::new(), model).unwrap();
+
+        assert_eq!(worker.executable.file_name(), virtualenv_python.file_name());
+        assert!(fs::symlink_metadata(&worker.executable)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_ne!(worker.executable, base_python.canonicalize().unwrap());
+    }
+
     #[test]
     fn cache_round_trips_six_stems() {
         let project = tempfile::tempdir().unwrap();

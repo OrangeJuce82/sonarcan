@@ -110,7 +110,8 @@ export const systemMetrics = (): Promise<SystemMetrics> => invoke("system_metric
 export const stemStart = (packagePath: string, trackId: string): Promise<void> => invoke("stem_start", { packagePath, trackId });
 export const stemStatus = (): Promise<StemStatus> => invoke("stem_status");
 export const stemDisable = (): Promise<void> => invoke("stem_disable");
-export const stemSetMix = (index: number, gain: number, muted: boolean, soloed: boolean): Promise<void> => invoke("stem_set_mix", { index, gain, muted, soloed });
+export const stemSetEnabled = (enabled: boolean): Promise<boolean> => invoke("stem_set_enabled", { enabled });
+export const stemSetMix = (index: number, gain: number, pan: number, muted: boolean, soloed: boolean): Promise<void> => invoke("stem_set_mix", { index, gain, pan, muted, soloed });
 export const getPreferences = (): Promise<UserPreferences> => invoke("get_preferences");
 export const savePreferences = (value: UserPreferences): Promise<UserPreferences> => invoke("save_preferences", { value });
 export const analyzeImportText = (text: string): Promise<ImportCandidate[]> => invoke("analyze_import_text", { text });

@@ -32,6 +32,7 @@ export interface PracticeState {
   trainerTargetRate: number;
   stemsEnabled: boolean;
   stemMix: StemMix[];
+  stemNames: string[];
 }
 
 export interface ProjectSummary {
@@ -78,6 +79,8 @@ export interface AudioStatus {
   outputPeak: number;
   outputPeakLeft: number;
   outputPeakRight: number;
+  stemsEnabled: boolean;
+  stemPeaks: number[];
   playbackRate: number;
   pitchSemitones: number;
   gridBpm: number | null;
@@ -112,8 +115,8 @@ export interface SystemMetrics {
 }
 
 export type StemState = "disabled" | "ready" | "separating" | "failed";
-export interface StemStatus { state: StemState; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; computeBackend: "MLX" | null; }
-export interface StemMix { gain: number; muted: boolean; soloed: boolean; }
+export interface StemStatus { state: StemState; enabled: boolean; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; computeBackend: "MLX" | null; }
+export interface StemMix { gain: number; pan: number; muted: boolean; soloed: boolean; }
 
 export type Theme = "system" | "dark" | "light";
 export type SearchMode = "automaticFirst" | "chooseFive";

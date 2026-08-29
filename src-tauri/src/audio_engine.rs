@@ -35,6 +35,7 @@ const MAX_DSP_OUTPUT_FRAMES: usize = 1_024;
 const MAX_DSP_INPUT_FRAMES: usize = MAX_DSP_OUTPUT_FRAMES * 2 + 8;
 const MAX_DSP_PREROLL_FRAMES: usize = 65_536;
 const PCM_CACHE_MAGIC: &[u8; 8] = b"SACPCM01";
+type StemChannelGains = [[f32; 2]; STEM_COUNT];
 
 #[derive(Debug)]
 pub(crate) struct DecodedAudio {
@@ -64,9 +65,12 @@ struct DecodeCache {
 struct SharedState {
     audio: ArcSwapOption<DecodedAudio>,
     stems: ArcSwapOption<StemSet>,
+    stems_enabled: AtomicBool,
     stem_gain_bits: [AtomicU32; STEM_COUNT],
+    stem_pan_bits: [AtomicU32; STEM_COUNT],
     stem_muted: [AtomicBool; STEM_COUNT],
     stem_soloed: [AtomicBool; STEM_COUNT],
+    stem_peak_bits: [AtomicU32; STEM_COUNT],
     playing: AtomicBool,
     position_bits: AtomicU64,
     position_generation: AtomicU64,
@@ -117,6 +121,8 @@ pub struct AudioStatus {
     pub output_peak: f32,
     pub output_peak_left: f32,
     pub output_peak_right: f32,
+    pub stems_enabled: bool,
+    pub stem_peaks: [f32; STEM_COUNT],
     pub playback_rate: f64,
     pub pitch_semitones: f32,
     pub grid_bpm: Option<f64>,
@@ -163,9 +169,12 @@ impl AudioEngine {
         let shared = Arc::new(SharedState {
             audio: ArcSwapOption::empty(),
             stems: ArcSwapOption::empty(),
+            stems_enabled: AtomicBool::new(false),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(false),
             position_bits: AtomicU64::new(0_f64.to_bits()),
             position_generation: AtomicU64::new(0),
@@ -437,6 +446,7 @@ impl AudioEngine {
             ));
         }
         self.shared.stems.store(Some(Arc::new(StemSet { stems })));
+        self.shared.stems_enabled.store(true, Ordering::Release);
         self.shared
             .position_generation
             .fetch_add(1, Ordering::AcqRel);
@@ -444,17 +454,31 @@ impl AudioEngine {
     }
 
     pub fn disable_stems(&self) {
+        self.shared.stems_enabled.store(false, Ordering::Release);
         self.shared.stems.store(None);
+        for peak in &self.shared.stem_peak_bits {
+            peak.store(0_f32.to_bits(), Ordering::Relaxed);
+        }
         self.shared
             .position_generation
             .fetch_add(1, Ordering::AcqRel);
     }
 
-    pub fn set_stem_mix(&self, index: usize, gain: f32, muted: bool, soloed: bool) {
+    pub fn set_stems_enabled(&self, enabled: bool) -> bool {
+        let enabled = enabled && self.shared.stems.load().is_some();
+        self.shared.stems_enabled.store(enabled, Ordering::Release);
+        self.shared
+            .position_generation
+            .fetch_add(1, Ordering::AcqRel);
+        enabled
+    }
+
+    pub fn set_stem_mix(&self, index: usize, gain: f32, pan: f32, muted: bool, soloed: bool) {
         if index >= STEM_COUNT {
             return;
         }
         self.shared.stem_gain_bits[index].store(gain.clamp(0.0, 2.0).to_bits(), Ordering::Release);
+        self.shared.stem_pan_bits[index].store(pan.clamp(-1.0, 1.0).to_bits(), Ordering::Release);
         self.shared.stem_muted[index].store(muted, Ordering::Release);
         self.shared.stem_soloed[index].store(soloed, Ordering::Release);
     }
@@ -549,6 +573,10 @@ impl AudioEngine {
             output_peak_right: f32::from_bits(
                 self.shared.output_peak_right_bits.load(Ordering::Relaxed),
             ),
+            stems_enabled: self.shared.stems_enabled.load(Ordering::Acquire),
+            stem_peaks: std::array::from_fn(|index| {
+                f32::from_bits(self.shared.stem_peak_bits[index].load(Ordering::Relaxed))
+            }),
             playback_rate: f64::from_bits(self.shared.playback_rate_bits.load(Ordering::Acquire)),
             pitch_semitones: f32::from_bits(
                 self.shared.pitch_semitones_bits.load(Ordering::Acquire),
@@ -673,7 +701,7 @@ struct RealtimeRenderer {
     smoothed_rate: f64,
     smoothed_pitch: f32,
     smoothed_volume: f32,
-    smoothed_stem_gains: [f32; STEM_COUNT],
+    smoothed_stem_gains: StemChannelGains,
     gains_initialized: bool,
     dsp_active: bool,
     seek_transition: SeekTransition,
@@ -753,7 +781,7 @@ impl RealtimeRenderer {
             smoothed_rate: 1.0,
             smoothed_pitch: 0.0,
             smoothed_volume: 0.8,
-            smoothed_stem_gains: [1.0; STEM_COUNT],
+            smoothed_stem_gains: [[1.0; 2]; STEM_COUNT],
             gains_initialized: false,
             dsp_active: false,
             seek_transition: SeekTransition::new(channels, output_rate),
@@ -778,7 +806,8 @@ impl RealtimeRenderer {
         } else {
             smooth_gain(&mut self.smoothed_volume, target_volume, blend as f32);
             for (current, target) in self.smoothed_stem_gains.iter_mut().zip(target_stem_gains) {
-                smooth_gain(current, target, blend as f32);
+                smooth_gain(&mut current[0], target[0], blend as f32);
+                smooth_gain(&mut current[1], target[1], blend as f32);
             }
         }
         self.smoothed_rate += (target_rate - self.smoothed_rate) * blend;
@@ -821,7 +850,7 @@ impl RealtimeRenderer {
         rate: f64,
         pitch: f32,
         volume: f32,
-        stem_gains: &[f32; STEM_COUNT],
+        stem_gains: &StemChannelGains,
     ) where
         T: SizedSample + FromSample<f32>,
     {
@@ -830,11 +859,13 @@ impl RealtimeRenderer {
         if !shared.playing.load(Ordering::Acquire) {
             self.seek_transition.clear_output();
             publish_output_peak(shared, 0.0);
+            publish_stem_peaks(shared, [0.0; STEM_COUNT]);
             return;
         }
         let Some(audio) = shared.audio.load_full() else {
             self.seek_transition.clear_output();
             publish_output_peak(shared, 0.0);
+            publish_stem_peaks(shared, [0.0; STEM_COUNT]);
             return;
         };
         let generation = shared.position_generation.load(Ordering::Acquire);
@@ -877,6 +908,7 @@ impl RealtimeRenderer {
 
         let mut output_peak = 0.0_f32;
         let mut channel_peaks = [0.0_f32; 2];
+        let mut stem_peaks = [0.0_f32; STEM_COUNT];
         for output_chunk in output.chunks_mut(MAX_DSP_OUTPUT_FRAMES * self.channels) {
             let output_frames = output_chunk.len() / self.channels;
             let output_start_position = position;
@@ -916,6 +948,7 @@ impl RealtimeRenderer {
                         },
                         valid_loop || repeat_full_track,
                         stem_gains,
+                        Some(&mut stem_peaks),
                     );
                 }
                 position += source_step;
@@ -968,6 +1001,7 @@ impl RealtimeRenderer {
                 channel_peaks[0]
             },
         );
+        publish_stem_peaks(shared, stem_peaks);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -981,7 +1015,7 @@ impl RealtimeRenderer {
         loop_a: u64,
         loop_b: u64,
         valid_loop: bool,
-        stem_gains: &[f32; STEM_COUNT],
+        stem_gains: &StemChannelGains,
     ) {
         self.stretch.reset();
         self.rate_remainder = 0.0;
@@ -1008,6 +1042,7 @@ impl RealtimeRenderer {
                     loop_b,
                     valid_loop,
                     stem_gains,
+                    None,
                 );
             }
             preroll_position += source_step;
@@ -1082,7 +1117,7 @@ fn render_with_gains<T>(
     output_rate: u32,
     shared: &SharedState,
     volume: f32,
-    stem_gains: &[f32; STEM_COUNT],
+    stem_gains: &StemChannelGains,
     mut seek_transition: Option<&mut SeekTransition>,
 ) where
     T: SizedSample + FromSample<f32>,
@@ -1094,6 +1129,7 @@ fn render_with_gains<T>(
             transition.clear_output();
         }
         publish_output_peak(shared, 0.0);
+        publish_stem_peaks(shared, [0.0; STEM_COUNT]);
         return;
     }
     let Some(audio) = shared.audio.load_full() else {
@@ -1101,6 +1137,7 @@ fn render_with_gains<T>(
             transition.clear_output();
         }
         publish_output_peak(shared, 0.0);
+        publish_stem_peaks(shared, [0.0; STEM_COUNT]);
         return;
     };
     let generation = shared.position_generation.load(Ordering::Acquire);
@@ -1116,6 +1153,7 @@ fn render_with_gains<T>(
 
     let mut output_peak = 0.0_f32;
     let mut channel_peaks = [0.0_f32; 2];
+    let mut stem_peaks = [0.0_f32; STEM_COUNT];
     for frame in output.chunks_mut(output_channels) {
         let seek_blend = seek_transition
             .as_deref_mut()
@@ -1150,6 +1188,7 @@ fn render_with_gains<T>(
                 },
                 valid_loop || repeat_full_track,
                 stem_gains,
+                Some(&mut stem_peaks),
             );
             let mut output_value = apply_master_gain(value, click, volume);
             if let Some(transition) = seek_transition.as_deref_mut() {
@@ -1181,6 +1220,7 @@ fn render_with_gains<T>(
             channel_peaks[0]
         },
     );
+    publish_stem_peaks(shared, stem_peaks);
 }
 
 fn publish_output_peak(shared: &SharedState, block_peak: f32) {
@@ -1204,6 +1244,13 @@ fn publish_output_peaks(shared: &SharedState, block_peak: f32, left_peak: f32, r
     );
 }
 
+fn publish_stem_peaks(shared: &SharedState, block_peaks: [f32; STEM_COUNT]) {
+    for (peak, block_peak) in shared.stem_peak_bits.iter().zip(block_peaks) {
+        let previous = f32::from_bits(peak.load(Ordering::Relaxed));
+        peak.store(block_peak.max(previous * 0.82).to_bits(), Ordering::Relaxed);
+    }
+}
+
 fn apply_master_gain(music: f32, metronome: f32, volume: f32) -> f32 {
     ((music + metronome) * volume).clamp(-1.0, 1.0)
 }
@@ -1215,7 +1262,7 @@ fn smooth_gain(current: &mut f32, target: f32, blend: f32) {
     }
 }
 
-fn target_stem_gains(shared: &SharedState) -> [f32; STEM_COUNT] {
+fn target_stem_gains(shared: &SharedState) -> StemChannelGains {
     let any_solo = shared
         .stem_soloed
         .iter()
@@ -1224,9 +1271,11 @@ fn target_stem_gains(shared: &SharedState) -> [f32; STEM_COUNT] {
         let muted = shared.stem_muted[index].load(Ordering::Relaxed);
         let soloed = shared.stem_soloed[index].load(Ordering::Relaxed);
         if muted || (any_solo && !soloed) {
-            0.0
+            [0.0; 2]
         } else {
-            f32::from_bits(shared.stem_gain_bits[index].load(Ordering::Relaxed))
+            let gain = f32::from_bits(shared.stem_gain_bits[index].load(Ordering::Relaxed));
+            let pan = f32::from_bits(shared.stem_pan_bits[index].load(Ordering::Relaxed));
+            [gain * (1.0 - pan.max(0.0)), gain * (1.0 + pan.min(0.0))]
         }
     })
 }
@@ -1325,8 +1374,19 @@ fn playback_sample(
     loop_a: u64,
     loop_b: u64,
     valid_loop: bool,
-    stem_gains: &[f32; STEM_COUNT],
+    stem_gains: &StemChannelGains,
+    mut stem_peaks: Option<&mut [f32; STEM_COUNT]>,
 ) -> f32 {
+    if !shared.stems_enabled.load(Ordering::Relaxed) {
+        return sample_with_loop_crossfade(
+            audio,
+            position,
+            output_channel,
+            loop_a,
+            loop_b,
+            valid_loop,
+        );
+    }
     let Some(stems) = shared.stems.load_full() else {
         return sample_with_loop_crossfade(
             audio,
@@ -1337,24 +1397,22 @@ fn playback_sample(
             valid_loop,
         );
     };
-    stems
-        .stems
-        .iter()
-        .enumerate()
-        .fold(0.0, |mix, (index, stem)| {
-            let gain = stem_gains[index];
-            if gain <= 0.0 {
-                return mix;
-            }
-            mix + sample_with_loop_crossfade(
-                stem,
-                position,
-                output_channel,
-                loop_a,
-                loop_b,
-                valid_loop,
-            ) * gain
-        })
+    let channel = output_channel.min(1);
+    let mut mix = 0.0;
+    for (index, stem) in stems.stems.iter().enumerate() {
+        let gain = stem_gains[index][channel];
+        if gain <= 0.0 {
+            continue;
+        }
+        let sample =
+            sample_with_loop_crossfade(stem, position, output_channel, loop_a, loop_b, valid_loop)
+                * gain;
+        if let Some(peaks) = stem_peaks.as_deref_mut() {
+            peaks[index] = peaks[index].max(sample.abs());
+        }
+        mix += sample;
+    }
+    mix
 }
 
 fn interpolated_sample(audio: &DecodedAudio, position: f64, output_channel: usize) -> f32 {
@@ -1567,9 +1625,12 @@ mod tests {
                 frames: 100,
             }))),
             stems: ArcSwapOption::empty(),
+            stems_enabled: AtomicBool::new(false),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(true),
             position_bits: AtomicU64::new(18_f64.to_bits()),
             position_generation: AtomicU64::new(0),
@@ -1644,9 +1705,12 @@ mod tests {
                 frames: 12,
             }))),
             stems: ArcSwapOption::empty(),
+            stems_enabled: AtomicBool::new(false),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(true),
             position_bits: AtomicU64::new(10_f64.to_bits()),
             position_generation: AtomicU64::new(0),
@@ -1715,9 +1779,12 @@ mod tests {
                 frames: 100,
             }))),
             stems: ArcSwapOption::empty(),
+            stems_enabled: AtomicBool::new(false),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(false),
             position_bits: AtomicU64::new(50_f64.to_bits()),
             position_generation: AtomicU64::new(0),
@@ -1795,9 +1862,12 @@ mod tests {
                 frames: 100,
             }))),
             stems: ArcSwapOption::empty(),
+            stems_enabled: AtomicBool::new(false),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(true),
             position_bits: AtomicU64::new(0_f64.to_bits()),
             position_generation: AtomicU64::new(0),
@@ -1858,9 +1928,12 @@ mod tests {
                 frames,
             }))),
             stems: ArcSwapOption::empty(),
+            stems_enabled: AtomicBool::new(false),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(true),
             position_bits: AtomicU64::new(12_000_f64.to_bits()),
             position_generation: AtomicU64::new(0),
@@ -1930,9 +2003,12 @@ mod tests {
                     silent,
                 ],
             }))),
+            stems_enabled: AtomicBool::new(true),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(true),
             position_bits: AtomicU64::new(0_f64.to_bits()),
             position_generation: AtomicU64::new(0),
@@ -1959,6 +2035,10 @@ mod tests {
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
         };
+        shared.stem_pan_bits[0].store(1_f32.to_bits(), Ordering::Relaxed);
+        let panned = target_stem_gains(&shared);
+        assert_eq!(panned[0], [0.0, 1.0]);
+        shared.stem_pan_bits[0].store(0_f32.to_bits(), Ordering::Relaxed);
         let mut renderer = RealtimeRenderer::new(1, sample_rate);
         let mut output = vec![0_f32; sample_rate as usize];
 
@@ -1972,6 +2052,17 @@ mod tests {
             (420..=460).contains(&crossings),
             "measured {crossings} cycles in half a second"
         );
+        assert!(f32::from_bits(shared.stem_peak_bits[0].load(Ordering::Relaxed)) > 0.5);
+
+        shared.stems_enabled.store(false, Ordering::Release);
+        shared
+            .position_bits
+            .store(0_f64.to_bits(), Ordering::Release);
+        shared.position_generation.fetch_add(1, Ordering::AcqRel);
+        shared.playing.store(true, Ordering::Release);
+        let mut bypassed = vec![0_f32; 4_800];
+        RealtimeRenderer::new(1, sample_rate).render(&mut bypassed, &shared);
+        assert!(bypassed.iter().all(|sample| sample.abs() < 0.000_1));
     }
 
     #[test]
@@ -1979,9 +2070,12 @@ mod tests {
         let shared = SharedState {
             audio: ArcSwapOption::empty(),
             stems: ArcSwapOption::empty(),
+            stems_enabled: AtomicBool::new(false),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),
+            stem_pan_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             stem_muted: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
+            stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(true),
             position_bits: AtomicU64::new(0_f64.to_bits()),
             position_generation: AtomicU64::new(0),

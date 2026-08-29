@@ -3,7 +3,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetMix, stemStart, stemStatus, systemMetrics, updatePracticeState } from "./lib/backend";
+  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, updatePracticeState } from "./lib/backend";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates } from "./lib/importCandidates";
   import Icon from "./lib/Icon.svelte";
@@ -57,8 +57,14 @@
   let trainerLoopCount = 0;
   let spectrumBands = Array<number>(64).fill(0);
   let spectrumRequestActive = false;
-  let stems: StemStatus = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-  let stemMix: StemMix[] = Array.from({ length: 6 }, () => ({ gain: 1, muted: false, soloed: false }));
+  const canonicalStemNames = ["vocals", "drums", "bass", "other", "guitar", "piano"] as const;
+  const stemDisplayOrder = [0, 1, 2, 4, 5, 3] as const;
+  const stemColors = ["#36c7ef", "#f05d5e", "#ffc857", "#9b7ede", "#53d18d", "#f08cc0"] as const;
+  const stemMeterLevels = Array.from({ length: 14 }, (_, index) => index + 1);
+  let stems: StemStatus = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+  let stemMix: StemMix[] = Array.from({ length: 6 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
+  let stemNames: string[] = [...canonicalStemNames];
+  let stemPeaks = Array<number>(6).fill(0);
   let stemStatusRequestActive = false;
   let preferences: UserPreferences = { theme: "system", language: "en", smartClipboard: false, searchMode: "chooseFive", maxImportBatch: 10, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, defaultTrainerEnabled: false, defaultTrainerRepetitions: 3, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
@@ -440,8 +446,10 @@
     trainerLoopCount = 0;
     endedGeneration = 0;
     spectrumBands = Array<number>(64).fill(0);
-    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-    stemMix = Array.from({ length: 6 }, () => ({ gain: 1, muted: false, soloed: false }));
+    stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    stemMix = Array.from({ length: 6 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
+    stemNames = [...canonicalStemNames];
+    stemPeaks = Array<number>(6).fill(0);
     editingTrackId = null;
     draggedTrackId = null;
     dropTrackId = null;
@@ -889,7 +897,8 @@
     void persistCurrentPracticeState();
     void audioPause();
     void stemDisable();
-    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    stemPeaks = Array<number>(6).fill(0);
     isPlaying = false;
     masterPeak = 0;
     masterPeakLeft = 0;
@@ -918,7 +927,8 @@
     trainerIncrement = track.practice.trainerIncrement ?? 0.05;
     trainerTargetRate = track.practice.trainerTargetRate ?? 1;
     stemMix = track.practice.stemMix;
-    stemMix.forEach((value, index) => void stemSetMix(index, value.gain, value.muted, value.soloed));
+    stemNames = track.practice.stemNames;
+    stemMix.forEach((value, index) => void stemSetMix(index, value.gain, value.pan, value.muted, value.soloed));
     trainerLoopCount = 0;
     spectrumBands = Array<number>(64).fill(0);
     tapTimes = [];
@@ -929,15 +939,35 @@
 
   async function enableStems(): Promise<void> {
     if (!project || !currentTrack) return;
-    stems = { state: "separating", progress: 0, stage: "checkingCache", trackId: currentTrack.id, cached: false, error: null, computeBackend: null };
+    stems = { state: "separating", enabled: true, progress: 0, stage: "checkingCache", trackId: currentTrack.id, cached: false, error: null, computeBackend: null };
     try { await stemStart(project.packagePath, currentTrack.id); schedulePracticeSave(); }
     catch (error) { errorMessage = `${t("stemFailed")}: ${error instanceof Error ? error.message : String(error)}`; }
   }
 
   async function disableStems(): Promise<void> {
     await stemDisable();
-    stems = { state: "disabled", progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    stemPeaks = Array<number>(6).fill(0);
     schedulePracticeSave();
+  }
+
+  async function toggleStemMode(event: Event): Promise<void> {
+    const enabled = (event.currentTarget as HTMLInputElement).checked;
+    if (enabled) {
+      if (stems.state === "ready") {
+        stems = { ...stems, enabled: await stemSetEnabled(true) };
+        schedulePracticeSave();
+      } else {
+        await enableStems();
+      }
+    } else if (stems.state === "separating") {
+      await disableStems();
+    } else if (stems.state === "ready") {
+      await stemSetEnabled(false);
+      stems = { ...stems, enabled: false };
+      stemPeaks = Array<number>(6).fill(0);
+      schedulePracticeSave();
+    }
   }
 
   async function refreshStemStatus(): Promise<void> {
@@ -952,8 +982,36 @@
   function updateStem(index: number, change: Partial<StemMix>): void {
     stemMix = stemMix.map((value, candidate) => candidate === index ? { ...value, ...change } : value);
     const value = stemMix[index];
-    void stemSetMix(index, value.gain, value.muted, value.soloed);
+    void stemSetMix(index, value.gain, value.pan, value.muted, value.soloed);
     schedulePracticeSave();
+  }
+
+  function renameStem(index: number, value: string): void {
+    const name = value.trim().slice(0, 40);
+    if (!name) return;
+    stemNames = stemNames.map((current, candidate) => candidate === index ? name : current);
+    schedulePracticeSave(0);
+  }
+
+  function stemDisplayName(index: number): string {
+    const name = stemNames[index] ?? canonicalStemNames[index];
+    return name === canonicalStemNames[index] ? t(canonicalStemNames[index]) : name;
+  }
+
+  function formatStemGain(gain: number): string {
+    if (gain <= 0.0001) return "−∞ dB";
+    const decibels = 20 * Math.log10(gain);
+    return `${decibels > 0 ? "+" : ""}${decibels.toFixed(1)} dB`;
+  }
+
+  function formatPan(pan: number): string {
+    if (Math.abs(pan) < 0.005) return "C";
+    return `${pan < 0 ? "L" : "R"} ${Math.round(Math.abs(pan) * 100)}`;
+  }
+
+  function stemMeterLevel(peak: number): number {
+    if (peak <= 0.001) return 0;
+    return Math.min(1, Math.max(0, (20 * Math.log10(peak) + 60) / 60));
   }
 
   async function loadTrackTempo(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
@@ -1389,6 +1447,7 @@
       masterPeak = status.outputPeak;
       masterPeakLeft = status.outputPeakLeft;
       masterPeakRight = status.outputPeakRight;
+      stemPeaks = status.stemPeaks;
       if (status.endedGeneration !== endedGeneration) {
         endedGeneration = status.endedGeneration;
         if (endBehavior === "advance" && (project?.tracks.length ?? 0) > 1) {
@@ -1469,8 +1528,9 @@
         trainerRepetitions,
         trainerIncrement,
         trainerTargetRate,
-        stemsEnabled: stems.state !== "disabled",
+        stemsEnabled: stems.enabled,
         stemMix,
+        stemNames,
       });
       if (project?.packagePath === packagePath) project = updated;
       return true;
@@ -1841,7 +1901,7 @@
           <div class="spectrum-scale"><span>30</span><span>100</span><span>1k</span><span>10k</span><span>20k Hz</span></div>
         </div>
         <div class="stereo-meter panel">
-          <div class="panel-title"><h2>{t("stereoMeter")}</h2><span>L / R</span></div>
+          <div class="panel-title"><h2>{t("stereoMeter")}</h2></div>
           <div class="stereo-meter-channels">
             <div class="stereo-channel"><span>L</span><div class="stereo-track" role="meter" aria-label={`${t("leftChannel")} ${Math.round(masterPeakLeft * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakLeft * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakLeft * 100))}%`}></i></div><output>{Math.round(masterPeakLeft * 100)}%</output></div>
             <div class="stereo-channel"><span>R</span><div class="stereo-track" role="meter" aria-label={`${t("rightChannel")} ${Math.round(masterPeakRight * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakRight * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakRight * 100))}%`}></i></div><output>{Math.round(masterPeakRight * 100)}%</output></div>
@@ -1850,21 +1910,49 @@
       </div>
 
       <div class="lower-grid">
-        <div class="panel stem-panel">
-          <div class="panel-title"><h2>{t("stems")}</h2><div class="stem-heading-status">{#if stems.computeBackend}<span class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? t("stemsReady") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div></div>
+        <div class="panel stem-panel" class:stem-bypassed={stems.state === "ready" && !stems.enabled}>
+          <div class="panel-title stem-panel-title">
+            <label class="stem-switch" data-tooltip={t("stemSwitchHelp")}>
+              <input type="checkbox" role="switch" checked={stems.enabled} disabled={!currentTrack || stems.state === "failed"} onchange={(event) => void toggleStemMode(event)} />
+              <i aria-hidden="true"><b></b></i><strong>STEMS</strong>
+            </label>
+            <div class="stem-heading-status">{#if stems.computeBackend}<span class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? stems.enabled ? t("stemsReady") : t("stemsBypassed") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div>
+          </div>
           {#if stems.state === "disabled"}
             <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={enableStems}>{t("enableStems")}</button><small>HTDemucs 6s · 6 stems · MLX</small></div>
           {:else if stems.state === "separating"}
-            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.stage === "loadingModel" ? t("loadingStemModel") : stems.stage === "loadingAudio" ? t("loadingStemAudio") : stems.stage === "writingStems" || stems.stage === "validatingStems" ? t("writingStems") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
+            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.stage === "checkingCache" ? t("loadingAvailableStems") : stems.stage === "loadingModel" ? t("loadingStemModel") : stems.stage === "loadingAudio" ? t("loadingStemAudio") : stems.stage === "writingStems" || stems.stage === "validatingStems" || stems.stage === "cachingStems" ? t("writingStems") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
           {:else if stems.state === "failed"}
             <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><button onclick={enableStems}>{t("enableStems")}</button></div>
           {:else}
-            <div class="stem-mixer">
-              {#each [t("vocals"), t("drums"), t("bass"), t("other"), t("guitar"), t("piano")] as name, index}
-                <section class="stem-strip"><strong>{name}</strong><output>{Math.round(stemMix[index].gain * 100)}%</output><input aria-label={`${name} ${t("volume")}`} type="range" min="0" max="2" step="0.01" value={stemMix[index].gain} oninput={(event) => updateStem(index, { gain: Number(event.currentTarget.value) })} /><div><button class:active={stemMix[index].muted} onclick={() => updateStem(index, { muted: !stemMix[index].muted })}>M</button><button class:active={stemMix[index].soloed} onclick={() => updateStem(index, { soloed: !stemMix[index].soloed })}>S</button></div></section>
+            <div class="stem-mixer" aria-label={t("stemMixer")}>
+              {#each stemDisplayOrder as index, position}
+                <section class="stem-strip" style={`--stem-color:${stemColors[index]}`}>
+                  <div class="stem-pan">
+                    <span>{t("pan")}</span>
+                    <div class="pan-knob" style={`--pan-angle:${stemMix[index].pan * 135}deg`}>
+                      <i aria-hidden="true"></i>
+                      <input disabled={!stems.enabled} aria-label={`${stemDisplayName(index)} ${t("pan")}`} aria-valuetext={formatPan(stemMix[index].pan)} type="range" min="-1" max="1" step="0.01" value={stemMix[index].pan} oninput={(event) => updateStem(index, { pan: Number(event.currentTarget.value) })} ondblclick={() => updateStem(index, { pan: 0 })} />
+                    </div>
+                    <output>{formatPan(stemMix[index].pan)}</output>
+                  </div>
+                  <div class="stem-level-section">
+                    <div class="stem-fader">
+                      <output>{formatStemGain(stemMix[index].gain)}</output>
+                      <input disabled={!stems.enabled} aria-label={`${stemDisplayName(index)} ${t("volume")}`} aria-valuetext={formatStemGain(stemMix[index].gain)} type="range" min="0" max="2" step="0.01" value={stemMix[index].gain} oninput={(event) => updateStem(index, { gain: Number(event.currentTarget.value) })} ondblclick={() => updateStem(index, { gain: 1 })} />
+                    </div>
+                    <div class="stem-vu" role="meter" aria-label={`${stemDisplayName(index)} ${t("level")}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(stemMeterLevel(stemPeaks[index]) * 100)}>
+                      {#each stemMeterLevels as level}<i class:active={stemMeterLevel(stemPeaks[index]) * stemMeterLevels.length >= level} class:hot={level > 11}></i>{/each}
+                    </div>
+                  </div>
+                  <div class="stem-buttons">
+                    <button disabled={!stems.enabled} class:muted={stemMix[index].muted} aria-pressed={stemMix[index].muted} aria-label={`${t("mute")} ${stemDisplayName(index)}`} onclick={() => updateStem(index, { muted: !stemMix[index].muted })}>M</button>
+                    <button disabled={!stems.enabled} class:soloed={stemMix[index].soloed} aria-pressed={stemMix[index].soloed} aria-label={`${t("solo")} ${stemDisplayName(index)}`} onclick={() => updateStem(index, { soloed: !stemMix[index].soloed })}>S</button>
+                  </div>
+                  <label class="stem-channel-label"><span>{String(position + 1).padStart(2, "0")} ·</span><input disabled={!stems.enabled} aria-label={t("stemName")} title={t("renameStem")} maxlength="40" value={stemDisplayName(index)} onchange={(event) => { renameStem(index, event.currentTarget.value); event.currentTarget.value = stemDisplayName(index); }} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label>
+                </section>
               {/each}
             </div>
-            <button class="stem-disable" onclick={disableStems}>{t("disableStems")}</button>
           {/if}
         </div>
         <div class="panel"><div class="panel-title"><h2>{t("chords")}</h2><span>{t("notAnalyzed")}</span></div><div class="chords"><b>Am7</b><b>Fmaj7</b><b>C</b><b>G</b></div></div>

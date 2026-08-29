@@ -114,6 +114,8 @@ The application console is a bounded diagnostic view, not a real-time sink. Rust
 
 The six-stem MLX process is an implementation detail behind the Rust stem service. It receives only canonical project media/model paths through a direct argument array and returns bounded NDJSON status; raw audio never crosses Tauri IPC. Debug builds resolve the locked uv environment. Release builds resolve the preassembled Python/MLX runtime and model from signed application resources, and never bootstrap uv or packages on the user's machine.
 
+The stem mixer persists its six display names and control state in each track. Its header switch changes an atomic Rust bypass while retaining the immutable decoded stem buffers. The WebView receives only six bounded peak scalars in the normal audio-status snapshot; it never receives stem audio.
+
 ## Import pipeline
 
 Local paths and remote sources enter one Rust-owned background queue. Each queued item retains its destination project and the preference snapshot active when it was submitted, so concurrent imports cannot leak into another project. Concurrency and batch size are bounded.
