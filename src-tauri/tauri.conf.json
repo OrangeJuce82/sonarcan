@@ -35,13 +35,33 @@
       "resources/mlx-runtime": "mlx-runtime",
       "resources/models/demucs-mlx": "models/demucs-mlx"
     },
-    "icon": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
     "targets": "all",
     "category": "Music",
     "shortDescription": "Professional music learning workspace",
     "longDescription": "Learn, isolate, analyze, and rehearse music in one focused workspace.",
     "macOS": {
-      "minimumSystemVersion": "14.0"
+      "minimumSystemVersion": "14.0",
+      "dmg": {
+        "background": "dmg/background-v2.png",
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "appPosition": {
+          "x": 151,
+          "y": 195
+        },
+        "applicationFolderPosition": {
+          "x": 506,
+          "y": 195
+        }
+      }
     }
   }
 }

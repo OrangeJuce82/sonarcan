@@ -26,7 +26,7 @@ use tracing::info;
 use crate::{error::AppError, spectrum, stem_contract::STEM_COUNT};
 
 const NO_LOOP: u64 = u64::MAX;
-const CROSSFADE_SECONDS: f64 = 0.005;
+const CROSSFADE_SECONDS: f64 = 0.010;
 const GAIN_RAMP_SECONDS: f64 = 0.04;
 const SEEK_TRANSITION_SECONDS: f64 = 0.008;
 const MAX_DECODED_TRACKS: usize = 3;
@@ -86,6 +86,7 @@ struct SharedState {
     metronome_enabled: AtomicBool,
     metronome_volume_bits: AtomicU32,
     trainer_enabled: AtomicBool,
+    trainer_start_bits: AtomicU64,
     trainer_repetitions: AtomicU32,
     trainer_increment_bits: AtomicU64,
     trainer_target_bits: AtomicU64,
@@ -130,12 +131,25 @@ pub struct AudioStatus {
     pub metronome_enabled: bool,
     pub metronome_volume: f32,
     pub trainer_enabled: bool,
+    pub trainer_start_rate: f64,
     pub trainer_repetitions: u32,
     pub trainer_increment: f64,
     pub trainer_target_rate: f64,
     pub trainer_loop_count: u32,
     pub end_behavior: EndBehavior,
     pub ended_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopTrainerSettings {
+    pub enabled: bool,
+    pub start_rate: f64,
+    pub repetitions: u32,
+    pub increment: f64,
+    pub target_rate: f64,
+    pub loop_a_seconds: Option<f64>,
+    pub loop_b_seconds: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -190,7 +204,8 @@ impl AudioEngine {
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
             trainer_enabled: AtomicBool::new(false),
-            trainer_repetitions: AtomicU32::new(3),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
+            trainer_repetitions: AtomicU32::new(1),
             trainer_increment_bits: AtomicU64::new(0.05_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1_f64.to_bits()),
             trainer_loop_count: AtomicU32::new(0),
@@ -295,45 +310,34 @@ impl AudioEngine {
         let load_started = Instant::now();
         let decoded = if let Some(cached) = load_decoded_cache(&path, source_size, modified) {
             info!(path = %path.display(), elapsed_ms = load_started.elapsed().as_millis(), "loaded persistent PCM cache");
-            cached
+            Ok(cached)
         } else {
-            let cache_audio = Arc::new(decode(&path)?);
-            info!(path = %path.display(), elapsed_ms = load_started.elapsed().as_millis(), "decoded compressed audio");
-            let write_audio = Arc::clone(&cache_audio);
-            let write_path = path.clone();
-            std::thread::Builder::new()
-                .name("sonarcan-pcm-cache".to_owned())
-                .spawn(move || {
-                    let _ = store_decoded_cache(&write_path, source_size, modified, &write_audio);
-                })
-                .ok();
-            cache_audio
+            decode(&path).map(|decoded| {
+                let cache_audio = Arc::new(decoded);
+                info!(path = %path.display(), elapsed_ms = load_started.elapsed().as_millis(), "decoded compressed audio");
+                let write_audio = Arc::clone(&cache_audio);
+                let write_path = path.clone();
+                std::thread::Builder::new()
+                    .name("sonarcan-pcm-cache".to_owned())
+                    .spawn(move || {
+                        let _ = store_decoded_cache(
+                            &write_path,
+                            source_size,
+                            modified,
+                            &write_audio,
+                        );
+                    })
+                    .ok();
+                cache_audio
+            })
         };
         let mut cache =
             self.decode_cache.0.lock().map_err(|_| {
                 AppError::AudioEngine("decoded-audio cache is unavailable".to_owned())
             })?;
-        cache.loading.remove(&path);
+        let result = finish_decode_load(&mut cache, &path, source_size, modified, decoded);
         self.decode_cache.1.notify_all();
-        let audio = decoded;
-        cache.entries.insert(
-            path.clone(),
-            CachedAudio {
-                audio: Arc::clone(&audio),
-                file_size: source_size,
-                modified,
-            },
-        );
-        touch_cache_entry(&mut cache.recent, &path);
-        while (cache.recent.len() > MAX_DECODED_TRACKS
-            || decoded_cache_bytes(&cache) > MAX_DECODED_CACHE_BYTES)
-            && cache.recent.len() > 1
-        {
-            if let Some(expired) = cache.recent.pop_back() {
-                cache.entries.remove(&expired);
-            }
-        }
-        Ok(audio)
+        result
     }
 
     pub fn play(&self) {
@@ -517,27 +521,41 @@ impl AudioEngine {
             .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
     }
 
-    pub fn set_loop_trainer(
-        &self,
-        enabled: bool,
-        repetitions: u32,
-        increment: f64,
-        target_rate: f64,
-    ) {
-        let current = f64::from_bits(self.shared.playback_rate_bits.load(Ordering::Acquire));
-        let target_rate = target_rate.clamp(0.5, 2.0);
+    pub fn set_loop_trainer(&self, settings: LoopTrainerSettings) {
+        let start_rate = settings.start_rate.clamp(0.5, 1.99);
+        let target_rate = settings.target_rate.clamp(0.5, 2.0);
         self.shared
-            .trainer_enabled
-            .store(enabled && target_rate > current, Ordering::Release);
+            .trainer_start_bits
+            .store(start_rate.to_bits(), Ordering::Release);
+        self.shared.trainer_enabled.store(
+            settings.enabled && target_rate > start_rate,
+            Ordering::Release,
+        );
         self.shared
             .trainer_repetitions
-            .store(repetitions.clamp(1, 99), Ordering::Release);
-        self.shared
-            .trainer_increment_bits
-            .store(increment.clamp(0.01, 0.25).to_bits(), Ordering::Release);
+            .store(settings.repetitions.clamp(1, 99), Ordering::Release);
+        self.shared.trainer_increment_bits.store(
+            settings.increment.clamp(0.01, 0.25).to_bits(),
+            Ordering::Release,
+        );
         self.shared
             .trainer_target_bits
             .store(target_rate.to_bits(), Ordering::Release);
+        if settings.enabled && target_rate > start_rate {
+            let loop_bounds = match (settings.loop_a_seconds, settings.loop_b_seconds) {
+                (Some(a), Some(b)) if a >= 0.0 && b > a => (Some(a), Some(b)),
+                _ => self.shared.audio.load_full().map_or((None, None), |audio| {
+                    (
+                        Some(0.0),
+                        Some(audio.frames as f64 / audio.sample_rate as f64),
+                    )
+                }),
+            };
+            self.set_loop(loop_bounds.0, loop_bounds.1);
+            self.shared
+                .playback_rate_bits
+                .store(start_rate.to_bits(), Ordering::Release);
+        }
         self.shared.trainer_loop_count.store(0, Ordering::Release);
         let position = f64::from_bits(self.shared.position_bits.load(Ordering::Acquire));
         set_loop_cycle_state_for_position(&self.shared, position);
@@ -593,6 +611,9 @@ impl AudioEngine {
                 self.shared.metronome_volume_bits.load(Ordering::Acquire),
             ),
             trainer_enabled: self.shared.trainer_enabled.load(Ordering::Acquire),
+            trainer_start_rate: f64::from_bits(
+                self.shared.trainer_start_bits.load(Ordering::Acquire),
+            ),
             trainer_repetitions: self.shared.trainer_repetitions.load(Ordering::Acquire),
             trainer_increment: f64::from_bits(
                 self.shared.trainer_increment_bits.load(Ordering::Acquire),
@@ -613,6 +634,35 @@ impl AudioEngine {
         let position = f64::from_bits(self.shared.position_bits.load(Ordering::Acquire)) as usize;
         self.spectrum.request(audio, position)
     }
+}
+
+fn finish_decode_load(
+    cache: &mut DecodeCache,
+    path: &Path,
+    source_size: u64,
+    modified: Option<SystemTime>,
+    decoded: Result<Arc<DecodedAudio>, AppError>,
+) -> Result<Arc<DecodedAudio>, AppError> {
+    cache.loading.remove(path);
+    let audio = decoded?;
+    cache.entries.insert(
+        path.to_path_buf(),
+        CachedAudio {
+            audio: Arc::clone(&audio),
+            file_size: source_size,
+            modified,
+        },
+    );
+    touch_cache_entry(&mut cache.recent, path);
+    while (cache.recent.len() > MAX_DECODED_TRACKS
+        || decoded_cache_bytes(cache) > MAX_DECODED_CACHE_BYTES)
+        && cache.recent.len() > 1
+    {
+        if let Some(expired) = cache.recent.pop_back() {
+            cache.entries.remove(&expired);
+        }
+    }
+    Ok(audio)
 }
 
 fn touch_cache_entry(recent: &mut VecDeque<PathBuf>, path: &Path) {
@@ -917,7 +967,7 @@ impl RealtimeRenderer {
             self.rate_remainder = exact_input - input_frames as f64;
             for frame in 0..input_frames {
                 if valid_loop {
-                    process_loop_boundary(shared, &mut position, loop_a, loop_b);
+                    process_loop_boundary(shared, &mut position, loop_a, loop_b, audio.sample_rate);
                 }
                 if position >= audio.frames as f64 {
                     if repeat_full_track {
@@ -931,22 +981,27 @@ impl RealtimeRenderer {
                         return;
                     }
                 }
+                let crossfade = loop_crossfade_at(
+                    position,
+                    audio.sample_rate,
+                    if repeat_full_track { 0 } else { loop_a },
+                    if repeat_full_track {
+                        audio.frames as u64
+                    } else {
+                        loop_b
+                    },
+                    valid_loop || repeat_full_track,
+                );
                 for channel in 0..self.channels {
-                    // This is the only DSP path: select/mix the six stems at
-                    // the source position first, then feed that single mix to
+                    // Select/mix the six stems first, crossfade that final mix
+                    // once at the loop boundary, then feed the result through
                     // Signalsmith once for combined tempo and pitch changes.
                     self.input[frame * self.channels + channel] = playback_sample(
                         shared,
                         &audio,
                         position,
                         channel,
-                        if repeat_full_track { 0 } else { loop_a },
-                        if repeat_full_track {
-                            audio.frames as u64
-                        } else {
-                            loop_b
-                        },
-                        valid_loop || repeat_full_track,
+                        crossfade,
                         stem_gains,
                         Some(&mut stem_peaks),
                     );
@@ -1032,15 +1087,20 @@ impl RealtimeRenderer {
             } else {
                 preroll_position = preroll_position.max(0.0);
             }
+            let crossfade = loop_crossfade_at(
+                preroll_position,
+                audio.sample_rate,
+                loop_a,
+                loop_b,
+                valid_loop,
+            );
             for channel in 0..self.channels {
                 self.preroll[frame * self.channels + channel] = playback_sample(
                     shared,
                     audio,
                     preroll_position,
                     channel,
-                    loop_a,
-                    loop_b,
-                    valid_loop,
+                    crossfade,
                     stem_gains,
                     None,
                 );
@@ -1074,7 +1134,13 @@ fn set_loop_cycle_state_for_position(shared: &SharedState, position: f64) {
         .store(before_loop, Ordering::Release);
 }
 
-fn process_loop_boundary(shared: &SharedState, position: &mut f64, loop_a: u64, loop_b: u64) {
+fn process_loop_boundary(
+    shared: &SharedState,
+    position: &mut f64,
+    loop_a: u64,
+    loop_b: u64,
+    sample_rate: u32,
+) {
     if loop_a == NO_LOOP || loop_b <= loop_a {
         return;
     }
@@ -1088,7 +1154,7 @@ fn process_loop_boundary(shared: &SharedState, position: &mut f64, loop_a: u64, 
     if shared.loop_cycle_armed.load(Ordering::Relaxed) {
         handle_loop_trainer(shared);
     }
-    *position = wrap_loop_position(*position, loop_a, loop_b, true);
+    *position = loop_resume_position(*position, sample_rate, loop_a, loop_b);
     shared.loop_cycle_armed.store(true, Ordering::Relaxed);
     shared.loop_waiting_for_a.store(false, Ordering::Relaxed);
 }
@@ -1159,7 +1225,7 @@ fn render_with_gains<T>(
             .as_deref_mut()
             .map_or(1.0, |transition| transition.begin_frame(generation));
         if valid_loop {
-            process_loop_boundary(shared, &mut position, loop_a, loop_b);
+            process_loop_boundary(shared, &mut position, loop_a, loop_b, audio.sample_rate);
         }
         if position >= audio.frames as f64 {
             if repeat_full_track {
@@ -1174,19 +1240,24 @@ fn render_with_gains<T>(
             }
         }
         let click = metronome_sample(position, audio.sample_rate, 1.0, shared);
+        let crossfade = loop_crossfade_at(
+            position,
+            audio.sample_rate,
+            if repeat_full_track { 0 } else { loop_a },
+            if repeat_full_track {
+                audio.frames as u64
+            } else {
+                loop_b
+            },
+            valid_loop || repeat_full_track,
+        );
         for (channel, sample) in frame.iter_mut().enumerate() {
             let value = playback_sample(
                 shared,
                 &audio,
                 position,
                 channel,
-                if repeat_full_track { 0 } else { loop_a },
-                if repeat_full_track {
-                    audio.frames as u64
-                } else {
-                    loop_b
-                },
-                valid_loop || repeat_full_track,
+                crossfade,
                 stem_gains,
                 Some(&mut stem_peaks),
             );
@@ -1323,6 +1394,9 @@ fn metronome_sample(
     }
     let offset = f64::from_bits(shared.beat_grid_offset_bits.load(Ordering::Relaxed));
     let seconds = source_position / source_rate as f64;
+    if seconds < offset {
+        return 0.0;
+    }
     let period = 60.0 / bpm;
     let grid_position = (seconds - offset) / period;
     let source_elapsed = (grid_position - grid_position.floor()) * period;
@@ -1340,29 +1414,45 @@ fn metronome_sample(
     oscillator * envelope * volume * if accented { 0.42 } else { 0.28 }
 }
 
-fn sample_with_loop_crossfade(
-    audio: &DecodedAudio,
+#[derive(Clone, Copy)]
+struct LoopCrossfade {
+    wrapped_position: f64,
+    mix: f32,
+}
+
+fn loop_crossfade_at(
     position: f64,
-    output_channel: usize,
+    sample_rate: u32,
     loop_a: u64,
     loop_b: u64,
     valid_loop: bool,
-) -> f32 {
-    let primary = interpolated_sample(audio, position, output_channel);
+) -> Option<LoopCrossfade> {
     if !valid_loop {
-        return primary;
+        return None;
     }
-    let loop_length = loop_b - loop_a;
-    let crossfade = ((audio.sample_rate as f64 * CROSSFADE_SECONDS) as u64)
-        .min(loop_length / 2)
-        .max(1);
+    let crossfade = loop_crossfade_frames(sample_rate, loop_a, loop_b);
     let remaining = loop_b as f64 - position;
     if remaining <= 0.0 || remaining >= crossfade as f64 {
-        return primary;
+        return None;
     }
-    let mix = 1.0 - remaining as f32 / crossfade as f32;
-    let wrapped_position = loop_a as f64 + (crossfade as f64 - remaining);
-    primary * (1.0 - mix) + interpolated_sample(audio, wrapped_position, output_channel) * mix
+    Some(LoopCrossfade {
+        wrapped_position: loop_a as f64 + (crossfade as f64 - remaining),
+        mix: 1.0 - remaining as f32 / crossfade as f32,
+    })
+}
+
+fn loop_crossfade_frames(sample_rate: u32, loop_a: u64, loop_b: u64) -> u64 {
+    let loop_length = loop_b.saturating_sub(loop_a);
+    ((sample_rate as f64 * CROSSFADE_SECONDS) as u64)
+        .min(loop_length / 2)
+        .max(1)
+}
+
+fn loop_resume_position(position: f64, sample_rate: u32, loop_a: u64, loop_b: u64) -> f64 {
+    let overshoot = position - loop_b as f64;
+    let resumed =
+        loop_a as f64 + loop_crossfade_frames(sample_rate, loop_a, loop_b) as f64 + overshoot;
+    wrap_loop_position(resumed, loop_a, loop_b, true)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1371,31 +1461,67 @@ fn playback_sample(
     audio: &DecodedAudio,
     position: f64,
     output_channel: usize,
-    loop_a: u64,
-    loop_b: u64,
-    valid_loop: bool,
+    crossfade: Option<LoopCrossfade>,
+    stem_gains: &StemChannelGains,
+    stem_peaks: Option<&mut [f32; STEM_COUNT]>,
+) -> f32 {
+    let stems = shared
+        .stems_enabled
+        .load(Ordering::Relaxed)
+        .then(|| shared.stems.load_full())
+        .flatten();
+    mixed_sample_with_loop_crossfade(
+        audio,
+        stems.as_deref(),
+        position,
+        output_channel,
+        crossfade,
+        stem_gains,
+        stem_peaks,
+    )
+}
+
+fn mixed_sample_with_loop_crossfade(
+    audio: &DecodedAudio,
+    stems: Option<&StemSet>,
+    position: f64,
+    output_channel: usize,
+    crossfade: Option<LoopCrossfade>,
     stem_gains: &StemChannelGains,
     mut stem_peaks: Option<&mut [f32; STEM_COUNT]>,
 ) -> f32 {
-    if !shared.stems_enabled.load(Ordering::Relaxed) {
-        return sample_with_loop_crossfade(
-            audio,
-            position,
-            output_channel,
-            loop_a,
-            loop_b,
-            valid_loop,
-        );
-    }
-    let Some(stems) = shared.stems.load_full() else {
-        return sample_with_loop_crossfade(
-            audio,
-            position,
-            output_channel,
-            loop_a,
-            loop_b,
-            valid_loop,
-        );
+    let primary = mixed_sample_at(
+        audio,
+        stems,
+        position,
+        output_channel,
+        stem_gains,
+        stem_peaks.as_deref_mut(),
+    );
+    let Some(crossfade) = crossfade else {
+        return primary;
+    };
+    let wrapped = mixed_sample_at(
+        audio,
+        stems,
+        crossfade.wrapped_position,
+        output_channel,
+        stem_gains,
+        stem_peaks,
+    );
+    primary * (1.0 - crossfade.mix) + wrapped * crossfade.mix
+}
+
+fn mixed_sample_at(
+    audio: &DecodedAudio,
+    stems: Option<&StemSet>,
+    position: f64,
+    output_channel: usize,
+    stem_gains: &StemChannelGains,
+    mut stem_peaks: Option<&mut [f32; STEM_COUNT]>,
+) -> f32 {
+    let Some(stems) = stems else {
+        return interpolated_sample(audio, position, output_channel);
     };
     let channel = output_channel.min(1);
     let mut mix = 0.0;
@@ -1404,9 +1530,7 @@ fn playback_sample(
         if gain <= 0.0 {
             continue;
         }
-        let sample =
-            sample_with_loop_crossfade(stem, position, output_channel, loop_a, loop_b, valid_loop)
-                * gain;
+        let sample = interpolated_sample(stem, position, output_channel) * gain;
         if let Some(peaks) = stem_peaks.as_deref_mut() {
             peaks[index] = peaks[index].max(sample.abs());
         }
@@ -1615,6 +1739,18 @@ fn invalid_audio(path: &Path, error: SymphoniaError) -> AppError {
 mod tests {
     use super::*;
 
+    fn original_loop_sample(audio: &DecodedAudio, position: f64, loop_a: u64, loop_b: u64) -> f32 {
+        mixed_sample_with_loop_crossfade(
+            audio,
+            None,
+            position,
+            0,
+            loop_crossfade_at(position, audio.sample_rate, loop_a, loop_b, true),
+            &[[1.0; 2]; STEM_COUNT],
+            None,
+        )
+    }
+
     #[test]
     fn loop_wraps_inside_the_realtime_renderer_without_silence() {
         let shared = SharedState {
@@ -1646,6 +1782,7 @@ mod tests {
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
             trainer_enabled: AtomicBool::new(true),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(2),
             trainer_increment_bits: AtomicU64::new(0.05_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1.1_f64.to_bits()),
@@ -1684,8 +1821,8 @@ mod tests {
             sample_rate: 1_000,
             frames: 30,
         };
-        let values: Vec<f32> = (15..20)
-            .map(|position| sample_with_loop_crossfade(&audio, position as f64, 0, 0, 20, true))
+        let values: Vec<f32> = (10..20)
+            .map(|position| original_loop_sample(&audio, position as f64, 0, 20))
             .collect();
 
         assert_eq!(values[0], 1.0);
@@ -1693,6 +1830,95 @@ mod tests {
             .windows(2)
             .all(|pair| (pair[1] - pair[0]).abs() <= 0.5));
         assert!(values.last().copied().unwrap() < 0.0);
+    }
+
+    #[test]
+    fn crossfade_is_applied_to_the_final_stem_mix() {
+        let sample_rate = 1_000;
+        let frames = 30;
+        let original = DecodedAudio {
+            samples: vec![0.0; frames],
+            channels: 1,
+            sample_rate,
+            frames,
+        };
+        let discontinuous = Arc::new(DecodedAudio {
+            samples: (0..frames)
+                .map(|frame| if frame < 10 { -1.0 } else { 1.0 })
+                .collect(),
+            channels: 1,
+            sample_rate,
+            frames,
+        });
+        let constant = Arc::new(DecodedAudio {
+            samples: vec![0.25; frames],
+            channels: 1,
+            sample_rate,
+            frames,
+        });
+        let silent = Arc::new(DecodedAudio {
+            samples: vec![0.0; frames],
+            channels: 1,
+            sample_rate,
+            frames,
+        });
+        let stems = StemSet {
+            stems: [
+                discontinuous,
+                constant,
+                Arc::clone(&silent),
+                Arc::clone(&silent),
+                Arc::clone(&silent),
+                silent,
+            ],
+        };
+        let gains = [[1.0; 2]; STEM_COUNT];
+        let position = 15.0;
+        let crossfade = loop_crossfade_at(position, sample_rate, 0, 20, true);
+
+        let primary = mixed_sample_at(&original, Some(&stems), position, 0, &gains, None);
+        let wrapped = mixed_sample_at(
+            &original,
+            Some(&stems),
+            crossfade.unwrap().wrapped_position,
+            0,
+            &gains,
+            None,
+        );
+        let result = mixed_sample_with_loop_crossfade(
+            &original,
+            Some(&stems),
+            position,
+            0,
+            crossfade,
+            &gains,
+            None,
+        );
+
+        assert_eq!(primary, 1.25);
+        assert_eq!(wrapped, -0.75);
+        assert!((result - 0.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn loop_resumes_after_the_head_already_used_by_the_crossfade() {
+        let sample_rate = 48_000;
+        let loop_a = 0_u64;
+        let loop_b = 1_440_u64;
+        let audio = DecodedAudio {
+            samples: (0..loop_b)
+                .map(|frame| if frame < 720 { -1.0 } else { 1.0 })
+                .collect(),
+            channels: 1,
+            sample_rate,
+            frames: loop_b as usize,
+        };
+        let before = original_loop_sample(&audio, loop_b as f64 - 1.0, loop_a, loop_b);
+        let resumed = loop_resume_position(loop_b as f64, sample_rate, loop_a, loop_b);
+        let after = interpolated_sample(&audio, resumed, 0);
+
+        assert_eq!(resumed, 480.0);
+        assert!((after - before).abs() < 0.01);
     }
 
     #[test]
@@ -1726,6 +1952,7 @@ mod tests {
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
             trainer_enabled: AtomicBool::new(true),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(2),
             trainer_increment_bits: AtomicU64::new(0.05_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1_f64.to_bits()),
@@ -1770,7 +1997,7 @@ mod tests {
     }
 
     #[test]
-    fn play_preserves_positions_before_and_inside_loop_and_restarts_after_b() {
+    fn play_respects_loop_bounds_and_training_activation_configures_a_full_loop() {
         let shared = Arc::new(SharedState {
             audio: ArcSwapOption::from(Some(Arc::new(DecodedAudio {
                 samples: vec![0.0; 100],
@@ -1800,6 +2027,7 @@ mod tests {
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
             trainer_enabled: AtomicBool::new(false),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
             trainer_increment_bits: AtomicU64::new(0.05_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1_f64.to_bits()),
@@ -1850,6 +2078,29 @@ mod tests {
             f64::from_bits(engine.shared.position_bits.load(Ordering::Acquire)),
             15.0
         );
+
+        engine.clear_loop();
+        engine.set_loop_trainer(LoopTrainerSettings {
+            enabled: true,
+            start_rate: 0.5,
+            repetitions: 1,
+            increment: 0.05,
+            target_rate: 1.0,
+            loop_a_seconds: None,
+            loop_b_seconds: None,
+        });
+        assert!(engine.shared.trainer_enabled.load(Ordering::Acquire));
+        assert_eq!(engine.shared.loop_a.load(Ordering::Acquire), 0);
+        assert_eq!(engine.shared.loop_b.load(Ordering::Acquire), 100);
+        assert_eq!(
+            f64::from_bits(engine.shared.playback_rate_bits.load(Ordering::Acquire)),
+            0.5
+        );
+        handle_loop_trainer(&engine.shared);
+        assert_eq!(
+            f64::from_bits(engine.shared.playback_rate_bits.load(Ordering::Acquire)),
+            0.55
+        );
     }
 
     #[test]
@@ -1883,6 +2134,7 @@ mod tests {
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
             trainer_enabled: AtomicBool::new(true),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(1),
             trainer_increment_bits: AtomicU64::new(0.05_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1.05_f64.to_bits()),
@@ -1949,6 +2201,7 @@ mod tests {
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
             trainer_enabled: AtomicBool::new(false),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
             trainer_increment_bits: AtomicU64::new(0.05_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1_f64.to_bits()),
@@ -2024,6 +2277,7 @@ mod tests {
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0_f32.to_bits()),
             trainer_enabled: AtomicBool::new(false),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
             trainer_increment_bits: AtomicU64::new(0_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1_f64.to_bits()),
@@ -2091,6 +2345,7 @@ mod tests {
             metronome_enabled: AtomicBool::new(true),
             metronome_volume_bits: AtomicU32::new(1_f32.to_bits()),
             trainer_enabled: AtomicBool::new(false),
+            trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
             trainer_increment_bits: AtomicU64::new(0.05_f64.to_bits()),
             trainer_target_bits: AtomicU64::new(1_f64.to_bits()),
@@ -2110,6 +2365,12 @@ mod tests {
         assert_eq!(on_beat, 0.0);
         assert_ne!(just_after_beat, 0.0);
         assert_eq!(between_beats, 0.0);
+
+        shared
+            .beat_grid_offset_bits
+            .store(1_f64.to_bits(), Ordering::Relaxed);
+        assert_eq!(metronome_sample(24_000.0, 48_000, 1.0, &shared), 0.0);
+        assert_ne!(metronome_sample(48_240.0, 48_000, 1.0, &shared), 0.0);
     }
 
     #[test]
@@ -2193,5 +2454,24 @@ mod tests {
         assert_eq!(cached.channels, audio.channels);
         assert_eq!(cached.sample_rate, audio.sample_rate);
         assert_eq!(cached.frames, audio.frames);
+    }
+
+    #[test]
+    fn failed_decode_releases_the_in_flight_cache_entry() {
+        let path = PathBuf::from("unreadable.mp3");
+        let mut cache = DecodeCache::default();
+        cache.loading.insert(path.clone());
+
+        let result = finish_decode_load(
+            &mut cache,
+            &path,
+            0,
+            None,
+            Err(AppError::AudioEngine("decode failed".to_owned())),
+        );
+
+        assert!(result.is_err());
+        assert!(!cache.loading.contains(&path));
+        assert!(cache.entries.is_empty());
     }
 }

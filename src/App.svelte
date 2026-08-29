@@ -3,13 +3,17 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readClipboardText, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, updatePracticeState } from "./lib/backend";
+  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, updatePracticeState } from "./lib/backend";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
-  import { deduplicateImportCandidates } from "./lib/importCandidates";
+  import { deduplicateImportCandidates, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
+  import type { ImportCandidateGroup } from "./lib/importCandidates";
+  import { droppedAudioPaths } from "./lib/importPaths";
+  import { ImportSearchCache } from "./lib/importSearchCache";
+  import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import Icon from "./lib/Icon.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
-  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
+  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, isMetronomeBeatActive, moveWaveformViewport, resizeWaveformViewport, visiblePeaks, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge } from "./lib/presentation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
@@ -36,7 +40,10 @@
   let importVisible = false;
   let tasksVisible = false;
   let consoleVisible = false;
+  let helpVisible = true;
   let appLogs: AppLogEntry[] = [];
+  let consoleMinimumLevel: LogLevel = "debug";
+  let consoleOrigin: string | null = null;
   let shortcutsVisible = false;
   let closePromptVisible = false;
   let waveform: WaveformData | null = null;
@@ -49,12 +56,16 @@
   let beatGridOffsetSeconds = 0;
   let metronomeEnabled = false;
   let metronomeVolume = 0.55;
+  let metronomeBeating = false;
   let tapTimes: number[] = [];
   let trainerEnabled = false;
-  let trainerRepetitions = 3;
+  let trainerStartRate = 0.5;
+  let trainerRepetitions = 1;
   let trainerIncrement = 0.05;
   let trainerTargetRate = 1;
   let trainerLoopCount = 0;
+  let trainingSettingsVisible = false;
+  let trainingDraft = { startRate: 0.5, targetRate: 1, increment: 0.05, repetitions: 1 };
   let spectrumBands = Array<number>(64).fill(0);
   let spectrumRequestActive = false;
   const canonicalStemNames = ["vocals", "drums", "bass", "other", "guitar", "piano"] as const;
@@ -66,24 +77,30 @@
   let stemNames: string[] = [...canonicalStemNames];
   let stemPeaks = Array<number>(6).fill(0);
   let stemStatusRequestActive = false;
-  let preferences: UserPreferences = { theme: "system", language: "en", smartClipboard: false, searchMode: "chooseFive", maxImportBatch: 10, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, defaultTrainerEnabled: false, defaultTrainerRepetitions: 3, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  let preferences: UserPreferences = { theme: "system", language: "en", concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
+  let importCandidateGroups: ImportCandidateGroup[] = [];
   let selectedImports = new Set<string>();
   let importAnalyzing = false;
   let importAnalysisError = "";
   let importHasAnalyzed = false;
   let importDropActive = false;
+  let playlistDropActive = false;
+  let playlistPanel: HTMLElement | undefined;
   let importTextarea: HTMLTextAreaElement | undefined;
   let importAnalysisTimer: number | undefined;
   let importAnalysisGeneration = 0;
+  const importSearchCache = new ImportSearchCache(resolveYoutubeSearch);
+  let importSearchCompleted = 0;
+  let importSearchTotal = 0;
+  let importCurrentSearchIndex = 0;
+  let importActiveGroupId: string | null = null;
+  let importPendingGroupIds = new Set<string>();
+  let importGroupErrors = new Map<string, string>();
   let importQueue: ImportJob[] = [];
   const importDismissTimers = new Map<string, number>();
   const masterMeterLevels = [8, 7, 6, 5, 4, 3, 2, 1] as const;
-  let lastClipboardText = "";
-  let clipboardDetected = 0;
-  let clipboardReadActive = false;
-  let clipboardForcePending = false;
   let editingTrackId: string | null = null;
   let editingTrackTitle = "";
   let draggedTrackId: string | null = null;
@@ -106,6 +123,8 @@
   let playbackRateTimer: number | undefined;
   let pitchTimer: number | undefined;
   let volumePreferenceTimer: number | undefined;
+  let jumpHoldDelayTimer: number | undefined;
+  let jumpHoldRepeatTimer: number | undefined;
   let seekAnimationFrame: number | undefined;
   let pendingSeekPosition: number | null = null;
   let seekRequestActive = false;
@@ -145,8 +164,11 @@
   $: playheadPercent = durationSeconds > 0 ? ((currentSeconds / durationSeconds - waveformStart) * waveformZoom * 100) : 0;
   $: detailedBeatLines = beatLines(true);
   $: overviewBeatLines = beatLines(false);
+  $: metronomeBeating = metronomeEnabled && isPlaying && isMetronomeBeatActive(currentSeconds, gridBpm, beatGridOffsetSeconds, playbackRate);
   $: activeImports = importQueue.filter((job) => !["completed", "failed"].includes(job.state));
   $: importProgress = importQueue.length ? importQueue.reduce((sum, job) => sum + job.progress, 0) / importQueue.length : 0;
+  $: consoleOrigins = logOrigins(appLogs);
+  $: filteredAppLogs = filterLogs(appLogs, consoleMinimumLevel, consoleOrigin);
 
   onMount(() => {
     let unlisten: UnlistenFn | undefined;
@@ -160,22 +182,26 @@
       if (event.key === "Escape" && document.querySelector("dialog[open]")) return;
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable='true']") || !project) return;
-      if (event.key.toLowerCase() === "a") { event.preventDefault(); setLoopA(); }
+      if (event.code === "Space") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) togglePlayback();
+      }
+      else if (event.key.toLowerCase() === "a") { event.preventDefault(); setLoopA(); }
       else if (event.key.toLowerCase() === "b") { event.preventDefault(); setLoopB(); }
       else if (event.key.toLowerCase() === "l") { event.preventDefault(); toggleLoop(); }
       else if (event.key === "Escape") { event.preventDefault(); clearLoop(); }
+      else if (event.key.toLowerCase() === "m") { event.preventDefault(); toggleMetronome(); }
+      else if (event.key.toLowerCase() === "t") { event.preventDefault(); tapTempo(); }
       else if (target?.matches("button")) return;
-      else if (event.code === "Space") { event.preventDefault(); togglePlayback(); }
       else if (event.key === "ArrowLeft") { event.preventDefault(); jump(-5); }
       else if (event.key === "ArrowRight") { event.preventDefault(); jump(5); }
       else if (event.key === "-" || event.key === "_") { event.preventDefault(); changePlaybackRate(-0.05); }
       else if (event.key === "+" || event.key === "=") { event.preventDefault(); changePlaybackRate(0.05); }
       else if (event.key === "[") { event.preventDefault(); changePitch(-1); }
       else if (event.key === "]") { event.preventDefault(); changePitch(1); }
-      else if (event.key.toLowerCase() === "m") { event.preventDefault(); toggleMetronome(); }
-      else if (event.key.toLowerCase() === "t") { event.preventDefault(); tapTempo(); }
     };
-    window.addEventListener("keydown", handleKeydown);
+    window.addEventListener("keydown", handleKeydown, { capture: true });
     const handleHelpOver = (event: PointerEvent): void => updateHelp(event.target);
     const handleHelpOut = (event: PointerEvent): void => {
       const from = helpTarget(event.target);
@@ -195,22 +221,6 @@
     const stemTimer = window.setInterval(() => void refreshStemStatus(), 400);
     const metricsTimer = window.setInterval(() => void refreshSystemMetrics(), 1_500);
     const importTimer = window.setInterval(() => void refreshImportJobs(), 500);
-    let clipboardTimer: number | undefined;
-    const pollClipboard = (): void => {
-      void inspectClipboard();
-      clipboardTimer = window.setTimeout(pollClipboard, importVisible ? 300 : 900);
-    };
-    clipboardTimer = window.setTimeout(pollClipboard, 300);
-    const inspectClipboardAfterEvent = (): void => {
-      if (!importVisible || !preferences.smartClipboard) return;
-      window.setTimeout(() => void inspectClipboard(), 0);
-    };
-    const inspectClipboardOnFocus = (): void => {
-      if (importVisible && preferences.smartClipboard) void inspectClipboard();
-    };
-    window.addEventListener("copy", inspectClipboardAfterEvent);
-    window.addEventListener("paste", inspectClipboardAfterEvent);
-    window.addEventListener("focus", inspectClipboardOnFocus);
     const consoleTimer = window.setInterval(() => { if (consoleVisible) void refreshConsole(); }, 350);
     void refreshSystemMetrics();
     const originalConsole = installConsoleForwarding();
@@ -230,20 +240,29 @@
       closePromptVisible = true;
     }).then((stop) => unlistenClose = stop);
     void appWindow.onDragDropEvent((event) => {
-      if (!importVisible) return;
       const position = "position" in event.payload ? event.payload.position : undefined;
-      if (event.payload.type === "enter" || event.payload.type === "over") importDropActive = isImportDropTarget(position);
-      else if (event.payload.type === "leave") importDropActive = false;
-      else if (event.payload.type === "drop") {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        importDropActive = importVisible && isImportDropTarget(position);
+        playlistDropActive = !importVisible && isPlaylistDropTarget(position);
+      }
+      else if (event.payload.type === "leave") {
         importDropActive = false;
-        if (isImportDropTarget(position)) void acceptDroppedPaths(event.payload.paths);
+        playlistDropActive = false;
+      }
+      else if (event.payload.type === "drop") {
+        const importTarget = importVisible && isImportDropTarget(position);
+        const playlistTarget = !importVisible && isPlaylistDropTarget(position);
+        importDropActive = false;
+        playlistDropActive = false;
+        if (importTarget) void acceptDroppedPaths(event.payload.paths);
+        else if (playlistTarget) void importDroppedAudio(event.payload.paths);
       }
     }).then((stop) => unlistenDrag = stop);
     const savedEndBehavior = localStorage.getItem("sonarcan.endBehavior");
     if (savedEndBehavior === "restart" || savedEndBehavior === "advance" || savedEndBehavior === "stop") endBehavior = savedEndBehavior;
     void audioSetEndBehavior(endBehavior);
     return () => {
-      window.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("keydown", handleKeydown, { capture: true });
       window.removeEventListener("pointerover", handleHelpOver);
       window.removeEventListener("pointerout", handleHelpOut);
       window.removeEventListener("focusin", handleHelpFocus);
@@ -253,15 +272,12 @@
       window.clearInterval(stemTimer);
       window.clearInterval(metricsTimer);
       window.clearInterval(importTimer);
-      if (clipboardTimer !== undefined) window.clearTimeout(clipboardTimer);
-      window.removeEventListener("copy", inspectClipboardAfterEvent);
-      window.removeEventListener("paste", inspectClipboardAfterEvent);
-      window.removeEventListener("focus", inspectClipboardOnFocus);
       window.clearInterval(consoleTimer);
       window.clearTimeout(playbackRateTimer);
       window.clearTimeout(pitchTimer);
       window.clearTimeout(volumePreferenceTimer);
       window.clearTimeout(importAnalysisTimer);
+      stopJumpHold();
       cancelPendingSeek();
       for (const timer of importDismissTimers.values()) window.clearTimeout(timer);
       importDismissTimers.clear();
@@ -306,6 +322,17 @@
   function toggleConsole(): void {
     consoleVisible = !consoleVisible;
     if (consoleVisible) void refreshConsole();
+  }
+
+  function toggleHelp(): void {
+    helpVisible = !helpVisible;
+  }
+
+  function logOriginLabel(origin: string): string {
+    if (origin === "rust") return "RUST";
+    if (origin === "mlx") return "MLX";
+    if (origin === "webview") return "WEB";
+    return origin.toUpperCase();
   }
 
   async function loadUserPreferences(): Promise<void> {
@@ -439,7 +466,8 @@
     metronomeEnabled = false;
     metronomeVolume = preferences.metronomeVolume;
     tapTimes = [];
-    trainerEnabled = preferences.defaultTrainerEnabled;
+    trainerEnabled = false;
+    trainerStartRate = preferences.defaultTrainerStartRate;
     trainerRepetitions = preferences.defaultTrainerRepetitions;
     trainerIncrement = preferences.defaultTrainerIncrement;
     trainerTargetRate = preferences.defaultTrainerTargetRate;
@@ -459,7 +487,7 @@
     await stemDisable();
     await audioSetLoop(null, null);
     await audioSetMetronome(false, metronomeVolume);
-    await audioSetLoopTrainer(false, trainerRepetitions, trainerIncrement, trainerTargetRate);
+    await audioSetLoopTrainer(false, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, null, null);
     await audioSetPlaybackRate(playbackRate);
     await audioSetPitch(pitchSemitones);
     await audioSeek(0);
@@ -684,22 +712,22 @@
 
   function openImportCenter(): void {
     importVisible = true;
-    if (preferences.smartClipboard) queueMicrotask(() => void inspectClipboard(true));
   }
 
-  function toggleSmartClipboard(): void {
-    preferences = { ...preferences, smartClipboard: !preferences.smartClipboard };
-    clipboardDetected = 0;
-    void persistPreferences();
-    if (preferences.smartClipboard && importVisible) queueMicrotask(() => void inspectClipboard(true));
-  }
-
-  function isImportDropTarget(position: { x: number; y: number } | undefined): boolean {
-    if (!position || !importTextarea) return false;
-    const rect = importTextarea.getBoundingClientRect();
+  function positionIsInside(position: { x: number; y: number } | undefined, element: HTMLElement | undefined): boolean {
+    if (!position || !element) return false;
+    const rect = element.getBoundingClientRect();
     const scale = window.devicePixelRatio || 1;
     const contains = (x: number, y: number): boolean => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
     return contains(position.x, position.y) || contains(position.x / scale, position.y / scale);
+  }
+
+  function isImportDropTarget(position: { x: number; y: number } | undefined): boolean {
+    return positionIsInside(position, importTextarea);
+  }
+
+  function isPlaylistDropTarget(position: { x: number; y: number } | undefined): boolean {
+    return positionIsInside(position, playlistPanel);
   }
 
   async function exportCurrentPlaylist(format: "json" | "markdown"): Promise<void> {
@@ -743,34 +771,91 @@
     importAnalyzing = true;
     importAnalysisError = "";
     importHasAnalyzed = false;
+    importSearchCompleted = 0;
+    importSearchTotal = 0;
+    importCurrentSearchIndex = 0;
+    importActiveGroupId = null;
     try {
-      let candidates = await analyzeImportText(importText);
-      if (preferences.searchMode === "chooseFive") {
-        const resolved: ImportCandidate[] = [];
-        for (const candidate of candidates) {
-          if (candidate.kind === "search") resolved.push(...await resolveYoutubeSearch(candidate.input));
-          else resolved.push(candidate);
-        }
-        candidates = resolved;
-      }
+      const parsed = deduplicateImportCandidates(await analyzeImportText(importText));
       if (generation !== importAnalysisGeneration) return;
-      candidates = deduplicateImportCandidates(candidates);
-      importCandidates = candidates;
-      selectedImports = new Set(candidates.map((candidate) => candidate.input));
+      const previousGroups = new Map(importCandidateGroups.map((group) => [group.id, group]));
+      const groups: ImportCandidateGroup[] = [];
+      const direct = parsed.filter((candidate) => candidate.kind !== "search");
+      if (direct.length) {
+        groups.push({ id: "direct", query: null, searchIndex: null, candidates: direct });
+      }
+      let searchIndex = 0;
+      const unresolved: ImportCandidateGroup[] = [];
+      for (const candidate of parsed) {
+        if (candidate.kind !== "search") continue;
+        searchIndex += 1;
+        const normalizedQuery = normalizeImportQuery(candidate.input);
+        const id = `search:${normalizedQuery}`;
+        const cached = importSearchCache.peek(candidate.input);
+        const previous = previousGroups.get(id)?.candidates;
+        const group = {
+          id,
+          query: candidate.input,
+          searchIndex,
+          candidates: cached ?? previous ?? [],
+        };
+        groups.push(group);
+        if (cached === undefined && previous === undefined) unresolved.push(group);
+      }
+      importSearchTotal = searchIndex;
+      importSearchCompleted = searchIndex - unresolved.length;
+      importPendingGroupIds = new Set(unresolved.map((group) => group.id));
+      importGroupErrors = new Map();
+      publishImportGroups(groups);
+
+      for (const group of unresolved) {
+        if (generation !== importAnalysisGeneration || group.query === null) return;
+        importActiveGroupId = group.id;
+        importCurrentSearchIndex = group.searchIndex ?? 0;
+        try {
+          group.candidates = deduplicateImportCandidates(await importSearchCache.resolve(group.query));
+        } catch (error) {
+          if (generation !== importAnalysisGeneration) return;
+          importGroupErrors = new Map(importGroupErrors).set(group.id, error instanceof Error ? error.message : String(error));
+        }
+        if (generation !== importAnalysisGeneration) return;
+        const pending = new Set(importPendingGroupIds);
+        pending.delete(group.id);
+        importPendingGroupIds = pending;
+        importSearchCompleted += 1;
+        importActiveGroupId = null;
+        publishImportGroups(groups);
+      }
       importHasAnalyzed = true;
     } catch (error) {
       if (generation !== importAnalysisGeneration) return;
       importCandidates = [];
+      importCandidateGroups = [];
       selectedImports = new Set();
       importHasAnalyzed = true;
       importAnalysisError = error instanceof Error ? error.message : String(error);
-    } finally { if (generation === importAnalysisGeneration) importAnalyzing = false; }
+    } finally {
+      if (generation === importAnalysisGeneration) {
+        importAnalyzing = false;
+        importActiveGroupId = null;
+        importPendingGroupIds = new Set();
+      }
+    }
+  }
+
+  function publishImportGroups(groups: ImportCandidateGroup[]): void {
+    const previousGroups = importCandidateGroups;
+    const previousSelection = selectedImports;
+    const nextGroups = groups.map((group) => ({ ...group, candidates: [...group.candidates] }));
+    importCandidateGroups = nextGroups;
+    importCandidates = nextGroups.flatMap((group) => group.candidates);
+    selectedImports = reconcileImportSelection(previousSelection, previousGroups, nextGroups);
   }
 
   function scheduleImportAnalysis(): void {
     window.clearTimeout(importAnalysisTimer);
     importHasAnalyzed = false;
-    importAnalysisTimer = window.setTimeout(() => void analyzeImports(), 260);
+    importAnalysisTimer = window.setTimeout(() => void analyzeImports(), 650);
   }
 
   function toggleImport(input: string): void {
@@ -782,17 +867,27 @@
   async function startImports(): Promise<void> {
     if (selectedImports.size === 0) return;
     const inputs = [...selectedImports];
-    if (inputs.length > 10 && !window.confirm(`${t("confirmLargeImport")} (${inputs.length})`)) return;
     await run(async () => {
-      if (!project) {
-        await activateProject(await createTemporaryProject());
-      }
-      const activeProject = project;
-      if (!activeProject) return;
-      importQueue = await enqueueImports(activeProject.packagePath, inputs);
-      importVisible = false; tasksVisible = false; importText = ""; importCandidates = []; selectedImports = new Set();
-      await refreshImportJobs();
+      await enqueueImportInputs(inputs);
+      importVisible = false; tasksVisible = false; importText = ""; importCandidates = []; importCandidateGroups = []; selectedImports = new Set();
     });
+  }
+
+  async function enqueueImportInputs(inputs: string[]): Promise<void> {
+    if (!project) await activateProject(await createTemporaryProject());
+    const activeProject = project;
+    if (!activeProject) return;
+    importQueue = await enqueueImports(activeProject.packagePath, inputs);
+    await refreshImportJobs();
+  }
+
+  async function importDroppedAudio(paths: string[]): Promise<void> {
+    const audioPaths = droppedAudioPaths(paths);
+    if (audioPaths.length === 0) {
+      errorMessage = t("unsupportedAudioDrop");
+      return;
+    }
+    await run(() => enqueueImportInputs(audioPaths));
   }
 
   async function refreshImportJobs(): Promise<void> {
@@ -815,52 +910,6 @@
         }
       }
     } catch { /* Background status is best-effort during shutdown. */ }
-  }
-
-  async function inspectClipboard(force = false): Promise<void> {
-    if (!preferences.smartClipboard) return;
-    if (clipboardReadActive) {
-      clipboardForcePending ||= force;
-      return;
-    }
-    clipboardReadActive = true;
-    let text = "";
-    try {
-      text = (await readClipboardText()).trim();
-    } catch (error) {
-      if (importVisible) {
-        importCandidates = [];
-        selectedImports = new Set();
-        importHasAnalyzed = true;
-        importAnalysisError = error instanceof Error ? error.message : String(error);
-      }
-      return;
-    } finally {
-      clipboardReadActive = false;
-    }
-    force ||= clipboardForcePending;
-    clipboardForcePending = false;
-    if (!text || (!force && text === lastClipboardText)) return;
-    lastClipboardText = text;
-    if (importVisible) {
-      importText = text;
-      clipboardDetected = 0;
-      await analyzeImports();
-      if (importVisible && importText === text && !importAnalyzing) clipboardDetected = importCandidates.length;
-      return;
-    }
-    if (!project) return;
-    try {
-      const candidates = deduplicateImportCandidates(await analyzeImportText(text));
-      if (!candidates.length) return;
-      clipboardDetected = candidates.length;
-      importText = text;
-      if (preferences.searchMode === "automaticFirst") {
-        if (candidates.length > 10 && !window.confirm(`${t("confirmLargeImport")} (${candidates.length})`)) return;
-        await enqueueImports(project.packagePath, candidates.map((candidate) => candidate.input));
-        await refreshImportJobs();
-      }
-    } catch { /* Clipboard inspection is optional and local. */ }
   }
 
   function showDiagnostics(): void {
@@ -919,11 +968,12 @@
     loopB = loopBounds.b;
     usingDefaultLoopBounds = track.practice.loopASeconds === null && track.practice.loopBSeconds === null;
     gridBpm = track.practice.gridBpm ?? null;
-    beatGridOffsetSeconds = track.practice.beatGridOffsetSeconds ?? 0;
+    beatGridOffsetSeconds = loopA ?? 0;
     metronomeEnabled = track.practice.metronomeEnabled ?? false;
     metronomeVolume = preferences.metronomeVolume;
     trainerEnabled = track.practice.trainerEnabled ?? false;
-    trainerRepetitions = track.practice.trainerRepetitions ?? 3;
+    trainerStartRate = track.practice.trainerStartRate;
+    trainerRepetitions = track.practice.trainerRepetitions ?? 1;
     trainerIncrement = track.practice.trainerIncrement ?? 0.05;
     trainerTargetRate = track.practice.trainerTargetRate ?? 1;
     stemMix = track.practice.stemMix;
@@ -932,8 +982,9 @@
     trainerLoopCount = 0;
     spectrumBands = Array<number>(64).fill(0);
     tapTimes = [];
+    tempoLoading = false;
+    detectedBpm = null;
     void loadTrackWaveform(track, packagePath, selectionGeneration);
-    void loadTrackTempo(track, packagePath, selectionGeneration);
     void loadSelectedAudio(track, packagePath, selectionGeneration, autoplay);
   }
 
@@ -1053,7 +1104,7 @@
       await audioSetPitch(pitchSemitones);
       await audioSetBeatGrid(gridBpm, beatGridOffsetSeconds);
       await audioSetMetronome(metronomeEnabled, metronomeVolume);
-      await audioSetLoopTrainer(trainerEnabled, trainerRepetitions, trainerIncrement, trainerTargetRate);
+      await audioSetLoopTrainer(trainerEnabled, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, loopA, loopB);
       await audioSetEndBehavior(endBehavior);
       if (!stillSelected()) return;
       endedGeneration = status.endedGeneration;
@@ -1062,6 +1113,7 @@
       if (!stillSelected()) return;
       audioLoading = false;
       loadingTrackId = null;
+      void loadTrackTempo(track, packagePath, selectionGeneration);
       if (track.practice.stemsEnabled) void enableStems();
       if (autoplay) await play();
       if (!stillSelected()) return;
@@ -1202,16 +1254,42 @@
     seek(currentSeconds + seconds);
   }
 
+  function stopJumpHold(): void {
+    window.clearTimeout(jumpHoldDelayTimer);
+    window.clearInterval(jumpHoldRepeatTimer);
+    jumpHoldDelayTimer = undefined;
+    jumpHoldRepeatTimer = undefined;
+  }
+
+  function startJumpHold(event: PointerEvent, seconds: number): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    stopJumpHold();
+    const target = event.currentTarget as HTMLButtonElement;
+    target.focus();
+    target.setPointerCapture(event.pointerId);
+    jump(seconds);
+    jumpHoldDelayTimer = window.setTimeout(() => {
+      jumpHoldDelayTimer = undefined;
+      jumpHoldRepeatTimer = window.setInterval(() => jump(seconds), 140);
+    }, 400);
+  }
+
+  function finishJumpHold(event: PointerEvent): void {
+    const target = event.currentTarget as HTMLButtonElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    stopJumpHold();
+  }
+
+  function keyboardJump(event: MouseEvent, seconds: number): void {
+    if (event.detail === 0) jump(seconds);
+  }
+
   function changeGridBpm(value: number): void {
     if (!Number.isFinite(value)) return;
     gridBpm = Math.max(30, Math.min(300, Math.round(value * 10) / 10));
     applyBeatGridToEngine();
     schedulePracticeSave();
-  }
-
-  function restoreDetectedBpm(): void {
-    if (detectedBpm === null) return;
-    changeGridBpm(detectedBpm);
   }
 
   function tapTempo(): void {
@@ -1234,22 +1312,9 @@
     void audioSetBeatGrid(gridBpm, beatGridOffsetSeconds);
   }
 
-  function setBeatGridAnchor(): void {
-    beatGridOffsetSeconds = Math.max(0, currentSeconds);
+  function alignBeatGridWithLoopStart(): void {
+    beatGridOffsetSeconds = loopA ?? 0;
     applyBeatGridToEngine();
-    schedulePracticeSave();
-  }
-
-  function resetBeatGridOrigin(): void {
-    beatGridOffsetSeconds = 0;
-    applyBeatGridToEngine();
-    schedulePracticeSave();
-  }
-
-  function nudgeBeatGrid(milliseconds: number): void {
-    beatGridOffsetSeconds = Math.max(0, Math.min(durationSeconds, beatGridOffsetSeconds + milliseconds / 1000));
-    applyBeatGridToEngine();
-    schedulePracticeSave();
   }
 
   function toggleMetronome(): void {
@@ -1267,27 +1332,48 @@
   }
 
   function applyLoopTrainer(): void {
-    void audioSetLoopTrainer(trainerEnabled, trainerRepetitions, trainerIncrement, trainerTargetRate);
+    void audioSetLoopTrainer(trainerEnabled, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, loopA, loopB);
     schedulePracticeSave();
   }
 
   function toggleLoopTrainer(): void {
     trainerEnabled = !trainerEnabled;
+    if (trainerEnabled) {
+      if (loopA === null || loopB === null) {
+        loopA = 0;
+        loopB = durationSeconds;
+        usingDefaultLoopBounds = true;
+        alignBeatGridWithLoopStart();
+      }
+      loopEnabled = true;
+      playbackRate = trainerStartRate;
+      window.clearTimeout(playbackRateTimer);
+      playbackRateTimer = undefined;
+      applyLoopToEngine();
+    }
     applyLoopTrainer();
   }
 
-  function updateTrainerRepetitions(value: number): void {
-    trainerRepetitions = Math.max(1, Math.min(99, Math.round(value)));
-    applyLoopTrainer();
+  function openTrainingSettings(): void {
+    trainingDraft = { startRate: trainerStartRate, targetRate: trainerTargetRate, increment: trainerIncrement, repetitions: trainerRepetitions };
+    trainingSettingsVisible = true;
   }
 
-  function updateTrainerIncrement(value: number): void {
-    trainerIncrement = Math.max(0.01, Math.min(0.25, value / 100));
-    applyLoopTrainer();
+  function resetTrainingDraft(): void {
+    trainingDraft = {
+      startRate: preferences.defaultTrainerStartRate,
+      targetRate: preferences.defaultTrainerTargetRate,
+      increment: preferences.defaultTrainerIncrement,
+      repetitions: preferences.defaultTrainerRepetitions,
+    };
   }
 
-  function updateTrainerTarget(value: number): void {
-    trainerTargetRate = Math.max(0.5, Math.min(2, value / 100));
+  function saveTrainingSettings(): void {
+    trainerStartRate = Math.max(0.5, Math.min(1.99, trainingDraft.startRate));
+    trainerTargetRate = Math.max(trainerStartRate + 0.01, Math.min(2, trainingDraft.targetRate));
+    trainerIncrement = Math.max(0.01, Math.min(0.25, trainingDraft.increment));
+    trainerRepetitions = Math.max(1, Math.min(99, Math.round(trainingDraft.repetitions)));
+    trainingSettingsVisible = false;
     applyLoopTrainer();
   }
 
@@ -1307,12 +1393,16 @@
     if (usingDefaultLoopBounds || (loopB !== null && loopB <= loopA)) loopB = null;
     usingDefaultLoopBounds = false;
     loopEnabled = true;
+    alignBeatGridWithLoopStart();
     applyLoopToEngine();
     schedulePracticeSave();
   }
 
   function setLoopB(): void {
-    if (loopA === null) loopA = 0;
+    if (loopA === null) {
+      loopA = 0;
+      alignBeatGridWithLoopStart();
+    }
     if (currentSeconds > loopA) loopB = currentSeconds;
     usingDefaultLoopBounds = false;
     loopEnabled = true;
@@ -1325,8 +1415,25 @@
     loopB = null;
     usingDefaultLoopBounds = false;
     loopEnabled = false;
+    alignBeatGridWithLoopStart();
     void audioSetLoop(null, null);
     schedulePracticeSave();
+  }
+
+  function resetLoopBoundary(event: MouseEvent, boundary: "a" | "b"): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (durationSeconds <= 0) return;
+    if (boundary === "a") {
+      loopA = 0;
+      alignBeatGridWithLoopStart();
+    } else {
+      loopB = durationSeconds;
+    }
+    usingDefaultLoopBounds = loopA === 0 && loopB === durationSeconds;
+    loopEnabled = true;
+    applyLoopToEngine();
+    schedulePracticeSave(0);
   }
 
   function changeVolume(value: number): void {
@@ -1385,6 +1492,7 @@
       const span = Math.min(5, Math.max(0.25, durationSeconds));
       loopA = Math.min(currentSeconds, Math.max(0, durationSeconds - span));
       loopB = Math.min(durationSeconds, loopA + span);
+      alignBeatGridWithLoopStart();
     }
     loopEnabled = !loopEnabled;
     applyLoopToEngine();
@@ -1416,7 +1524,10 @@
     if (!loopDrag || loopDrag.pointerId !== event.pointerId || durationSeconds <= 0) return;
     const time = eventTime(event, detailed);
     const minimum = Math.min(0.05, durationSeconds);
-    if (loopDrag.mode === "a") loopA = Math.max(0, Math.min(time, loopDrag.b - minimum));
+    if (loopDrag.mode === "a") {
+      loopA = Math.max(0, Math.min(time, loopDrag.b - minimum));
+      alignBeatGridWithLoopStart();
+    }
     else loopB = Math.min(durationSeconds, Math.max(time, loopDrag.a + minimum));
     usingDefaultLoopBounds = false;
     loopEnabled = true;
@@ -1525,6 +1636,7 @@
         metronomeEnabled,
         metronomeVolume,
         trainerEnabled,
+        trainerStartRate,
         trainerRepetitions,
         trainerIncrement,
         trainerTargetRate,
@@ -1670,7 +1782,7 @@
 
 <svelte:head><title>SonArcan</title></svelte:head>
 
-<main class="shell" class:console-open={consoleVisible}>
+<main class="shell" class:console-open={consoleVisible} class:help-open={helpVisible}>
   <header class="topbar">
     <div class="project-header">
       {#if project}
@@ -1703,10 +1815,13 @@
       <span><small>{t("memoryUsage")}</small><strong>{systemMetricsSnapshot.memoryMegabytes === null ? "—" : `${systemMetricsSnapshot.memoryMegabytes} MB`}</strong></span>
     </div>
     <div class="header-actions">
+      <button class="header-icon-link" class:active={helpVisible} aria-pressed={helpVisible} aria-label={helpVisible ? t("hideHelp") : t("showHelp")} data-tooltip={helpVisible ? t("hideHelp") : t("showHelp")} onclick={toggleHelp}><Icon name="lightbulb" size="15px" /></button>
+      <button class="header-icon-link" class:active={consoleVisible} aria-pressed={consoleVisible} aria-label={consoleVisible ? t("hideConsole") : t("showConsole")} data-tooltip={consoleVisible ? t("hideConsole") : t("showConsole")} onclick={toggleConsole}><Icon name="terminal" size="15px" /></button>
       <button class="header-icon-link" aria-label={t("toggleTheme")} data-tooltip={t("toggleTheme")} onclick={toggleTheme}>
         <Icon name={preferences.theme === "dark" ? "moon" : "sun"} size="15px" />
       </button>
       <button class="header-icon-link" aria-label={t("preferences")} data-tooltip={t("preferences")} onclick={() => preferencesVisible = true}><Icon name="gear" size="15px" /></button>
+      <span class="header-separator" aria-hidden="true"></span>
       <div class="master-output" aria-label={t("masterVolume")}>
         <button class="master-mute" class:muted={volume === 0} onclick={toggleMute} aria-label={volume > 0 ? t("mute") : t("unmute")} data-tooltip={volume > 0 ? t("mute") : t("unmute")}>
           {#if volume > 0}
@@ -1730,7 +1845,8 @@
   {#if errorMessage}<div class="error" role="alert">{errorMessage}</div>{/if}
 
   <section class="workspace">
-    <aside class="playlist panel">
+    <aside bind:this={playlistPanel} class="playlist panel" class:audio-drop-active={playlistDropActive}>
+      {#if playlistDropActive}<div class="playlist-drop-overlay" aria-label={t("dropAudioHere")}><Icon name="cloud-arrow-down" size="22px" /><strong>{t("dropAudioHere")}</strong></div>{/if}
       <div class="panel-title playlist-title"><h2>{t("playlist")}</h2><div><span class="count-badge">{project?.trackCount ?? 0}</span>{#if importQueue.length}<button class:failed={importQueue.some((job) => job.state === "failed")} class:complete={activeImports.length === 0 && !importQueue.some((job) => job.state === "failed")} class="playlist-task-orb" style={`--progress:${importProgress * 360}deg`} aria-label={t("importQueue")} data-tooltip={t("importQueue")} onclick={() => tasksVisible = true}><i></i><b>{importQueue.length}</b></button>{/if}<button class="playlist-add" aria-label={t("addSongs")} data-tooltip={t("addSongs")} onclick={openImportCenter}><Icon name="plus" size="13px" /></button></div></div>
       {#if project && project.tracks.length > 0}
         <ol>
@@ -1764,7 +1880,7 @@
     <section class="main-stage">
       {#if currentTrack}
       <div class="visualizer panel">
-        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{:else if detectedBpm !== null}<button class="bpm" data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}><Icon name="rotate-left" size="11px" /> {detectedBpm.toFixed(1)} BPM</button>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div></div>
+        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div></div>
         <div
           class="wave detailed-wave"
           class:dragging={waveformDragPointerId !== null}
@@ -1789,14 +1905,14 @@
               {#each detailedBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
             </div>
             {#if loopEnabled && loopA !== null}
-              <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>A</button>
+              <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
               {#if loopB !== null}
                 <i
                   class="loop-region"
                   aria-hidden="true"
                   style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%;width:${(loopB - loopA) / durationSeconds * waveformZoom * 100}%`}
                 ></i>
-                <button class="loop-handle b" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
+                <button class="loop-handle b" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={`${t("moveEnd")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveEnd")} · ${t("doubleClickResetB")}`} onpointerdown={(event) => startLoopDrag(event, "b", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "b")}>B</button>
               {/if}
             {/if}
             {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
@@ -1818,10 +1934,10 @@
             <button type="button" class="viewport-handle start" aria-label={t("resizeViewportStart")} data-tooltip={t("resizeViewportStart")} style={`left:${waveformStart * 100}%`} onpointerdown={(event) => startViewportDrag(event, "start")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             <button type="button" class="viewport-handle end" aria-label={t("resizeViewportEnd")} data-tooltip={t("resizeViewportEnd")} style={`left:${(waveformStart + 1 / waveformZoom) * 100}%`} onpointerdown={(event) => startViewportDrag(event, "end")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             {#if loopEnabled && loopA !== null}
-              <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={t("moveStart")} data-tooltip={t("moveStart")} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>A</button>
+              <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
               {#if loopB !== null}
                 <i class="loop-region overview" aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
-                <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={t("moveEnd")} data-tooltip={t("moveEnd")} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag}>B</button>
+                <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={`${t("moveEnd")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveEnd")} · ${t("doubleClickResetB")}`} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "b")}>B</button>
               {/if}
             {/if}
             <i class="overview-playhead" style={`left:${durationSeconds ? currentSeconds / durationSeconds * 100 : 0}%`}></i>
@@ -1844,52 +1960,50 @@
           <strong class="playback-position" aria-label={t("playbackPosition")}>{formatTime(currentSeconds)}</strong>
           <span>B {loopB === null ? "—" : formatTime(loopB)}</span>
         </div>
-      </div>
-
-      <div class="transport panel">
-        <div class="transport-parameters">
-          <NumericControl label={t("tempo")} value={playbackRate} defaultValue={1} minimum={0.5} maximum={2} step={0.01} buttonStep={0.05} shiftButtonStep={0.01} display={(value) => `${Math.round(value * 100)}%`} onChange={setPlaybackRate} tooltip={t("numericHelp")} />
-          <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} buttonStep={1} shiftButtonStep={0.01} display={formatPitch} onChange={setPitch} tooltip={t("pitchFineHelp")} />
-        </div>
-        <div class="transport-center">
-          <button disabled={audioLoading} aria-label={t("back5")} data-tooltip={t("back5")} onclick={() => jump(-5)}><Icon name="arrow-left" size="11px" />5s</button>
-          <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}><Icon name="backward-step" size="15px" /></button>
-          <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}<Icon name={isPlaying ? "pause" : "play"} size="15px" />{/if}</button>
-          <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}><Icon name="forward-step" size="15px" /></button>
-          <button disabled={audioLoading} aria-label={t("forward5")} data-tooltip={t("forward5")} onclick={() => jump(5)}>5s<Icon name="arrow-right" size="11px" /></button>
-        </div>
-        <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
-          <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}><Icon name="rotate-right" size="13px" /></button>
-          <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}><Icon name="forward-step" size="13px" /></button>
-          <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}><Icon name="stop" size="13px" /></button>
+        <div class="waveform-transport-row">
+          <span aria-hidden="true"></span>
+          <div class="transport-center">
+            <button class="seek-button" disabled={audioLoading} aria-label={t("back5")} data-tooltip={t("back5Hold")} onpointerdown={(event) => startJumpHold(event, -5)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, -5)}><Icon name="backward" size="14px" /></button>
+            <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}><Icon name="backward-step" size="15px" /></button>
+            <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}<Icon name={isPlaying ? "pause" : "play"} size="15px" />{/if}</button>
+            <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}><Icon name="forward-step" size="15px" /></button>
+            <button class="seek-button" disabled={audioLoading} aria-label={t("forward5")} data-tooltip={t("forward5Hold")} onpointerdown={(event) => startJumpHold(event, 5)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, 5)}><Icon name="forward" size="14px" /></button>
+          </div>
+          <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
+            <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}><Icon name="rotate-right" size="13px" /></button>
+            <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}><Icon name="forward-step" size="13px" /></button>
+            <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}><Icon name="stop" size="13px" /></button>
+          </div>
         </div>
       </div>
 
       <div class="practice panel">
-        <div class="loop-controls">
-          <div class="control-group loop-actions"><button class="loop-action-a" onclick={setLoopA} data-tooltip={t("moveA")}>A</button><button onclick={clearLoop} data-tooltip={t("resetAB")} aria-label={t("resetAB")}><Icon name="xmark" size="11px" /></button><button class="loop-action-b" onclick={setLoopB} data-tooltip={t("moveB")}>B</button><button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} data-tooltip={t("toggleLoop")}><Icon name="rotate-right" size="11px" /> {t("loop")}</button></div>
+        <div class="control-block loop-controls">
+          <span class="control-block-label">{t("loop")}</span>
+          <div class="control-group loop-actions"><button class="loop-action-a" onclick={setLoopA} ondblclick={(event) => resetLoopBoundary(event, "a")} aria-label={`${t("moveA")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveA")} · ${t("doubleClickResetA")}`}>A</button><button onclick={clearLoop} data-tooltip={t("resetAB")} aria-label={t("resetAB")}><Icon name="xmark" size="11px" /></button><button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button><button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="rotate-right" size="11px" /></button></div>
         </div>
-        <div class="transport-trainer">
-          <button class="trainer-toggle" class:active={trainerEnabled} aria-pressed={trainerEnabled} aria-label={t("loopTrainer")} data-tooltip={t("trainerHelp")} onclick={toggleLoopTrainer}><i class="stair-icon"><b></b><b></b><b></b></i><span>{trainerLoopCount}/{trainerRepetitions}</span></button>
-          <NumericControl label={t("repetitions")} value={trainerRepetitions} defaultValue={3} minimum={1} maximum={99} step={1} display={(value) => String(value)} onChange={updateTrainerRepetitions} tooltip={t("numericHelp")} />
-          <NumericControl label={t("increment")} value={trainerIncrement * 100} defaultValue={5} minimum={1} maximum={25} step={1} display={(value) => `+${value}%`} onChange={updateTrainerIncrement} tooltip={t("numericHelp")} />
-          <NumericControl label={t("targetTempo")} value={trainerTargetRate * 100} defaultValue={100} minimum={50} maximum={200} step={5} display={(value) => `${value}%`} onChange={updateTrainerTarget} tooltip={t("numericHelp")} />
-          <div class="transport-trainer-progress"><i style={`width:${Math.max(0, Math.min(100, trainerLoopCount / trainerRepetitions * 100))}%`}></i></div>
+        <div class="practice-center-controls">
+          <div class="control-block trainer-control">
+            <span class="control-block-label">{t("training")}</span>
+            <div class="trainer-actions">
+              <button class="trainer-toggle" class:active={trainerEnabled} aria-pressed={trainerEnabled} aria-label={t("training")} data-tooltip={t("trainerHelp")} onclick={toggleLoopTrainer}><i class="stair-icon"><b></b><b></b><b></b></i><span>{trainerLoopCount}/{trainerRepetitions}</span></button>
+              <button aria-label={t("trainingSettings")} data-tooltip={t("trainingSettings")} onclick={openTrainingSettings}><Icon name="sliders" size="13px" /></button>
+            </div>
+          </div>
+          <NumericControl label={t("tempo")} value={playbackRate} defaultValue={1} minimum={0.5} maximum={2} step={0.01} buttonStep={0.05} shiftButtonStep={0.01} display={(value) => `${Math.round(value * 100)}%`} onChange={setPlaybackRate} tooltip={t("numericHelp")} />
+          <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} buttonStep={1} shiftButtonStep={0.01} display={formatPitch} onChange={setPitch} tooltip={t("pitchFineHelp")} />
         </div>
-      </div>
-
-      <div class="tempo-grid panel">
-        <div class="tempo-editor"><NumericControl label={t("gridTempo")} value={gridBpm ?? detectedBpm ?? 120} defaultValue={detectedBpm ?? 120} minimum={30} maximum={300} step={0.1} display={(value) => `${value.toFixed(1)} BPM`} onChange={changeGridBpm} onTap={tapTempo} tooltip={t("tapTempoHelp")} /><button class="reset-value" disabled={detectedBpm === null} data-tooltip={t("restoreDetectedBpm")} onclick={restoreDetectedBpm}><Icon name="rotate-left" size="12px" /><span><small>{t("detected")}</small><strong>{detectedBpm === null ? "—" : `${detectedBpm.toFixed(1)} BPM`}</strong></span></button></div>
-        <div class="grid-anchor">
-          <button class="align-first-beat" disabled={gridBpm === null} data-tooltip={t("setGridAnchorHelp")} onclick={setBeatGridAnchor}><i>Ⅰ</i><span>{t("setGridAnchor")}</span></button>
-          <button class="reset-value" disabled={gridBpm === null || beatGridOffsetSeconds === 0} data-tooltip={t("resetGridOriginHelp")} onclick={resetBeatGridOrigin}><Icon name="rotate-left" size="12px" /><span><small>{t("gridAnchor")}</small><strong>{formatTimePrecise(0)}</strong></span></button>
-          <div class="compact-controls"><button disabled={gridBpm === null} data-tooltip={t("nudgeGridBack")} onclick={() => nudgeBeatGrid(-10)}>−10 ms</button><button disabled={gridBpm === null} data-tooltip={t("nudgeGridForward")} onclick={() => nudgeBeatGrid(10)}>+10 ms</button></div>
-          <output>{t("gridAnchor")}: {formatTimePrecise(beatGridOffsetSeconds)}</output>
+        <div class="practice-right-controls">
+          <NumericControl label={t("gridTempo")} value={gridBpm ?? detectedBpm ?? 120} defaultValue={detectedBpm ?? 120} minimum={30} maximum={300} step={0.1} display={(value) => value.toFixed(1)} onChange={changeGridBpm} onTap={tapTempo} tooltip={t("tapTempoHelp")} />
+          <div class="control-block metronome-block">
+            <span class="control-block-label">{t("metronome")}</span>
+            <div class="metronome-control">
+              <button class:active={metronomeEnabled} class:beating={metronomeBeating} disabled={gridBpm === null} aria-pressed={metronomeEnabled} aria-label={t("metronome")} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}><Icon name="metronome" size="14px" /></button>
+              <label class="metronome-volume" data-tooltip={t("metronomeVolume")}><Icon name="volume-high" size="11px" /><input aria-label={t("metronomeVolume")} type="range" min="0" max="1" step="0.01" value={metronomeVolume} oninput={(event) => changeMetronomeVolume(Number(event.currentTarget.value))} /></label>
+            </div>
+          </div>
         </div>
-        <div class="metronome-control">
-          <button class:active={metronomeEnabled} disabled={gridBpm === null} aria-pressed={metronomeEnabled} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}><Icon name="music" size="12px" /> {t("metronome")}</button>
-          <NumericControl label={t("metronomeVolume")} value={metronomeVolume} defaultValue={0.55} minimum={0} maximum={1} step={0.05} display={(value) => `${Math.round(value * 100)}%`} onChange={changeMetronomeVolume} tooltip={t("numericHelp")} />
-        </div>
+        <div class="transport-trainer-progress"><i style={`width:${Math.max(0, Math.min(100, trainerLoopCount / trainerRepetitions * 100))}%`}></i></div>
       </div>
 
       <div class="visualization-row">
@@ -1968,19 +2082,28 @@
     </section>
   </section>
 
-  <footer>
-    <span>{busy ? t("working") : t("ready")}</span>
-    <div class="help-strip" aria-live="polite"><Icon name="lightbulb" size="12px" /><span>{helpMessage || t("helpHover")}</span></div>
-    <button class="link" onclick={showDiagnostics}>{t("diagnostics")}</button>
-  </footer>
+  {#if helpVisible}
+    <footer class="app-help-footer">
+      <span>{busy ? t("working") : t("ready")}</span>
+      <div class="help-strip" aria-live="polite"><Icon name="lightbulb" size="12px" /><span>{helpMessage || t("helpHover")}</span></div>
+      <button class="link" onclick={showDiagnostics}>{t("diagnostics")}</button>
+    </footer>
+  {/if}
 
   {#if consoleVisible}
     <section class="app-console" aria-label={t("applicationConsole")}>
-      <header><div><strong>{t("applicationConsole")}</strong><span>{appLogs.length} {t("logEntries")}</span></div><button aria-label={t("hideConsole")} data-tooltip={t("hideConsole")} onclick={toggleConsole}><Icon name="xmark" size="12px" /></button></header>
+      <header>
+        <div class="console-title"><strong>{t("applicationConsole")}</strong><span>{filteredAppLogs.length}/{appLogs.length} {t("logEntries")}</span></div>
+        <div class="console-filters">
+          <label><span>{t("minimumLogLevel")}</span><select class={`level-${consoleMinimumLevel}`} bind:value={consoleMinimumLevel} aria-label={t("minimumLogLevel")}><option class="level-debug" value="debug">DEBUG</option><option class="level-info" value="info">INFO</option><option class="level-warn" value="warn">WARN</option><option class="level-error" value="error">ERROR</option></select></label>
+          <label><span>{t("logFamily")}</span><select value={consoleOrigin ?? "all"} onchange={(event) => consoleOrigin = event.currentTarget.value === "all" ? null : event.currentTarget.value} aria-label={t("logFamily")}><option value="all">{t("allLogFamilies")}</option>{#each consoleOrigins as origin}<option value={origin}>{logOriginLabel(origin)}</option>{/each}</select></label>
+          <button aria-label={t("hideConsole")} data-tooltip={t("hideConsole")} onclick={toggleConsole}><Icon name="xmark" size="12px" /></button>
+        </div>
+      </header>
       <div class="console-output">
-        {#if appLogs.length === 0}<p class="console-empty">{t("noLogs")}</p>{/if}
-        {#each appLogs as entry}
-          <div class={`console-line ${entry.level}`}><time>{new Date(entry.timestampMs).toLocaleTimeString(language, { hour12: false })}</time><b>{entry.origin === "rust" ? "RUST" : entry.origin === "mlx" ? "MLX" : "WEB"}</b><em>{entry.level.toUpperCase()}</em><pre>{entry.message}</pre></div>
+        {#if appLogs.length === 0}<p class="console-empty">{t("noLogs")}</p>{:else if filteredAppLogs.length === 0}<p class="console-empty">{t("noMatchingLogs")}</p>{/if}
+        {#each filteredAppLogs as entry}
+          <div class={`console-line ${entry.level}`}><time>{new Date(entry.timestampMs).toLocaleTimeString(language, { hour12: false })}</time><b>{logOriginLabel(entry.origin)}</b><em>{entry.level.toUpperCase()}</em><pre>{entry.message}</pre></div>
         {/each}
       </div>
     </section>
@@ -2001,12 +2124,24 @@
     <Modal title={t("diagnostics")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
   {/if}
 
+  {#if trainingSettingsVisible}
+    <Modal title={t("trainingSettings")} close={() => trainingSettingsVisible = false}>
+      <div class="training-settings-form">
+        <label><span>{t("startSpeed")}</span><span><input type="number" min="50" max="199" step="1" value={Math.round(trainingDraft.startRate * 100)} oninput={(event) => trainingDraft = { ...trainingDraft, startRate: Number(event.currentTarget.value) / 100 }} /><b>%</b></span></label>
+        <label><span>{t("endSpeed")}</span><span><input type="number" min="51" max="200" step="1" value={Math.round(trainingDraft.targetRate * 100)} oninput={(event) => trainingDraft = { ...trainingDraft, targetRate: Number(event.currentTarget.value) / 100 }} /><b>%</b></span></label>
+        <label><span>{t("stepSize")}</span><span><input type="number" min="1" max="25" step="1" value={Math.round(trainingDraft.increment * 100)} oninput={(event) => trainingDraft = { ...trainingDraft, increment: Number(event.currentTarget.value) / 100 }} /><b>%</b></span></label>
+        <label><span>{t("loopsPerStep")}</span><span><input type="number" min="1" max="99" step="1" bind:value={trainingDraft.repetitions} /></span></label>
+      </div>
+      <div class="modal-actions split-actions"><button onclick={resetTrainingDraft}>{t("resetTrainingDefaults")}</button><span></span><button onclick={() => trainingSettingsVisible = false}>{t("cancel")}</button><button class="primary" onclick={saveTrainingSettings}>{t("apply")}</button></div>
+    </Modal>
+  {/if}
+
   {#if preferencesVisible}
     <Modal title={t("preferences")} wide close={() => preferencesVisible = false}>
       <div class="preferences-grid">
         <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label></section>
-        <section><h3>{t("importSettings")}</h3><label class="check"><input type="checkbox" bind:checked={preferences.smartClipboard} /> {t("smartClipboard")}</label><label>{t("searchMode")}<select bind:value={preferences.searchMode}><option value="automaticFirst">{t("automaticFirst")}</option><option value="chooseFive">{t("chooseFive")}</option></select></label><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
-        <section><h3>{t("practiceDefaults")}</h3><label>{t("repetitions")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label><label>{t("increment")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("targetTempo")}<input type="number" min="50" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label></section>
+        <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
+        <section><h3>{t("practiceDefaults")}</h3><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section><h3>Audio</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label></section>
       </div><div class="modal-actions"><button onclick={() => preferencesVisible = false}>{t("close")}</button><button class="primary" onclick={() => { void persistPreferences(); preferencesVisible = false; }}>{t("savePreferences")}</button></div>
     </Modal>
@@ -2022,31 +2157,33 @@
         <div class="import-toolbar">
           <div class="import-toolbar-actions">
             <button onclick={chooseImportFiles}>{t("addFiles")}</button>
-            <button
-              class:active={preferences.smartClipboard}
-              class="clipboard-toggle"
-              type="button"
-              aria-pressed={preferences.smartClipboard}
-              aria-label={t("smartClipboard")}
-              data-tooltip={t("smartClipboard")}
-              onclick={toggleSmartClipboard}
-            >
-              <Icon name="clipboard" size="12px" />
-              <span>{t("smartClipboard")}</span>
-              {#if clipboardDetected}<b>{clipboardDetected}</b>{/if}
-            </button>
           </div>
-          <span>{t("importLimit")}</span>
         </div>
         <textarea bind:this={importTextarea} class:drop-active={importDropActive} bind:value={importText} oninput={scheduleImportAnalysis} ondragover={(event) => { event.preventDefault(); importDropActive = true; }} ondragleave={() => importDropActive = false} ondrop={(event) => { event.preventDefault(); importDropActive = false; const text = event.dataTransfer?.getData("text/plain"); if (text) { importText = [importText, text].filter(Boolean).join("\n"); void analyzeImports(); } }} placeholder={t("importPlaceholder")}></textarea>
         <div class="import-analysis-state">
-          {#if importAnalyzing}<span><i class="mini-spinner"></i>{t("analyzingSources")}</span>
+          {#if importAnalyzing && importSearchTotal > 0}
+            <div class="import-search-progress" aria-live="polite">
+              <span><i class="mini-spinner"></i>{t("searchProgress")} <b>{importSearchCompleted}/{importSearchTotal}</b>{#if importCurrentSearchIndex > 0}<small>· {t("searchResults")} {importCurrentSearchIndex}</small>{/if}</span>
+              <progress value={importSearchCompleted} max={importSearchTotal} aria-label={`${t("searchProgress")} ${importSearchCompleted}/${importSearchTotal}`}></progress>
+            </div>
+          {:else if importAnalyzing}<span><i class="mini-spinner"></i>{t("analyzingSources")}</span>
           {:else if importAnalysisError}<span class="failed">{importAnalysisError}</span>
           {:else if importHasAnalyzed}<span>{importCandidates.length} {t("sourcesFound")}</span>
           {:else}<span>{t("dropToAnalyze")}</span>{/if}
         </div>
-        {#if importCandidates.length}
-          <div class="candidate-list">{#each importCandidates as candidate}<button class:selected={selectedImports.has(candidate.input)} onclick={() => toggleImport(candidate.input)}><i>{selectedImports.has(candidate.input) ? "✓" : ""}</i><span><strong>{candidate.title}</strong><small>{candidate.detail}</small></span></button>{/each}</div>
+        {#if importCandidateGroups.length}
+          <div class="candidate-groups">
+            {#each importCandidateGroups as group}
+              <section class="candidate-group" class:loading={importPendingGroupIds.has(group.id)}>
+                  <header><span data-tooltip={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`}><Icon name={group.query === null ? "file" : "magnifying-glass"} label={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`} size="13px" /></span>{#if group.query}<strong>{group.query}</strong>{/if}{#if importActiveGroupId === group.id}<i class="mini-spinner"></i>{:else if importPendingGroupIds.has(group.id)}<small>{t("queued")}</small>{/if}</header>
+                {#if group.candidates.length}
+                  <div class="candidate-list">{#each group.candidates as candidate}<button class:selected={selectedImports.has(candidate.input)} aria-pressed={selectedImports.has(candidate.input)} onclick={() => toggleImport(candidate.input)}><i>{selectedImports.has(candidate.input) ? "✓" : ""}</i><span><strong>{candidate.title}</strong><small>{candidate.detail}</small></span></button>{/each}</div>
+                {:else if importGroupErrors.has(group.id)}<p class="candidate-group-error">{importGroupErrors.get(group.id)}</p>
+                {:else if importPendingGroupIds.has(group.id)}<div class="candidate-group-wait"><i></i><i></i><i></i></div>
+                {:else}<div class="candidate-group-empty">{t("noSourcesFound")}</div>{/if}
+              </section>
+            {/each}
+          </div>
         {:else if importHasAnalyzed && !importAnalysisError}
           <div class="import-empty">{t("noSourcesFound")}</div>
         {/if}

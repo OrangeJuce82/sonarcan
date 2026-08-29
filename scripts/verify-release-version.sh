@@ -15,4 +15,22 @@ if [[ "$release_tag" != "v$package_version" ]]; then
   echo "Release tag $release_tag must equal v$package_version." >&2
   exit 1
 fi
+
+required_icons=(
+  "icons/32x32.png"
+  "icons/128x128.png"
+  "icons/128x128@2x.png"
+  "icons/icon.icns"
+)
+configured_icons="$(node -p "require('$repository_root/src-tauri/tauri.conf.json').bundle.icon.join('\\n')")"
+for icon in "${required_icons[@]}"; do
+  if ! grep -Fxq "$icon" <<< "$configured_icons"; then
+    echo "The release bundle is missing the configured app icon $icon." >&2
+    exit 1
+  fi
+  if [[ ! -s "$repository_root/src-tauri/$icon" ]]; then
+    echo "The release app icon $icon is missing or empty." >&2
+    exit 1
+  fi
+done
 echo "Release version $package_version is consistent."

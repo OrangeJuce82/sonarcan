@@ -464,11 +464,7 @@ fn download_remote(
     let staging = package.join("Cache").join("Downloads").join(id.to_string());
     fs::create_dir_all(&staging).map_err(|error| AppError::io(&staging, error))?;
     update(inner, id, JobState::Downloading, 0.01, None);
-    let target = if is_url(input) {
-        input.to_owned()
-    } else {
-        format!("ytsearch1:{input}")
-    };
+    let target = youtube_download_target(input);
     let mut command = Command::new(tool);
     command
         .args([
@@ -598,6 +594,14 @@ fn download_remote(
     imported.map(|_| ())
 }
 
+fn youtube_download_target(input: &str) -> String {
+    if is_url(input) {
+        input.to_owned()
+    } else {
+        format!("ytsearch1:{input}")
+    }
+}
+
 fn import_project_audio(
     cancelled: &AtomicBool,
     project_write: &Mutex<()>,
@@ -660,7 +664,7 @@ fn local_input_path(input: &str) -> Option<PathBuf> {
     while let Some(stripped) = value.strip_prefix("file://") {
         value = stripped;
     }
-    // Some clipboard sources escape the @ in account names as `\@`. A file
+    // Some pasted or exported sources escape the @ in account names as `\@`. A file
     // URI uses the literal @, while a real backslash must be percent-encoded.
     let normalized = value.replace("\\@", "@");
     let value = normalized.as_str();
@@ -1049,6 +1053,18 @@ pub fn preferences_from_store(store: &PreferencesStore) -> UserPreferences {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn unresolved_youtube_searches_use_one_result() {
+        assert_eq!(
+            youtube_download_target("artist song"),
+            "ytsearch1:artist song"
+        );
+        assert_eq!(
+            youtube_download_target("https://youtu.be/example"),
+            "https://youtu.be/example"
+        );
+    }
 
     #[test]
     fn text_analysis_extracts_every_embedded_url_without_a_batch_limit() {

@@ -11,9 +11,6 @@ use crate::error::AppError;
 pub struct UserPreferences {
     pub theme: Theme,
     pub language: String,
-    pub smart_clipboard: bool,
-    pub search_mode: SearchMode,
-    pub max_import_batch: usize,
     pub concurrent_downloads: usize,
     pub conversion_format: ConversionFormat,
     pub sample_rate: SampleRatePreference,
@@ -23,7 +20,7 @@ pub struct UserPreferences {
     pub metronome_volume: f32,
     pub default_playback_rate: f64,
     pub default_pitch_semitones: f64,
-    pub default_trainer_enabled: bool,
+    pub default_trainer_start_rate: f64,
     pub default_trainer_repetitions: u32,
     pub default_trainer_increment: f64,
     pub default_trainer_target_rate: f64,
@@ -35,12 +32,6 @@ pub enum Theme {
     System,
     Dark,
     Light,
-}
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SearchMode {
-    AutomaticFirst,
-    ChooseFive,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -78,9 +69,6 @@ impl Default for UserPreferences {
         Self {
             theme: Theme::System,
             language: "en".into(),
-            smart_clipboard: false,
-            search_mode: SearchMode::ChooseFive,
-            max_import_batch: 10,
             concurrent_downloads: 3,
             conversion_format: ConversionFormat::Mp3,
             sample_rate: SampleRatePreference::Preserve,
@@ -90,8 +78,8 @@ impl Default for UserPreferences {
             metronome_volume: 0.55,
             default_playback_rate: 1.0,
             default_pitch_semitones: 0.0,
-            default_trainer_enabled: false,
-            default_trainer_repetitions: 3,
+            default_trainer_start_rate: 0.5,
+            default_trainer_repetitions: 1,
             default_trainer_increment: 0.05,
             default_trainer_target_rate: 1.0,
         }
@@ -139,16 +127,44 @@ fn preference_path() -> Option<PathBuf> {
         .map(|dirs| dirs.config_dir().join("preferences.json"))
 }
 fn validate(value: &mut UserPreferences) {
-    value.max_import_batch = value.max_import_batch.clamp(1, 100);
     value.concurrent_downloads = value.concurrent_downloads.clamp(1, 8);
     value.master_volume = value.master_volume.clamp(0.0, 1.0);
     value.metronome_volume = value.metronome_volume.clamp(0.0, 1.0);
     value.default_playback_rate = value.default_playback_rate.clamp(0.5, 2.0);
     value.default_pitch_semitones = value.default_pitch_semitones.clamp(-12.0, 12.0);
+    value.default_trainer_start_rate = value.default_trainer_start_rate.clamp(0.5, 1.99);
+    value.default_trainer_target_rate = value
+        .default_trainer_target_rate
+        .clamp(value.default_trainer_start_rate + 0.01, 2.0);
     value.default_trainer_repetitions = value.default_trainer_repetitions.clamp(1, 99);
     value.default_trainer_increment = value.default_trainer_increment.clamp(0.01, 0.25);
-    value.default_trainer_target_rate = value.default_trainer_target_rate.clamp(0.5, 2.0);
     if value.language != "fr" {
         value.language = "en".into();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn training_defaults_match_the_product_contract() {
+        let preferences = UserPreferences::default();
+        assert_eq!(preferences.default_trainer_start_rate, 0.5);
+        assert_eq!(preferences.default_trainer_target_rate, 1.0);
+        assert_eq!(preferences.default_trainer_increment, 0.05);
+        assert_eq!(preferences.default_trainer_repetitions, 1);
+    }
+
+    #[test]
+    fn training_preferences_always_keep_the_end_above_the_start() {
+        let mut preferences = UserPreferences {
+            default_trainer_start_rate: 1.5,
+            default_trainer_target_rate: 1.0,
+            ..UserPreferences::default()
+        };
+        validate(&mut preferences);
+        assert_eq!(preferences.default_trainer_start_rate, 1.5);
+        assert_eq!(preferences.default_trainer_target_rate, 1.51);
     }
 }

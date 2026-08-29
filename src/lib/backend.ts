@@ -102,7 +102,7 @@ export const audioSetPlaybackRate = (rate: number): Promise<void> => invoke("aud
 export const audioSetPitch = (semitones: number): Promise<void> => invoke("audio_set_pitch", { semitones });
 export const audioSetBeatGrid = (bpm: number | null, offsetSeconds: number): Promise<void> => invoke("audio_set_beat_grid", { bpm, offsetSeconds });
 export const audioSetMetronome = (enabled: boolean, volume: number): Promise<void> => invoke("audio_set_metronome", { enabled, volume });
-export const audioSetLoopTrainer = (enabled: boolean, repetitions: number, increment: number, targetRate: number): Promise<void> => invoke("audio_set_loop_trainer", { enabled, repetitions, increment, targetRate });
+export const audioSetLoopTrainer = (enabled: boolean, startRate: number, repetitions: number, increment: number, targetRate: number, loopASeconds: number | null, loopBSeconds: number | null): Promise<void> => invoke("audio_set_loop_trainer", { settings: { enabled, startRate, repetitions, increment, targetRate, loopASeconds, loopBSeconds } });
 export const audioSetEndBehavior = (behavior: EndBehavior): Promise<void> => invoke("audio_set_end_behavior", { behavior });
 export const audioSpectrum = (): Promise<SpectrumFrame> => invoke("audio_spectrum");
 export const audioStatus = (): Promise<AudioStatus> => invoke("audio_status");
@@ -121,7 +121,6 @@ export const enqueueImports = (packagePath: string, inputs: string[]): Promise<I
 export const importJobs = (): Promise<ImportJob[]> => invoke("import_jobs");
 export const cancelImport = (jobId: string): Promise<void> => invoke("cancel_import", { jobId });
 export const removeImportJob = (jobId: string): Promise<void> => invoke("remove_import_job", { jobId });
-export const readClipboardText = (): Promise<string> => invoke("read_clipboard_text");
 export const logsSnapshot = (): Promise<AppLogEntry[]> => invoke("logs_snapshot");
 export const pushFrontendLog = (level: string, message: string): Promise<void> => invoke("push_frontend_log", { level, message });
 export const revealProject = (packagePath: string): Promise<void> => invoke("reveal_project", { packagePath });

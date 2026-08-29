@@ -208,7 +208,7 @@ export function calculateBeatLines(options: BeatLineOptions): BeatLine[] {
   const period = 60 / bpm;
   const visibleStart = detailed ? start * durationSeconds : 0;
   const visibleEnd = detailed ? (start + 1 / zoom) * durationSeconds : durationSeconds;
-  const firstBeat = Math.ceil((visibleStart - offsetSeconds) / period);
+  const firstBeat = Math.max(0, Math.ceil((visibleStart - offsetSeconds) / period));
   const lastBeat = Math.floor((visibleEnd - offsetSeconds) / period);
   const count = Math.min(500, Math.max(0, lastBeat - firstBeat + 1));
   return Array.from({ length: count }, (_, index) => {
@@ -221,4 +221,17 @@ export function calculateBeatLines(options: BeatLineOptions): BeatLine[] {
       accent: ((beat % 4) + 4) % 4 === 0,
     };
   });
+}
+
+export function isMetronomeBeatActive(
+  positionSeconds: number,
+  bpm: number | null,
+  offsetSeconds: number,
+  playbackRate: number,
+  pulseSeconds = 0.08,
+): boolean {
+  if (bpm === null || bpm <= 0 || positionSeconds < offsetSeconds || playbackRate <= 0) return false;
+  const period = 60 / bpm;
+  const elapsedSourceSeconds = (positionSeconds - offsetSeconds) % period;
+  return elapsedSourceSeconds / playbackRate < pulseSeconds;
 }

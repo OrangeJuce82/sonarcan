@@ -82,6 +82,7 @@ pub struct PracticeState {
     pub metronome_volume: f64,
     #[serde(default)]
     pub trainer_enabled: bool,
+    pub trainer_start_rate: f64,
     #[serde(default = "default_trainer_repetitions")]
     pub trainer_repetitions: u32,
     #[serde(default = "default_trainer_increment")]
@@ -138,6 +139,7 @@ impl Default for PracticeState {
             metronome_enabled: false,
             metronome_volume: default_metronome_volume(),
             trainer_enabled: false,
+            trainer_start_rate: default_trainer_start_rate(),
             trainer_repetitions: default_trainer_repetitions(),
             trainer_increment: default_trainer_increment(),
             trainer_target_rate: default_trainer_target_rate(),
@@ -159,7 +161,11 @@ const fn default_metronome_volume() -> f64 {
 }
 
 const fn default_trainer_repetitions() -> u32 {
-    3
+    1
+}
+
+const fn default_trainer_start_rate() -> f64 {
+    0.5
 }
 
 const fn default_trainer_increment() -> f64 {
@@ -806,6 +812,7 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
         state.volume,
         state.beat_grid_offset_seconds,
         state.metronome_volume,
+        state.trainer_start_rate,
         state.trainer_increment,
         state.trainer_target_rate,
     ]
@@ -825,8 +832,10 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
             .grid_bpm
             .is_some_and(|bpm| !(30.0..=300.0).contains(&bpm))
         || !(1..=99).contains(&state.trainer_repetitions)
+        || !(0.5..2.0).contains(&state.trainer_start_rate)
         || !(0.01..=0.25).contains(&state.trainer_increment)
         || !(0.5..=2.0).contains(&state.trainer_target_rate)
+        || state.trainer_start_rate >= state.trainer_target_rate
         || state.stem_mix.iter().any(|stem| {
             !stem.gain.is_finite()
                 || !(0.0..=2.0).contains(&stem.gain)
@@ -1192,6 +1201,7 @@ mod tests {
             metronome_enabled: true,
             metronome_volume: 0.5,
             trainer_enabled: true,
+            trainer_start_rate: 0.5,
             trainer_repetitions: 4,
             trainer_increment: 0.05,
             trainer_target_rate: 1.1,
@@ -1213,10 +1223,20 @@ mod tests {
 
         let invalid = PracticeState {
             playback_rate: 3.0,
-            ..state
+            ..state.clone()
         };
         assert!(matches!(
             update_practice_state(&project.package_path, track_id, invalid),
+            Err(AppError::InvalidPracticeState(_))
+        ));
+
+        let invalid_training_range = PracticeState {
+            trainer_start_rate: 1.2,
+            trainer_target_rate: 1.0,
+            ..state
+        };
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, invalid_training_range),
             Err(AppError::InvalidPracticeState(_))
         ));
     }

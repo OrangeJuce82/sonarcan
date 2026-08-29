@@ -4,6 +4,10 @@
 
 Compressed media is decoded on Tauri's blocking worker pool, never on the UI thread or the CPAL callback. The engine keeps a metadata-validated LRU cache of up to three recently used decoded tracks, capped at 384 MiB. Playback, waveform generation, and tempo analysis share the same immutable PCM data and coordinate in-flight requests, so selecting one track never starts several identical decoders.
 
+Development builds use light optimization for SonArcan and full optimization for third-party audio and DSP crates. On the 175-second MP3 used for the August 2026 loading benchmark, waveform availability improved from about 10.26 seconds with the default debug profile to about 208 ms (172 ms decode plus 36 ms reduction). The release build measured 127 ms overall (123 ms decode plus 4 ms reduction). BPM analysis now starts only after the selected audio is ready, so it cannot compete with the initial decode. Release optimization remains unchanged.
+
+Every in-flight decode is removed from the coordination set on both success and failure before waiting callers are notified. A damaged or unreadable media file therefore cannot leave waveform, playback, or tempo requests waiting permanently.
+
 Decoded samples are also written asynchronously to `Cache/decoded` in a compact binary PCM format. Its header fingerprints the source size and nanosecond modification time and records channels, sample rate, and frame count. A valid cache bypasses compressed-media decoding on later sessions. The remaining playlist is warmed sequentially in the background after the active track is ready, avoiding competing decoder jobs.
 
 Rapid selections use monotonically increasing load generations. A slow, obsolete decode may populate the cache, but it cannot replace the newer track selected by the user.
@@ -66,7 +70,7 @@ The output callback:
 
 A/B positions are converted to source frames. The callback wraps the source position before writing the next output frame, so there is no timer, seek request, or empty buffer between B and A.
 
-A five-millisecond equal-gain boundary crossfade is applied before B. The crossfade is shortened automatically for very small loops. This removes clicks caused by unrelated waveform phases at A and B while keeping the loop continuous.
+A ten-millisecond equal-gain boundary crossfade is applied before B. In stem mode, gain, pan, mute, and solo are applied first, then the six stems are summed to stereo and one shared fade envelope is applied to that final mix. Original-audio mode uses the same final-mix path. The crossfade is shortened automatically for very small loops, and playback resumes after the part of the loop head already consumed by that overlap. This avoids replaying the faded-in head at A, removes the second discontinuity that is especially audible on isolated stems, and preserves the level of correlated material.
 
 ## Resampling
 
@@ -90,22 +94,27 @@ Automatic BPM analysis runs outside the real-time callback using the shared deco
 
 ## Beat grid and metronome
 
-Each track can override the automatically detected tempo with an editable grid BPM from 30 to 300 BPM. A source-time offset identifies beat one. Both values are part of the track practice state, together with the metronome enabled state and volume.
+Each track can override the automatically detected tempo with an editable BPM from 30 to 300 BPM. A is always beat one: moving or resetting the loop start immediately moves the grid and metronome origin with it. The metronome stays silent during any lead-in before A. BPM, the derived A offset, and the metronome enabled state are part of the track practice state; metronome volume is a global preference.
 
 The metronome is synthesized directly in the CPAL callback. It performs no allocation, locking, or IPC. Beat phase is derived from the current source position, BPM, and grid offset, which keeps the click aligned after seeks and A/B loop wraps. Playback speed changes the real-time spacing between clicks automatically while preserving alignment with the source waveform. Every fourth beat is accented; editable time signatures are a later roadmap item.
 
 ## Loop trainer
 
-The real-time renderer counts training cycles with atomics. With A/B looping
-active, one cycle is a complete A-to-B pass followed by the B-to-A wrap. A
-lead-in before A is allowed but never counted as a repetition; a partial pass
-that starts inside the loop is also completed once before it can be counted.
-In normal playback, one cycle is a complete track; the renderer restarts from
-the beginning with a short boundary crossfade. After a configurable number of
-cycles, it increases the playback rate by the configured step. Training stops
-automatically at the target rate. The callback never waits for the UI to
-schedule an increment, so continuity is preserved. The enabled state,
-repetition count, increment, and target are persisted per track.
+Enabling Training also enables the current A/B loop. If no explicit bounds are
+available, Rust uses the complete track as A/B; this rule is enforced by the
+audio engine rather than simulated by the WebView. Playback immediately returns
+to the configured start rate. The default user profile is 50% start, 100% end,
+a 5% step, and one complete loop per step.
+
+The real-time renderer counts training cycles with atomics. One cycle is a
+complete A-to-B pass followed by the B-to-A wrap. A lead-in before A is allowed
+but never counted as a repetition; a partial pass that starts inside the loop is
+also completed once before it can be counted. After the configured number of
+cycles, the renderer increases the playback rate by the configured step.
+Training stops automatically at the end rate while the A/B loop remains active.
+The callback never waits for the UI to schedule an increment, so continuity is
+preserved. Enabled state, start/end rates, step, and loops per step are persisted
+per track. Global preferences only provide defaults for new/reset track settings.
 
 ## End-of-track behavior
 

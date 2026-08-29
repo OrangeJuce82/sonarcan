@@ -43,8 +43,6 @@ pub enum AppError {
     ProjectManifestTooLarge(PathBuf),
     #[error("import text exceeds the 1 MiB per-file or 2 MiB total safety limit: {0}")]
     ImportTextTooLarge(PathBuf),
-    #[error("clipboard text exceeds the 2 MiB safety limit")]
-    ClipboardTextTooLarge,
     #[error(
         "project format version {found} is not supported; this build supports version {supported}"
     )]

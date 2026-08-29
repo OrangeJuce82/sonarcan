@@ -17,7 +17,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 arc-swap = "1"
-arboard = "3.6"
 cpal = "0.16"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 rusty-chromaprint = "0.3.0"
@@ -37,3 +36,13 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Audio decoding and DSP are unusably slow without optimization (an MP3 that
+# decodes in ~120 ms in release can take ~10 s in an otherwise default dev
+# build). Level 1 keeps useful debug information and incremental builds while
+# removing the worst overhead in SonArcan's sample reduction loop.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

@@ -120,11 +120,21 @@ The stem mixer persists its six display names and control state in each track. I
 
 Local paths and remote sources enter one Rust-owned background queue. Each queued item retains its destination project and the preference snapshot active when it was submitted, so concurrent imports cannot leak into another project. Concurrency and batch size are bounded.
 
-When the optional smart clipboard is enabled, opening the import center reads and
-analyzes the current clipboard immediately. While that window remains open,
-copy, paste, focus, and bounded clipboard polling detect content changes and
-restart the generation-guarded import analysis. Clipboard text remains an
-untrusted bounded IPC input and is never logged.
+The application never reads or monitors the system clipboard. Text enters the
+Import Center only through an explicit paste or drop initiated by the user.
+Plain-text YouTube searches are resolved into groups of at most five candidates;
+each group keeps its original query visible. A group containing one result is
+selected, while a group containing several results starts with no selection.
+No download begins until the user confirms the current selection. The eventual
+`yt-dlp` fallback for an explicitly submitted unresolved search is `ytsearch1`.
+Text edits are debounced, and normalized query results plus in-flight requests
+are reused from a bounded session cache. Reordering an unchanged line therefore
+performs no network request, and selections that still exist are preserved.
+Uncached searches run sequentially to avoid request bursts. The Import Center
+creates every query group immediately, reports indexed completed/total progress,
+and publishes each group's candidates as soon as that query finishes. A failed
+query remains isolated in its group and does not hide completed results or stop
+later searches.
 
 Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Automatically downloaded `yt-dlp` releases are checked against the publisher's SHA-256 manifest before execution.
 

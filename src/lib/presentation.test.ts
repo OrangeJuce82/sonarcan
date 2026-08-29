@@ -9,6 +9,7 @@ import {
   formatProjectHeaderPath,
   formatTime,
   formatTimePrecise,
+  isMetronomeBeatActive,
   moveWaveformViewport,
   resizeWaveformViewport,
   visiblePeaks,
@@ -89,6 +90,22 @@ test("calculateBeatLines bounds density and accents every fourth beat", () => {
     zoom: 1,
     start: 0,
   }).length, 500);
+});
+
+test("beat grid and metronome start at A and never pulse during its lead-in", () => {
+  const lines = calculateBeatLines({
+    bpm: 120,
+    durationSeconds: 10,
+    offsetSeconds: 2,
+    detailed: false,
+    zoom: 1,
+    start: 0,
+  });
+  assert.equal(lines[0]?.percent, 20);
+  assert.equal(lines[0]?.accent, true);
+  assert.equal(isMetronomeBeatActive(1.5, 120, 2, 1), false);
+  assert.equal(isMetronomeBeatActive(2.02, 120, 2, 1), true);
+  assert.equal(isMetronomeBeatActive(2.25, 120, 2, 1), false);
 });
 
 test("waveform viewport movement preserves its span and stays in bounds", () => {

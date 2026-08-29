@@ -52,7 +52,6 @@ struct ProjectSession {
 }
 
 const APPLICATION_EXIT_REQUESTED: &str = "application-exit-requested";
-const MAX_CLIPBOARD_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
 #[tauri::command]
 fn create_project(app: AppHandle, package_path: PathBuf) -> Result<ProjectSummary, AppError> {
@@ -299,25 +298,6 @@ fn remove_import_job(
 }
 
 #[tauri::command]
-async fn read_clipboard_text() -> Result<String, AppError> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let text = arboard::Clipboard::new()
-            .and_then(|mut clipboard| clipboard.get_text())
-            .unwrap_or_default();
-        bounded_clipboard_text(text)
-    })
-    .await
-    .map_err(|error| AppError::BackgroundTask(error.to_string()))?
-}
-
-fn bounded_clipboard_text(text: String) -> Result<String, AppError> {
-    if text.len() > MAX_CLIPBOARD_TEXT_BYTES {
-        return Err(AppError::ClipboardTextTooLarge);
-    }
-    Ok(text)
-}
-
-#[tauri::command]
 fn logs_snapshot() -> Vec<app_log::LogEntry> {
     app_log::snapshot()
 }
@@ -481,12 +461,9 @@ fn audio_set_metronome(engine: State<'_, audio_engine::AudioEngine>, enabled: bo
 #[tauri::command]
 fn audio_set_loop_trainer(
     engine: State<'_, audio_engine::AudioEngine>,
-    enabled: bool,
-    repetitions: u32,
-    increment: f64,
-    target_rate: f64,
+    settings: audio_engine::LoopTrainerSettings,
 ) {
-    engine.set_loop_trainer(enabled, repetitions, increment, target_rate);
+    engine.set_loop_trainer(settings);
 }
 
 #[tauri::command]
@@ -666,7 +643,6 @@ pub fn run() {
             import_jobs,
             cancel_import,
             remove_import_job,
-            read_clipboard_text,
             logs_snapshot,
             push_frontend_log,
             reveal_project,
@@ -722,18 +698,6 @@ mod tests {
         assert!(matches!(
             read_import_text_files(vec![path.clone()]),
             Err(AppError::ImportTextTooLarge(rejected)) if rejected == path
-        ));
-    }
-
-    #[test]
-    fn bounds_clipboard_text_before_sending_it_over_ipc() {
-        assert_eq!(
-            bounded_clipboard_text("song name".into()).unwrap(),
-            "song name"
-        );
-        assert!(matches!(
-            bounded_clipboard_text("a".repeat(MAX_CLIPBOARD_TEXT_BYTES + 1)),
-            Err(AppError::ClipboardTextTooLarge)
         ));
     }
 }

@@ -83,3 +83,9 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: --target aarch64-apple-darwin --bundles app,dmg
+      - name: Verify bundled macOS app icon
+        run: |
+          app_bundle="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SonArcan.app"
+          icon_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app_bundle/Contents/Info.plist")"
+          test -n "$icon_name"
+          test -s "$app_bundle/Contents/Resources/$icon_name"

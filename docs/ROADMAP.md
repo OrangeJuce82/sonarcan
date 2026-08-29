@@ -105,10 +105,10 @@
 - [ ] safe ZIP import
 - [x] unified local-file, dropped-text, pasted-text, URL, playlist, and search Import Center
 - [x] isolated, bounded `yt-dlp` jobs with verified tool download and high-quality MP3 defaults
-- [x] automatic first-result search and interactive five-result search modes
+- [x] query-grouped YouTube results with explicit download confirmation
 - [x] one-pass remote extraction/conversion and conversion-free copy for conforming local media
 - [x] structured `yt-dlp` diagnostics with actionable user guidance and in-app Rust logs
-- [x] opt-in smart clipboard detection and compact background-task indicator
+- [x] explicit pasted-text analysis without application clipboard monitoring
 - [ ] import cancellation, retry controls, and completed-job pruning
 - [ ] macOS Apple Silicon packaging first
 - [ ] Linux packaging second

@@ -88,11 +88,15 @@ builds the local bundle when signing/notarization environment variables are set.
    restores or converts the official model, builds the pinned runtime, runs the
    complete quality gate, signs and notarizes the app, creates the DMG, and
    uploads everything to a **draft** GitHub Release.
-6. Download the draft DMG on a different Apple-silicon Mac. Verify with
+6. The workflow verifies that `SonArcan.app/Contents/Info.plist` declares the
+   application icon and that the referenced `.icns` file is present in the
+   signed bundle.
+7. Download the draft DMG on a different Apple-silicon Mac. Verify with
    `codesign --verify --deep --strict --verbose=2 /Applications/SonArcan.app`
    and `spctl --assess --type execute --verbose=4 /Applications/SonArcan.app`,
-   then exercise six-stem separation.
-7. Edit the generated notes and publish the draft. If any validation fails,
+   confirm that Finder and the Dock show the SonArcan icon, then exercise
+   six-stem separation.
+8. Edit the generated notes and publish the draft. If any validation fails,
    delete the draft/tag, fix the versioned source, and create a new version; do
    not replace a public signed binary silently.
 
