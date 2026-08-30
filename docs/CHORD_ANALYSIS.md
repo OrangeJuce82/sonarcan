@@ -51,4 +51,5 @@ the Tauri release build. Development uses the same locked `uv` project.
 The interface supports vertical timed cards, automatic playback following, a
 dynamic confidence filter, colors by confidence or by the 12 roots, and an
 alphabetical repertoire of unique chords. Clicking a repertoire chord updates
-the piano without seeking the track.
+the piano without seeking the track. The timeline preserves LV-Chordia's native
+regions exactly; Beat This! downbeats never split them into extra cards.

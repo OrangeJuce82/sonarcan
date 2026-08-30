@@ -34,6 +34,8 @@ export type WaveformViewportEdge = "start" | "end";
 export type WaveformWheelAxis = "horizontal" | "vertical";
 
 export const WAVEFORM_MAX_ZOOM = 128;
+const WAVEFORM_DOWNBEAT_ZOOM = 1.5;
+const WAVEFORM_ALL_BEATS_ZOOM = 4;
 
 export function defaultLoopBounds(
   savedA: number | null,
@@ -236,13 +238,13 @@ export function calculateDetectedBeatLines(
   zoom: number,
   start: number,
 ): BeatLine[] {
-  // The overview is intentionally left clean, as is the detailed waveform at
-  // its widest zoom level. Beat This! does not provide beat subdivisions, so
-  // only model-detected beats are ever drawn.
-  if (durationSeconds <= 0 || !beats.length || !detailed || zoom < 1.5) return [];
+  // Keep the full-track view clean, introduce downbeats at medium zoom, then
+  // reveal every detected beat once individual beats have enough room.
+  if (durationSeconds <= 0 || !beats.length || !detailed || zoom < WAVEFORM_DOWNBEAT_ZOOM) return [];
   const visibleStart = detailed ? start * durationSeconds : 0;
   const visibleEnd = detailed ? (start + 1 / zoom) * durationSeconds : durationSeconds;
-  const visible = beats.filter((seconds) => seconds >= visibleStart && seconds <= visibleEnd);
+  const candidates = zoom < WAVEFORM_ALL_BEATS_ZOOM ? downbeats : beats;
+  const visible = candidates.filter((seconds) => seconds >= visibleStart && seconds <= visibleEnd);
   const stride = Math.max(1, Math.ceil(visible.length / 500));
   return visible.filter((_, index) => index % stride === 0).map((seconds) => ({
     percent: detailed

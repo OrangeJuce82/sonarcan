@@ -46,10 +46,10 @@ official `ismir2017`, `submission`, and `full` dictionary decodes. A separate
 pinned Beat This! `final0` model detects beats and downbeats with its official
 minimal post-processing and no DBN. Beat timestamps drive the waveform grid and
 metronome, their median interval provides a read-only indicative BPM, and
-downbeats split long harmonic regions into
-measure occurrences for the timeline only; they never change an LV-Chordia
-label, boundary, score, or repertoire entry. Neither model uses stems, UI beat
-visualization, tonal rules, or a SonArcan decoder. Rust validates the
+downbeats only accent those rhythmic views. LV-Chordia and Beat This! start as
+independent concurrent tasks; Beat This! never changes or splits an LV-Chordia
+label, boundary, score, timeline card, or repertoire entry. Neither model uses
+stems, UI beat visualization, tonal rules, or a SonArcan decoder. Rust validates the
 sequences and downbeat positions, supervises cancellation,
 rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.

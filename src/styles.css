@@ -189,9 +189,10 @@ button:disabled { opacity: .4; cursor: default; }
 .no-track-stage p { max-width: 470px; margin: 10px 0 22px; color: var(--muted); font-size: .78rem; line-height: 1.6; }
 .no-track-import { display: inline-flex; align-items: center; gap: 7px; padding: .78rem 1.05rem; }
 .visualizer { padding: 16px; min-height: 300px; }
-.wave { position: relative; height: 205px; border-block: 1px solid #27343a; overflow: hidden; touch-action: none; cursor: grab; user-select: none; }
+.wave { position: relative; isolation: isolate; height: 205px; border-block: 1px solid #27343a; overflow: hidden; background: var(--canvas); touch-action: none; cursor: grab; user-select: none; }
 .wave.dragging { cursor: grabbing; }
 .wave svg, .overview-wave svg { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
+.wave svg { z-index: 2; background: transparent; }
 .wave svg line { stroke: #56c9c1; stroke-width: 1; opacity: .8; }
 .wave-message { position: absolute; inset: 0; display: grid; place-items: center; color: #657981; font-size: .8rem; }
 .wave-skeleton { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; color: #82969d; font-size: .72rem; letter-spacing: .04em; }
@@ -212,8 +213,8 @@ button:disabled { opacity: .4; cursor: default; }
 .bpm-indicator-value .mini-spinner { width: 13px; height: 13px; }
 .button-spinner { width: 17px; height: 17px; border-color: #6f572c; border-top-color: #17130b; }
 .playhead, .overview-playhead { position: absolute; z-index: 6; top: 0; bottom: 0; width: 1px; background: #e1a23d; pointer-events: none; }
-.beat-grid { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-.beat-grid i { position: absolute; top: 0; bottom: 0; width: 1px; background: #9cb4ba24; }
+.beat-grid { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.beat-grid i { position: absolute; top: 0; bottom: 0; width: 1px; background: repeating-linear-gradient(to bottom, #9cb4ba66 0 3px, transparent 3px 7px); }
 .beat-grid i.accent { background: #d9a64a55; box-shadow: 1px 0 #0005; }
 .beat-grid.overview i { background: #9cb4ba18; }
 .beat-grid.overview i.accent { background: #d9a64a44; }
@@ -568,7 +569,7 @@ dt { color: #778b94; } dd { margin: 0; }
 .load-states .bpm { border-color: var(--accent-border); color: var(--accent-strong); background: var(--accent-soft); }
 .load-states .loaded { color: var(--accent); }
 .mini-spinner { border-color: var(--accent-border); border-top-color: var(--accent); }
-.beat-grid i { background: color-mix(in srgb, var(--muted) 16%, transparent); }
+.beat-grid i { background: repeating-linear-gradient(to bottom, color-mix(in srgb, var(--muted) 46%, transparent) 0 3px, transparent 3px 7px); }
 .beat-grid.overview i { background: color-mix(in srgb, var(--muted) 11%, transparent); }
 .loop-handle { border-color: var(--purple); color: var(--purple-text); background: var(--purple-bg); }
 .loop-handle.overview.a { border-color: var(--purple); color: var(--purple-text); background: var(--purple-bg); }

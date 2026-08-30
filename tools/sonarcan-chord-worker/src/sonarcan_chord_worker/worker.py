@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import sys
 from pathlib import Path
@@ -24,11 +25,7 @@ from .engine import (
 
 def analyze(audio_path: Path, downbeat_model: Path, requested_device: str = "auto") -> dict:
     import torch
-    from lv_chordia.chord_recognition import load_ensemble
     from lv_chordia.device_utils import resolve_device
-    from lv_chordia.extractors.cqt import CQTV2
-    from lv_chordia.mir import DataEntry, io
-    from lv_chordia.settings import DEFAULT_HOP_LENGTH, DEFAULT_SR
 
     audio_path = audio_path.resolve(strict=True)
     if not audio_path.is_file():
@@ -36,6 +33,27 @@ def analyze(audio_path: Path, downbeat_model: Path, requested_device: str = "aut
     if requested_device == "auto":
         requested_device = "mps" if torch.backends.mps.is_available() else "cpu"
     device = resolve_device(requested_device)
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="sonarcan-analysis") as executor:
+        chord_future = executor.submit(_analyze_chords, audio_path, device)
+        rhythm_future = executor.submit(detect_rhythm, audio_path, downbeat_model, device)
+        modes = chord_future.result()
+        beats, downbeats, bpm = rhythm_future.result()
+    return {
+        "modelVersion": f"lv-chordia@{SOURCE_REVISION}",
+        "downbeatModelVersion": f"beat-this@{BEAT_THIS_VERSION}:final0",
+        "bpm": bpm,
+        "beats": beats,
+        "downbeats": downbeats,
+        "modes": modes,
+    }
+
+
+def _analyze_chords(audio_path: Path, device) -> dict[str, list[dict]]:
+    from lv_chordia.chord_recognition import load_ensemble
+    from lv_chordia.extractors.cqt import CQTV2
+    from lv_chordia.mir import DataEntry, io
+    from lv_chordia.settings import DEFAULT_HOP_LENGTH, DEFAULT_SR
+
     verify_checkpoints()
     ensemble = load_ensemble(False, device=device)
     entry = DataEntry()
@@ -49,15 +67,7 @@ def analyze(audio_path: Path, downbeat_model: Path, requested_device: str = "aut
     for mode, dictionary in DICTIONARIES.items():
         segments = dictionary_decode(entry, probabilities, dictionary)
         modes[mode] = [_timed(segment, sonarcan_label(segment["rawLabel"])) for segment in segments]
-    beats, downbeats, bpm = detect_rhythm(audio_path, downbeat_model, device)
-    return {
-        "modelVersion": f"lv-chordia@{SOURCE_REVISION}",
-        "downbeatModelVersion": f"beat-this@{BEAT_THIS_VERSION}:final0",
-        "bpm": bpm,
-        "beats": beats,
-        "downbeats": downbeats,
-        "modes": modes,
-    }
+    return modes
 
 
 def _timed(segment: dict, label: str) -> dict:

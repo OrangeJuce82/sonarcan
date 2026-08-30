@@ -80,11 +80,17 @@ test("visiblePeaks keeps extrema while reducing the sample count", () => {
 
 test("detected beat lines preserve irregular timing and downbeat accents", () => {
   const beats = [0.4, 0.91, 1.43, 1.96, 2.5];
-  const lines = calculateDetectedBeatLines(beats, [0.4, 2.5], 6, true, 2, 0);
-  assert.deepEqual(lines.map(({ accent }) => accent), [true, false, false, false, true]);
-  assert.equal(lines[1]?.percent, 0.91 / 6 * 2 * 100);
-  assert.deepEqual(calculateDetectedBeatLines(beats, [0.4, 2.5], 3, false, 1, 0), []);
-  assert.deepEqual(calculateDetectedBeatLines(beats, [0.4, 2.5], 3, true, 1, 0), []);
+  const downbeats = [0.4, 2.5];
+  assert.deepEqual(calculateDetectedBeatLines(beats, downbeats, 6, true, 1, 0), []);
+  assert.deepEqual(calculateDetectedBeatLines(beats, downbeats, 6, false, 8, 0), []);
+
+  const mediumZoomLines = calculateDetectedBeatLines(beats, downbeats, 6, true, 2, 0);
+  assert.deepEqual(mediumZoomLines.map(({ accent }) => accent), [true, true]);
+  assert.equal(mediumZoomLines[1]?.percent, 2.5 / 6 * 2 * 100);
+
+  const closeZoomLines = calculateDetectedBeatLines(beats, downbeats, 20, true, 5, 0);
+  assert.deepEqual(closeZoomLines.map(({ accent }) => accent), [true, false, false, false, true]);
+  assert.equal(closeZoomLines[1]?.percent, 0.91 / 20 * 5 * 100);
   assert.equal(isDetectedBeatActive(0.42, beats, 1), true);
   assert.equal(isDetectedBeatActive(0.7, beats, 1), false);
   assert.equal(isDetectedBeatActive(0.95, beats, 0.5), true);

@@ -7,8 +7,9 @@ Compressed media is decoded on Tauri's blocking worker pool, never on the UI thr
 Development builds use light optimization for SonArcan and full optimization for third-party audio and DSP crates. On the 175-second MP3 used for the August 2026 loading benchmark, waveform availability improved from about 10.26 seconds with the default debug profile to about 208 ms (172 ms decode plus 36 ms reduction). The release build measured 127 ms overall (123 ms decode plus 4 ms reduction). Beat This! analysis starts only after the selected audio is ready, so it cannot compete with the initial decode. Release optimization remains unchanged.
 
 Chord and downbeat recognition are not part of playback or decoded-audio
-ownership. They start only after the selected track is ready and run in one
-supervised process containing independent LV-Chordia and Beat This! models. The
+ownership. They start concurrently as independent tasks after the selected track
+is ready and run in one supervised process containing LV-Chordia and Beat This!
+models. Beat This! output never changes or splits the chord timeline. The
 process can be killed when track selection changes. Model inference and official
 decoding never execute on the CPAL callback. The worker reads the canonical
 original media directly; it does not depend on stems, UI beat visualization,

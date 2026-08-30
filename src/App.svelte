@@ -13,7 +13,7 @@
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { shouldHandleGlobalShortcut } from "./lib/globalShortcuts";
-  import { activeChordIndexAt, chordColor, chordDisplayLabel, chordOccurrencesAtDownbeats, chordRepertoire, chordsForMode, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
+  import { activeChordIndexAt, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordsForMode, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
   import Icon from "./lib/Icon.svelte";
   import ChordKeyboard from "./lib/ChordKeyboard.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
@@ -205,7 +205,14 @@
   $: detailedPeaks = visiblePeaks(waveform?.peaks ?? [], waveformZoom, waveformStart, 1_000);
   $: overviewPeaks = visiblePeaks(waveform?.peaks ?? [], 1, 0, 700);
   $: playheadPercent = durationSeconds > 0 ? ((currentSeconds / durationSeconds - waveformStart) * waveformZoom * 100) : 0;
-  $: detailedBeatLines = beatLines(true);
+  $: detailedBeatLines = calculateDetectedBeatLines(
+    chordAnalysis?.beats ?? [],
+    chordAnalysis?.downbeats ?? [],
+    durationSeconds,
+    true,
+    waveformZoom,
+    waveformStart,
+  );
   $: metronomeBeating = metronomeEnabled && isPlaying && isDetectedBeatActive(currentSeconds, chordAnalysis?.beats ?? [], playbackRate);
   $: activeImports = importQueue.filter((job) => !["completed", "failed"].includes(job.state));
   $: importProgress = importQueue.length ? importQueue.reduce((sum, job) => sum + job.progress, 0) / importQueue.length : 0;
@@ -213,7 +220,7 @@
   $: filteredAppLogs = filterLogs(appLogs, consoleMinimumLevel, consoleOrigin);
   $: decodedChords = chordsForMode(chordAnalysis, chordMode);
   $: displayedChords = visibleChords(presentChordSequence(decodedChords, pitchSemitones, chordAccidentalMode), chordMinimumStrength);
-  $: timelineChords = chordOccurrencesAtDownbeats(displayedChords, chordAnalysis?.downbeats ?? []);
+  $: timelineChords = chordTimeline(displayedChords);
   $: repertoireLabels = chordRepertoire(displayedChords);
   $: activeChordIndex = activeChordIndexAt(timelineChords, currentSeconds);
   $: activeChord = activeChordIndex >= 0 ? timelineChords[activeChordIndex] ?? null : null;
@@ -1581,17 +1588,6 @@
     applyLoopTrainer();
   }
 
-  function beatLines(detailed: boolean): { percent: number; accent: boolean }[] {
-    return calculateDetectedBeatLines(
-      chordAnalysis?.beats ?? [],
-      chordAnalysis?.downbeats ?? [],
-      durationSeconds,
-      detailed,
-      waveformZoom,
-      waveformStart,
-    );
-  }
-
   function setLoopA(): void {
     loopA = snappedLoopTime(currentSeconds);
     if (usingDefaultLoopBounds || (loopB !== null && loopB <= loopA)) loopB = null;
@@ -2126,11 +2122,12 @@
             <div class="beat-grid" aria-hidden="true">
               {#each detailedBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
             </div>
-            {#if loopEnabled && loopA !== null}
+            {#if loopA !== null}
               <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
               {#if loopB !== null}
                 <i
                   class="loop-region"
+                  class:disabled={!loopEnabled}
                   aria-hidden="true"
                   style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%;width:${(loopB - loopA) / durationSeconds * waveformZoom * 100}%`}
                 ></i>
@@ -2152,10 +2149,10 @@
             <button type="button" class="viewport" class:dragging={viewportDrag?.mode === "move"} aria-label={t("moveViewport")} style={`left:${waveformStart * 100}%;width:${100 / waveformZoom}%`} onpointerdown={(event) => startViewportDrag(event, "move")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             <button type="button" class="viewport-handle start" aria-label={t("resizeViewportStart")} data-tooltip={t("resizeViewportStart")} style={`left:${waveformStart * 100}%`} onpointerdown={(event) => startViewportDrag(event, "start")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             <button type="button" class="viewport-handle end" aria-label={t("resizeViewportEnd")} data-tooltip={t("resizeViewportEnd")} style={`left:${(waveformStart + 1 / waveformZoom) * 100}%`} onpointerdown={(event) => startViewportDrag(event, "end")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
-            {#if loopEnabled && loopA !== null}
+            {#if loopA !== null}
               <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
               {#if loopB !== null}
-                <i class="loop-region overview" aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
+                <i class="loop-region overview" class:disabled={!loopEnabled} aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
                 <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={`${t("moveEnd")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveEnd")} · ${t("doubleClickResetB")}`} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "b")}>B</button>
               {/if}
             {/if}
@@ -2205,7 +2202,6 @@
             <i class="control-separator" aria-hidden="true"></i>
             <button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="rotate-left" size="11px" /></button>
             <button class:active={loopSnapEnabled} disabled={!chordAnalysis?.beats.length} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={t("loopSnapHelp")}><Icon name="magnet" size="12px" /></button>
-            <button onclick={clearLoop} data-tooltip={t("resetAB")} aria-label={t("resetAB")}><Icon name="eraser" size="12px" /></button>
           </div>
         </div>
         <div class="practice-center-controls">

@@ -3,11 +3,11 @@
 This is SonArcan's production chord-recognition worker. It invokes the pinned
 LV-Chordia model directly and emits one bounded JSON document for Rust to
 validate. A separate pinned Beat This! model produces beat and downbeat positions
-with its official minimal post-processing. Its beat intervals provide the
-indicative BPM, while downbeats create measure occurrences in the chord timeline.
-Neither output alters LV-Chordia labels, scores, or harmonic boundaries. The
-worker contains no SonArcan tonal rules, stem fusion, or neighbour-aware chord
-reinterpretation.
+with its official minimal post-processing. Both analyses start independently and
+run concurrently. Beat intervals provide the indicative BPM, while downbeats are
+used only by the beat grid and metronome. Beat This! never splits or alters the
+LV-Chordia chord timeline. The worker contains no SonArcan tonal rules,
+stem fusion, or neighbour-aware chord reinterpretation.
 
 Run the contract tests with:
 
