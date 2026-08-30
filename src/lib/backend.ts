@@ -130,7 +130,8 @@ export const exportStems = (packagePath: string, trackId: string, destination: s
 export const getPreferences = (): Promise<UserPreferences> => invoke("get_preferences");
 export const savePreferences = (value: UserPreferences): Promise<UserPreferences> => invoke("save_preferences", { value });
 export const analyzeImportText = (text: string): Promise<ImportCandidate[]> => invoke("analyze_import_text", { text });
-export const resolveYoutubeSearch = (query: string): Promise<ImportCandidate[]> => invoke("resolve_youtube_search", { query });
+export const beginYoutubeSearches = (): Promise<number> => invoke("begin_youtube_searches");
+export const resolveYoutubeSearch = (query: string, generation: number): Promise<ImportCandidate[]> => invoke("resolve_youtube_search", { query, generation });
 export const readImportTextFiles = (paths: string[]): Promise<string> => invoke("read_import_text_files", { paths });
 export const enqueueImports = (packagePath: string, inputs: string[]): Promise<ImportJob[]> => invoke("enqueue_imports", { request: { packagePath, inputs } });
 export const importJobs = (): Promise<ImportJob[]> => invoke("import_jobs");

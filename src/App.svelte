@@ -3,7 +3,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeChords, analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
@@ -117,8 +117,7 @@
   const importSearchCache = new ImportSearchCache(resolveYoutubeSearch);
   let importSearchCompleted = 0;
   let importSearchTotal = 0;
-  let importCurrentSearchIndex = 0;
-  let importActiveGroupId: string | null = null;
+  let importActiveGroupIds = new Set<string>();
   let importPendingGroupIds = new Set<string>();
   let importGroupErrors = new Map<string, string>();
   let importQueue: ImportJob[] = [];
@@ -912,9 +911,10 @@
     importHasAnalyzed = false;
     importSearchCompleted = 0;
     importSearchTotal = 0;
-    importCurrentSearchIndex = 0;
-    importActiveGroupId = null;
+    importActiveGroupIds = new Set();
     try {
+      const backendSearchGeneration = await beginYoutubeSearches();
+      if (generation !== importAnalysisGeneration) return;
       const parsed = deduplicateImportCandidates(await analyzeImportText(importText));
       if (generation !== importAnalysisGeneration) return;
       const previousGroups = new Map(importCandidateGroups.map((group) => [group.id, group]));
@@ -947,24 +947,30 @@
       importGroupErrors = new Map();
       publishImportGroups(groups);
 
-      for (const group of unresolved) {
-        if (generation !== importAnalysisGeneration || group.query === null) return;
-        importActiveGroupId = group.id;
-        importCurrentSearchIndex = group.searchIndex ?? 0;
-        try {
-          group.candidates = deduplicateImportCandidates(await importSearchCache.resolve(group.query));
-        } catch (error) {
+      let nextSearchIndex = 0;
+      const resolveNextSearch = async (): Promise<void> => {
+        while (generation === importAnalysisGeneration) {
+          const group = unresolved[nextSearchIndex++];
+          if (!group || group.query === null) return;
+          importActiveGroupIds = new Set(importActiveGroupIds).add(group.id);
+          try {
+            group.candidates = deduplicateImportCandidates(await importSearchCache.resolve(group.query, backendSearchGeneration));
+          } catch (error) {
+            if (generation !== importAnalysisGeneration) return;
+            importGroupErrors = new Map(importGroupErrors).set(group.id, error instanceof Error ? error.message : String(error));
+          }
           if (generation !== importAnalysisGeneration) return;
-          importGroupErrors = new Map(importGroupErrors).set(group.id, error instanceof Error ? error.message : String(error));
+          const pending = new Set(importPendingGroupIds);
+          pending.delete(group.id);
+          importPendingGroupIds = pending;
+          const active = new Set(importActiveGroupIds);
+          active.delete(group.id);
+          importActiveGroupIds = active;
+          importSearchCompleted += 1;
+          publishImportGroups(groups);
         }
-        if (generation !== importAnalysisGeneration) return;
-        const pending = new Set(importPendingGroupIds);
-        pending.delete(group.id);
-        importPendingGroupIds = pending;
-        importSearchCompleted += 1;
-        importActiveGroupId = null;
-        publishImportGroups(groups);
-      }
+      };
+      await Promise.all(Array.from({ length: Math.min(2, unresolved.length) }, () => resolveNextSearch()));
       importHasAnalyzed = true;
     } catch (error) {
       if (generation !== importAnalysisGeneration) return;
@@ -976,7 +982,7 @@
     } finally {
       if (generation === importAnalysisGeneration) {
         importAnalyzing = false;
-        importActiveGroupId = null;
+        importActiveGroupIds = new Set();
         importPendingGroupIds = new Set();
       }
     }
@@ -2498,7 +2504,7 @@
         <div class="import-analysis-state">
           {#if importAnalyzing && importSearchTotal > 0}
             <div class="import-search-progress" aria-live="polite">
-              <span><i class="mini-spinner"></i>{t("searchProgress")} <b>{importSearchCompleted}/{importSearchTotal}</b>{#if importCurrentSearchIndex > 0}<small>· {t("searchResults")} {importCurrentSearchIndex}</small>{/if}</span>
+              <span><i class="mini-spinner"></i>{t("searchProgress")} <b>{importSearchCompleted}/{importSearchTotal}</b></span>
               <progress value={importSearchCompleted} max={importSearchTotal} aria-label={`${t("searchProgress")} ${importSearchCompleted}/${importSearchTotal}`}></progress>
             </div>
           {:else if importAnalyzing}<span><i class="mini-spinner"></i>{t("analyzingSources")}</span>
@@ -2510,7 +2516,7 @@
           <div class="candidate-groups">
             {#each importCandidateGroups as group}
               <section class="candidate-group" class:loading={importPendingGroupIds.has(group.id)}>
-                  <header><span data-tooltip={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`}><Icon name={group.query === null ? "file" : "magnifying-glass"} label={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`} size="13px" /></span>{#if group.query}<strong>{group.query}</strong>{/if}{#if importActiveGroupId === group.id}<i class="mini-spinner"></i>{:else if importPendingGroupIds.has(group.id)}<small>{t("queued")}</small>{/if}</header>
+                  <header><span data-tooltip={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`}><Icon name={group.query === null ? "file" : "magnifying-glass"} label={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`} size="13px" /></span>{#if group.query}<strong>{group.query}</strong>{/if}{#if importActiveGroupIds.has(group.id)}<i class="mini-spinner"></i>{:else if importPendingGroupIds.has(group.id)}<small>{t("queued")}</small>{/if}</header>
                 {#if group.candidates.length}
                   <div class="candidate-list">{#each group.candidates as candidate}<button class:selected={selectedImports.has(candidate.input)} aria-pressed={selectedImports.has(candidate.input)} onclick={() => toggleImport(candidate.input)}><i>{selectedImports.has(candidate.input) ? "✓" : ""}</i><span><strong>{candidate.title}</strong><small>{candidate.detail}</small></span></button>{/each}</div>
                 {:else if importGroupErrors.has(group.id)}<p class="candidate-group-error">{importGroupErrors.get(group.id)}</p>

@@ -34,6 +34,7 @@ const localDependencies = [
   "src-tauri/resources/audio-tools/bin",
   "src-tauri/resources/audio-tools/licenses",
   "src-tauri/resources/audio-tools/manifest.json",
+  "src-tauri/resources/ytdlp-search/yt-dlp",
   "src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors",
   "src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json",
 ];

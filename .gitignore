@@ -13,6 +13,7 @@ src-tauri/resources/chord-runtime/runtime/
 tools/sonarcan-chord-worker/build/
 src-tauri/resources/audio-tools/*
 !src-tauri/resources/audio-tools/README.md
+src-tauri/resources/ytdlp-search/yt-dlp
 src-tauri/resources/models/demucs-mlx/*.safetensors
 src-tauri/resources/models/demucs-mlx/*_config.json
 release-artifacts/

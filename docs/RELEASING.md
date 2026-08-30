@@ -23,6 +23,9 @@ App Store build that downloads or modifies executable code after review.
 - CPython 3.13.5 is recorded by `.python-version` for the MLX stem runtime;
 - the chord worker embeds CPython 3.12.12 and the exact LV-Chordia revision
   `9d7de7bbf45efa6731ec8dc62d35280f141c0702`;
+- the official `yt-dlp` zipimport artifact is pinned by version and SHA-256 in
+  `src-tauri/resources/ytdlp-search/manifest.json` and runs through the shared
+  Python 3.12 resolver;
 - direct and transitive packages are locked in `uv.lock`;
 - the official Demucs source signature and checksum are validated by
   `demucs-mlx` before conversion;
@@ -74,6 +77,8 @@ npm run mlx:runtime
 npm run verify:mlx-release
 npm run chords:runtime
 npm run verify:chord-release
+npm run ytdlp:search
+npm run verify:ytdlp-search-release
 npm run ffmpeg:runtime
 npm run verify:ffmpeg-release
 npm run quality
@@ -108,7 +113,7 @@ the local bundle when signing/notarization environment variables are set.
 
 5. The `Release macOS Apple Silicon` workflow checks version consistency,
    restores or converts the official models, builds the pinned MLX,
-   LV-Chordia, and FFmpeg runtimes, runs the complete quality gate, signs and notarizes the app,
+   LV-Chordia, yt-dlp search artifact, and FFmpeg runtimes, runs the complete quality gate, signs and notarizes the app,
    creates the DMG, and uploads everything to a **draft** GitHub Release.
 6. The workflow verifies the application icon, the `.sac` document-package
    declaration, and executes the bundled FFmpeg and FFprobe from inside the

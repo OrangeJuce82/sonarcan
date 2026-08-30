@@ -14,10 +14,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
-#[cfg(not(debug_assertions))]
-use tauri::Manager;
 use uuid::Uuid;
 
+#[cfg(not(debug_assertions))]
+use crate::python_runtime;
 use crate::{
     chord_contract::{ChordAnalysis, WorkerAnalysis},
     error::AppError,
@@ -203,20 +203,12 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
     }
     #[cfg(not(debug_assertions))]
     {
-        if let Ok(resources) = app.path().resource_dir() {
-            for relative in [
-                "chord-runtime/runtime/bin/python3.12",
-                "chord-runtime/runtime/bin/python3",
-                "chord-runtime/runtime/python.exe",
-            ] {
-                let executable = resources.join(relative);
-                if executable.is_file() {
-                    return Ok(WorkerCommand {
-                        executable,
-                        prefix_arguments: vec!["-m".into(), "sonarcan_chord_worker.worker".into()],
-                    });
-                }
-            }
+        let _ = app;
+        if let Some(executable) = python_runtime::bundled_python_312() {
+            return Ok(WorkerCommand {
+                executable,
+                prefix_arguments: vec!["-m".into(), "sonarcan_chord_worker.worker".into()],
+            });
         }
         Err(AppError::ChordAnalysis(
             "the bundled LV-Chordia runtime is unavailable".into(),

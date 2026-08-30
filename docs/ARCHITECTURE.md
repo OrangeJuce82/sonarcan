@@ -162,13 +162,21 @@ No download begins until the user confirms the current selection. The eventual
 Text edits are debounced, and normalized query results plus in-flight requests
 are reused from a bounded session cache. Reordering an unchanged line therefore
 performs no network request, and selections that still exist are preserved.
-Uncached searches run sequentially to avoid request bursts. The Import Center
+Uncached searches run with a strict concurrency limit of two. Starting a new
+text analysis invalidates its generation and terminates obsolete `yt-dlp`
+processes rather than merely ignoring their late results. The Import Center
 creates every query group immediately, reports indexed completed/total progress,
 and publishes each group's candidates as soon as that query finishes. A failed
 query remains isolated in its group and does not hide completed results or stop
 later searches.
 
-Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Automatically downloaded `yt-dlp` releases are checked against the publisher's SHA-256 manifest before execution.
+Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.12 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
+
+On the August 30, 2026 Apple-silicon benchmark, the former 35 MiB standalone
+macOS executable took 8.85 seconds for `--version` and 9.62 seconds for a
+five-result search. The verified 3 MiB zipimport artifact took 0.51 seconds and
+1.47 seconds respectively for the same operations. Search logs retain only
+elapsed time and result count; the private query is never logged.
 
 Duplicate prevention has two deliberately separate layers. Text analysis removes
 obvious repeats by normalized URL, search text, or case-insensitive local

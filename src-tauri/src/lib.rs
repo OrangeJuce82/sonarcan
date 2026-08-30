@@ -10,6 +10,7 @@ mod importer;
 mod native_menu;
 mod preferences;
 mod project;
+mod python_runtime;
 mod recent;
 mod spectrum;
 mod stem_contract;
@@ -17,6 +18,7 @@ mod stems;
 mod system_metrics;
 mod tempo;
 mod waveform;
+mod youtube_search;
 
 use std::{
     io::Read,
@@ -280,8 +282,18 @@ fn analyze_import_text(text: String) -> Vec<importer::ImportCandidate> {
 }
 
 #[tauri::command]
-async fn resolve_youtube_search(query: String) -> Result<Vec<importer::ImportCandidate>, AppError> {
-    tauri::async_runtime::spawn_blocking(move || importer::resolve_search(&query))
+fn begin_youtube_searches(service: State<'_, youtube_search::YoutubeSearchService>) -> u64 {
+    service.begin()
+}
+
+#[tauri::command]
+async fn resolve_youtube_search(
+    service: State<'_, youtube_search::YoutubeSearchService>,
+    query: String,
+    generation: u64,
+) -> Result<Vec<importer::ImportCandidate>, AppError> {
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.resolve(&query, generation))
         .await
         .map_err(|error| AppError::BackgroundTask(error.to_string()))?
 }
@@ -713,12 +725,14 @@ pub fn run() {
         .setup(|app| {
             if let Ok(resource_dir) = app.path().resource_dir() {
                 ffmpeg::configure_bundled(&resource_dir);
+                python_runtime::configure(&resource_dir);
             }
             app.manage(audio_engine::AudioEngine::new()?);
             app.manage(stems::StemService::default());
             app.manage(chord_analysis::ChordAnalysisService::default());
             app.manage(preferences::PreferencesStore::load());
             app.manage(importer::ImportService::default());
+            app.manage(youtube_search::YoutubeSearchService::default());
             app.manage(ProjectSession::default());
             Ok(())
         })
@@ -747,6 +761,7 @@ pub fn run() {
             get_preferences,
             save_preferences,
             analyze_import_text,
+            begin_youtube_searches,
             resolve_youtube_search,
             read_import_text_files,
             enqueue_imports,

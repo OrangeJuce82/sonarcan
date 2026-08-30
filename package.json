@@ -14,6 +14,8 @@
     "test:chords": "uv run --project tools/sonarcan-chord-worker --locked python -m unittest discover -s tools/sonarcan-chord-worker/tests -v",
     "chords:runtime": "bash scripts/build-chord-runtime.sh",
     "verify:chord-release": "bash scripts/verify-chord-release.sh",
+    "ytdlp:search": "node scripts/prepare-ytdlp-search.mjs",
+    "verify:ytdlp-search-release": "node scripts/prepare-ytdlp-search.mjs --verify",
     "mlx:sync": "uv sync --project tools/sonarcan-mlx-worker --locked",
     "mlx:model": "bash scripts/prepare-mlx-model.sh",
     "mlx:runtime": "bash scripts/build-mlx-runtime.sh",

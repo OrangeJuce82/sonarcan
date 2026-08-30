@@ -22,8 +22,22 @@ use crate::{
     error::AppError,
     ffmpeg,
     preferences::{ConversionFormat, PreferencesStore, UserPreferences},
-    project,
+    project, python_runtime,
 };
+
+#[derive(Clone)]
+pub(crate) struct YtDlpCommand {
+    executable: PathBuf,
+    prefix_arguments: Vec<String>,
+}
+
+impl YtDlpCommand {
+    pub(crate) fn command(&self) -> Command {
+        let mut command = Command::new(&self.executable);
+        command.args(&self.prefix_arguments);
+        command
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -442,7 +456,7 @@ fn download_remote(
     input: &str,
     preferences: &UserPreferences,
 ) -> Result<(), AppError> {
-    let tool = ensure_ytdlp()?;
+    let tool = ytdlp_command()?;
     let ffmpeg = ffmpeg::find().ok_or_else(|| {
         AppError::BackgroundTask(
             "FFmpeg is required to convert this audio. Install a complete SonArcan release or repair the application bundle, then retry.".into(),
@@ -452,7 +466,7 @@ fn download_remote(
     fs::create_dir_all(&staging).map_err(|error| AppError::io(&staging, error))?;
     update(inner, id, JobState::Downloading, 0.01, None);
     let target = youtube_download_target(input);
-    let mut command = Command::new(tool);
+    let mut command = tool.command();
     command
         .args([
             "--ignore-config",
@@ -908,47 +922,34 @@ fn normalized_url_key(input: &str) -> String {
     )
 }
 
-pub fn resolve_search(query: &str) -> Result<Vec<ImportCandidate>, AppError> {
-    let tool = ensure_ytdlp()?;
-    let output = Command::new(tool)
-        .args([
-            "--ignore-config",
-            "--flat-playlist",
-            "--dump-json",
-            "--playlist-end",
-            "5",
-            "--",
-        ])
-        .arg(format!("ytsearch5:{query}"))
-        .output()
-        .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
-    if !output.status.success() {
-        return Err(AppError::BackgroundTask(
-            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        ));
+pub(crate) fn ytdlp_command() -> Result<YtDlpCommand, AppError> {
+    if let (Some(archive), Some(python)) = (
+        python_runtime::resource_path("ytdlp-search/yt-dlp"),
+        python_runtime::bundled_python_312(),
+    ) {
+        if archive.is_file() {
+            return Ok(YtDlpCommand {
+                executable: python,
+                prefix_arguments: vec![archive.to_string_lossy().into_owned()],
+            });
+        }
     }
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| {
-            let value: serde_json::Value = serde_json::from_str(line).ok()?;
-            let id = value.get("id")?.as_str()?;
-            let title = value
-                .get("title")
-                .and_then(|value| value.as_str())
-                .unwrap_or(query);
-            let channel = value
-                .get("channel")
-                .or_else(|| value.get("uploader"))
-                .and_then(|value| value.as_str())
-                .unwrap_or("YouTube");
-            Some(ImportCandidate {
-                input: format!("https://www.youtube.com/watch?v={id}"),
-                title: title.into(),
-                detail: channel.into(),
-                kind: CandidateKind::Video,
-            })
-        })
-        .collect())
+
+    #[cfg(debug_assertions)]
+    {
+        let archive = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/ytdlp-search/yt-dlp");
+        if archive.is_file() {
+            return Ok(YtDlpCommand {
+                executable: PathBuf::from("python3"),
+                prefix_arguments: vec![archive.to_string_lossy().into_owned()],
+            });
+        }
+    }
+
+    Ok(YtDlpCommand {
+        executable: ensure_ytdlp()?,
+        prefix_arguments: Vec::new(),
+    })
 }
 
 fn ensure_ytdlp() -> Result<PathBuf, AppError> {
