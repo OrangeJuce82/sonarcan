@@ -22,11 +22,14 @@ const generatedArtifacts = [
   "release-artifacts",
   "coverage",
   ".svelte-kit",
+  "tools/sonarcan-chord-worker/build",
 ];
 
 const localDependencies = [
   "node_modules",
   "tools/sonarcan-mlx-worker/.venv",
+  "tools/sonarcan-chord-worker/.venv",
+  "src-tauri/resources/chord-runtime/runtime",
   "src-tauri/resources/mlx-runtime/runtime",
   "src-tauri/resources/audio-tools/bin",
   "src-tauri/resources/audio-tools/licenses",
@@ -51,7 +54,7 @@ async function pythonCaches(directory) {
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
     const relative = path.join(directory, entry.name);
-    if (entry.isDirectory() && ["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"].includes(entry.name)) {
+    if (entry.isDirectory() && (["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"].includes(entry.name) || entry.name.endsWith(".egg-info"))) {
       results.push(relative);
     } else if (entry.isDirectory() && entry.name !== ".venv") {
       results.push(...await pythonCaches(relative));
@@ -63,6 +66,7 @@ async function pythonCaches(directory) {
 const targets = [
   ...generatedArtifacts,
   ...await pythonCaches("tools/sonarcan-mlx-worker"),
+  ...await pythonCaches("tools/sonarcan-chord-worker"),
   ...(includeDependencies ? localDependencies : []),
 ];
 

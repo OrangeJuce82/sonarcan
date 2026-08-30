@@ -1,65 +1,56 @@
 # Chord analysis
 
-SonArcan treats automatic chord estimation as a sequence-recognition problem,
-not as a call to a chord-naming function. Librosa supplies bounded signal
-observations; the Rust engine owns vocabulary, harmonic priors, temporal
-decoding, confidence policy, and final labels.
+SonArcan uses LV-Chordia as its only automatic chord-recognition engine. There
+is no Librosa feature worker, template scorer, tonal correction, stem fusion,
+beat/downbeat constraint, or SonArcan harmonic decoder in the production path.
 
-## Current front end
+## Production path
 
-- Apply harmonic/percussive separation with a strong margin to reject attacks.
-- Fuse 36-bin CQT chroma with CENS chroma. CENS contributes robustness to
-  dynamics, timbre, and articulation; the higher-resolution CQT preserves more
-  pitch detail.
-- Segment on smoothed harmonic novelty, not on a visible beat grid.
-- Measure bass separately and use it as supporting evidence, not as the chord
-  root oracle.
-- When validated stems exist, analyse `other + guitar + piano`, analyse `bass`
-  separately, and omit `vocals` and `drums`. Otherwise use the enhanced mix.
-- Preserve silence, ambiguity, global key, and several candidates per segment.
+```text
+original audio
+  -> LV-Chordia CQT and five-model learned ensemble
+  -> native factor probabilities
+  -> official LV-Chordia dictionary or native triad head
+  -> bounded timed-chord JSON
+  -> Rust validation, cancellation, and versioned cache
+  -> interface
+```
 
-The simple vocabulary (major, minor, diminished, half-diminished, augmented)
-and complete vocabulary have separate Viterbi decodes. This prevents an
-uncertain extended label from determining the basic chord before presentation.
+The Python process owns model inference and the official LV-Chordia HMM
+dictionary decode. Rust never changes a chord label. It rejects malformed,
+oversized, non-finite, out-of-order, late, or superseded output and never sends
+PCM through JSON IPC.
 
-## Why this architecture
+## User modes
 
-Librosa intentionally provides feature extraction, decomposition, segmentation,
-and sequence primitives rather than a trained, production chord recognizer.
-Its enhanced-chroma example combines strong-margin HPSS with temporal
-filtering, while CENS is designed for invariance to dynamics, timbre, and
-articulation. These are appropriate observations, but template scoring alone
-cannot learn the harmonic language and duration statistics found in annotated
-music.
+- **Essentiel**: official `ismir2017` dictionary.
+- **Fondamentaux**: direct argmax of the native 73-class triad head: `N` plus
+  12 roots for Major, Minor, Diminished, Augmented, Sus2, and Sus4.
+- **Standard**: official `submission` dictionary and application default.
+- **Complet**: official `full` dictionary; exposed as experimental because the
+  original research repository calls it untested and not recommended.
 
-Source separation is useful when its cache already exists because it removes
-two major interferers: drums and lead vocals. It is not mandatory: separation
-has a material compute cost and can introduce artifacts. SonArcan therefore
-uses stems opportunistically, fingerprints the observation source in the cache,
-and retains an enhanced-mix fallback.
+Extensions are converted only from Harte notation to compact display notation
+(`C:maj7` to `Cmaj7`, `D:min7` to `Dm7`). This does not reinterpret the signal.
+`N` remains a machine-readable No Chord and is displayed as `-`.
 
-## Professional validation path
+The confidence value is the uncalibrated probability of the associated native
+triad class. The interface can filter it dynamically, but the filter does not
+change cached analysis.
 
-1. Build a reproducible evaluation corpus from public Isophonics annotations,
-   synthetic inversions, and separately licensed/user-annotated mixes.
-2. Report weighted chord-symbol recall under both the simple and complete
-   vocabularies, root/quality/bass accuracy, segmentation over/under-segmentation,
-   `N` rate, false changes per minute, latency, peak memory, and stem/mix deltas.
-3. Tune thresholds and calibrate confidence only on a development split. Keep a
-   song-disjoint test split and publish regression fixtures for every fixed bug.
-4. Benchmark the current CQT/CENS templates against an NNLS-chroma front end and
-   a context model such as the bi-directional Transformer for chord recognition.
-5. Adopt a learned model only if it wins the real-mix benchmark with acceptable
-   model size, runtime, redistribution licence, and deterministic fallback.
-6. Replace the current framewise Viterbi duration preference with a semi-Markov
-   duration model and explicit modulation state after the corpus can measure the
-   change. Do not tune this by listening to a single song.
+## Runtime and trust boundary
 
-## Research references
+The runtime is pinned to Python 3.12 and LV-Chordia revision
+`9d7de7bbf45efa6731ec8dc62d35280f141c0702`. Python 3.13 is not used because
+the upstream `pydub` path still imports the removed `audioop` module.
 
-- Librosa, [Enhanced chroma and chroma variants](https://librosa.org/doc/latest/auto_tutorials/03-advanced/plot_chroma.html).
-- Meinard Müller and Sebastian Ewert, [Towards Timbre-Invariant Audio Features for Harmony-Based Music](https://www.audiolabs-erlangen.de/resources/MIR/chromatoolbox), IEEE TASLP 2010.
-- Matthias Mauch and Simon Dixon, [Approximate Note Transcription for the Improved Identification of Difficult Chords](https://archives.ismir.net/ismir2010/2010_ISMIR_Proceedings.pdf#page=147), ISMIR 2010.
-- Jongho Park et al., [A Bi-Directional Transformer for Musical Chord Recognition](https://archives.ismir.net/ismir2019/paper/000075.pdf), ISMIR 2019.
-- Filip Korzeniowski and Gerhard Widmer, [Improved Chord Recognition by Combining Duration and Harmonic Language Models](https://archives.ismir.net/ismir2018/paper/000300.pdf), ISMIR 2018.
-- Centre for Digital Music, [Isophonics reference annotations](https://isophonics.net/content/reference-annotations.html).
+All five pretrained checkpoint files are SHA-256 verified before `torch.load`.
+The release runtime is generated with `npm run chords:runtime` and verified by
+the Tauri release build. Development uses the same locked `uv` project.
+
+## Presentation
+
+The interface supports vertical timed cards, automatic playback following, a
+dynamic confidence filter, colors by confidence or by the 12 roots, and an
+alphabetical repertoire of unique chords. Clicking a repertoire chord updates
+the piano without seeking the track.

@@ -1,5 +1,3 @@
-import type { TimedChord } from "./types";
-
 const PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 
 const FLAT_PITCHES: Record<string, number> = {
@@ -12,7 +10,9 @@ const QUALITY_INTERVALS: Record<string, readonly number[]> = {
   "7": [0, 4, 7, 10],
   maj7: [0, 4, 7, 11],
   m7: [0, 3, 7, 10],
+  mmaj7: [0, 3, 7, 11],
   dim: [0, 3, 6],
+  dim7: [0, 3, 6, 9],
   m7b5: [0, 3, 6, 10],
   aug: [0, 4, 8],
   sus2: [0, 2, 7],
@@ -20,6 +20,11 @@ const QUALITY_INTERVALS: Record<string, readonly number[]> = {
   "6": [0, 4, 7, 9],
   m6: [0, 3, 7, 9],
   "9": [0, 2, 4, 7, 10],
+  maj9: [0, 2, 4, 7, 11],
+  m9: [0, 2, 3, 7, 10],
+  "11": [0, 2, 4, 5, 7, 10],
+  "13": [0, 2, 4, 5, 7, 9, 10],
+  "sus4(b7)": [0, 5, 7, 10],
   "7b5": [0, 4, 6, 10],
   "7#5": [0, 4, 8, 10],
 };
@@ -52,41 +57,6 @@ export function parseChordLabel(label: string): ParsedChord | null {
     pitches,
     pitchNames: pitches.map((pitch) => PITCH_NAMES[pitch]),
   };
-}
-
-export function simplifyChordLabel(label: string): string {
-  if (label === "N") return label;
-  const match = /^([A-G](?:#|b)?)([^/]*)(?:\/([A-G](?:#|b)?))?$/.exec(label);
-  if (!match) return label;
-  const [, root, quality] = match;
-  let simpleQuality = "";
-  if (quality === "m7b5") simpleQuality = "m7b5";
-  else if (quality === "dim") simpleQuality = "dim";
-  else if (quality === "aug" || quality === "7#5") simpleQuality = "aug";
-  else if (quality.startsWith("m") && !quality.startsWith("maj")) simpleQuality = "m";
-  return `${root}${simpleQuality}`;
-}
-
-export function presentChordSequence(chords: readonly TimedChord[], simplified: boolean): TimedChord[] {
-  const result: TimedChord[] = [];
-  for (const chord of chords) {
-    const presented: TimedChord = {
-      ...chord,
-      label: simplified ? simplifyChordLabel(chord.label) : chord.label,
-    };
-    if (simplified) delete presented.bass;
-    const previous = result.at(-1);
-    if (previous?.label === presented.label && Math.abs(previous.endSeconds - presented.startSeconds) < 0.001) {
-      const previousDuration = previous.endSeconds - previous.startSeconds;
-      const presentedDuration = presented.endSeconds - presented.startSeconds;
-      previous.endSeconds = presented.endSeconds;
-      previous.strength = (previous.strength * previousDuration + presented.strength * presentedDuration)
-        / Math.max(previousDuration + presentedDuration, Number.EPSILON);
-    } else {
-      result.push(presented);
-    }
-  }
-  return result;
 }
 
 export const keyboardPitchNames = PITCH_NAMES;

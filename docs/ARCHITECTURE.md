@@ -39,48 +39,22 @@ The frontend uses TypeScript interfaces matching serialized Rust DTOs. Commands 
 
 Raw audio buffers and full-resolution waveform data must not cross the JSON IPC boundary. The UI receives bounded visualization data, metadata, or references to cached artifacts.
 
-Timed chord analysis follows the same boundary. A pinned private Python worker
-uses librosa to extract a fused high-resolution CQT/CENS chroma after strong
-harmonic/percussive separation, plus bass, silence, ambiguity, harmonic change
-boundaries, and a global key estimate from the canonical project media. When a
-validated six-stem cache is already available, the harmonic observation uses
-`other + guitar + piano`, the bass remains a separate low-weight observation,
-and vocals and drums are excluded. The original mix remains the fallback and
-the stem model is never a prerequisite for ordinary chord analysis.
-Its bounded JSON output contains at most 4,096 summarized segments and no PCM.
-Rust validates those observations before a pure SonArcan engine scores several
-extended chord candidates per segment and decodes the coherent passage with a
-Viterbi-style dynamic program. The simple and complete vocabularies are decoded
-independently; simple mode is not a cosmetic rewrite of the extended result.
-Librosa never assigns the displayed chord name.
-The decoder treats a stable bass as positive tonal evidence, prefers the
-major/minor vocabulary over transient suspension or extension interpretations,
-and reserves `N` for silence or unresolved evidence rather than using it as a
-low-cost bridge between chord changes. Real-mix observations cover that policy
-in Rust regression tests. Leading silence and trailing fades are omitted from
-the timed-chord result instead of being published as edge `N` cards; an `N`
-inside an otherwise audible passage remains meaningful and is preserved.
-Results are source-identity-checked, versioned disposable caches under
-`Analysis/chords`, including whether mix or stems supplied the observations.
-When stems finish later, the selected track is reanalysed from them. Starting
-another analysis cancels the worker and stale generations are rejected before
-cache or IPC publication.
+Timed chord analysis follows the same boundary through a pinned LV-Chordia
+Python worker. The worker reads the canonical original media, runs the learned
+five-model ensemble, and emits four bounded timed-label sequences: the official
+`ismir2017`, `submission`, and `full` dictionary decodes plus direct native
+triad-head output. It does not use stems, tonal rules, the beat grid, or a
+SonArcan decoder. Rust validates the four sequences, supervises cancellation,
+rejects stale generations, and stores a source-identity-checked disposable
+cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
+No PCM or frame-level probabilities cross JSON IPC.
 
 The chord panel wraps segments into a vertically scrollable grid. Playback can
-follow the active segment automatically (with an explicit user toggle), and a
-small local keyboard renders the notes of the active SonArcan label without an
-additional runtime dependency. The default presentation reduces uncertain
-extensions to major, minor, diminished, half-diminished, or augmented families;
-it also removes inversion basses and merges adjacent segments that become the
-same simple chord. The complete decoded labels remain available through the
-panel toggle, while a separate keyboard icon shows or hides the full-width note
-keyboard.
-
-Before publication, the temporal decoder stabilizes bass-driven detail. Short
-inversion labels are folded into their parent chord, and a short weak excursion
-is removed only when the same established harmony surrounds it. Sustained
-inversions and strong passing chords remain in the complete sequence. This
-keeps the score useful without treating every walking-bass note as a new chord.
+follow the active segment automatically. Standard (`submission`) is the default;
+Essentiel, Fondamentaux, and Complet expose the other native model views. The
+panel can filter the uncalibrated model score, color by score or root, show a
+full-width keyboard, and switch to an alphabetical repertoire of unique chords.
+`N` is retained in data and rendered as `-`.
 
 The webview is strictly a control surface. It never decodes audio or owns playback timing, looping, gain, time-stretching, or pitch-shifting. Those operations always run in Rust; TypeScript only sends control parameters and displays snapshots of engine state.
 

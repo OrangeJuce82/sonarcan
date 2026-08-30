@@ -113,11 +113,13 @@ export interface TimedChord {
   strength: number;
 }
 
+export type ChordMode = "essential" | "fundamentals" | "standard" | "complete";
+
 export interface ChordAnalysis {
   cacheVersion: number;
   trackId: string;
-  chords: TimedChord[];
-  simpleChords: TimedChord[];
+  modelVersion: string;
+  modes: Record<ChordMode, TimedChord[]>;
 }
 
 export interface SpectrumFrame {

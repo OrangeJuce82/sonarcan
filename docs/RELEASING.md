@@ -20,7 +20,9 @@ App Store build that downloads or modifies executable code after review.
 ## What is pinned
 
 - uv 0.9.26 is used only for development and release assembly;
-- CPython 3.13.5 is recorded by `.python-version` and the runtime builder;
+- CPython 3.13.5 is recorded by `.python-version` for the MLX stem runtime;
+- the chord worker embeds CPython 3.12.12 and the exact LV-Chordia revision
+  `9d7de7bbf45efa6731ec8dc62d35280f141c0702`;
 - direct and transitive packages are locked in `uv.lock`;
 - the official Demucs source signature and checksum are validated by
   `demucs-mlx` before conversion;
@@ -70,6 +72,8 @@ npm run mlx:sync
 npm run mlx:model
 npm run mlx:runtime
 npm run verify:mlx-release
+npm run chords:runtime
+npm run verify:chord-release
 npm run ffmpeg:runtime
 npm run verify:ffmpeg-release
 npm run quality
@@ -103,8 +107,8 @@ the local bundle when signing/notarization environment variables are set.
    ```
 
 5. The `Release macOS Apple Silicon` workflow checks version consistency,
-   restores or converts the official model, builds the pinned MLX and FFmpeg
-   runtimes, runs the complete quality gate, signs and notarizes the app,
+   restores or converts the official models, builds the pinned MLX,
+   LV-Chordia, and FFmpeg runtimes, runs the complete quality gate, signs and notarizes the app,
    creates the DMG, and uploads everything to a **draft** GitHub Release.
 6. The workflow verifies the application icon, the `.sac` document-package
    declaration, and executes the bundled FFmpeg and FFprobe from inside the

@@ -3,7 +3,7 @@ mod audio;
 mod audio_engine;
 mod audio_fingerprint;
 mod chord_analysis;
-mod chord_engine;
+mod chord_contract;
 mod error;
 mod ffmpeg;
 mod importer;
@@ -663,7 +663,7 @@ async fn analyze_chords(
     app: AppHandle,
     package_path: PathBuf,
     track_id: uuid::Uuid,
-) -> Result<chord_engine::ChordAnalysis, AppError> {
+) -> Result<chord_contract::ChordAnalysis, AppError> {
     info!(project = %package_path.display(), %track_id, "analyzing timed chords");
     let generation = app.state::<chord_analysis::ChordAnalysisService>().begin();
     tauri::async_runtime::spawn_blocking(move || {

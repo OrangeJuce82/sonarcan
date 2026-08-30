@@ -20,7 +20,7 @@ SonArcan helps musicians work through a band playlist without the complexity of 
 - Independent 50–200% time stretch and ±12-semitone pitch shift in Rust
 - Fine pitch correction in 1-cent steps
 - Automatic per-track BPM analysis with a persistent cache
-- Local timed-chord analysis using librosa observations and the Rust SonArcan decoder
+- Local timed-chord analysis using the pinned LV-Chordia learned ensemble
 - Editable beat grid and a synchronized Rust real-time metronome
 - Progressive Loop Trainer and a Rust FFT spectrum worker
 - Persistent decoded PCM caches for fast playlist navigation across sessions
@@ -33,8 +33,8 @@ SonArcan helps musicians work through a band playlist without the complexity of 
 - Structured diagnostics and project-format tests
 
 Editable time signatures and grid gestures are tracked in the [development roadmap](docs/ROADMAP.md).
-The chord engine's evidence, architectural decisions, evaluation plan, and
-research references are documented in [Chord analysis](docs/CHORD_ANALYSIS.md).
+The chord engine's runtime architecture, trust boundary, and four user modes
+are documented in [Chord analysis](docs/CHORD_ANALYSIS.md).
 
 ## Development
 
@@ -56,6 +56,7 @@ rustup toolchain install stable
 brew install ffmpeg
 curl -LsSf https://astral.sh/uv/0.9.26/install.sh | sh
 uv python install 3.13.5
+uv python install 3.12.12
 ```
 
 ### First checkout
@@ -63,15 +64,16 @@ uv python install 3.13.5
 ```bash
 npm ci
 npm run mlx:sync
+npm run test:chords
 npm run mlx:model
 npm run quality
 ```
 
-`mlx:sync` creates the locked development environment used by `demucs-mlx` and
-librosa chord-feature extraction.
+`mlx:sync` creates the locked development environment used by `demucs-mlx`.
 `mlx:model` converts and verifies the pinned `htdemucs_6s` six-stem model. Both
-commands are required before testing stems from a fresh checkout; chord analysis
-needs `mlx:sync` but does not need the stem model.
+commands are required before testing stems from a fresh checkout. Chord analysis
+uses the separate locked Python 3.12 LV-Chordia environment, created on first
+`test:chords` or application analysis.
 
 ### Run the application
 
@@ -201,7 +203,7 @@ git tag -s v<version> -m "SonArcan <version>"
 git push origin v<version>
 ```
 
-GitHub Actions rebuilds the pinned MLX and FFmpeg runtimes, runs the quality
+GitHub Actions rebuilds the pinned MLX, LV-Chordia, and FFmpeg runtimes, runs the quality
 gate, signs and notarizes the application, creates the DMG, and uploads a draft
 GitHub Release for manual validation. Apple certificate and notarization
 secrets must first be configured as described in

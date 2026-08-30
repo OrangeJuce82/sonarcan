@@ -927,53 +927,6 @@ fn cache_dir(package: &Path, track_id: Uuid) -> PathBuf {
     package.join("Stems").join(track_id.to_string())
 }
 
-/// Returns validated bass/other/guitar/piano PCM caches for chord extraction.
-/// The paths never cross IPC and remain tied to the canonical source identity.
-pub(crate) fn chord_analysis_stems(
-    package: &Path,
-    track_id: Uuid,
-    media_path: &Path,
-) -> Option<[PathBuf; 4]> {
-    let source = media_path.metadata().ok()?;
-    let directory = validated_export_cache_dir(package, track_id).ok()?;
-    let manifest =
-        read_valid_manifest_from_dir(&directory, track_id, source.len(), modified_ns(&source))?;
-    let expected_bytes = PCM_HEADER_BYTES.checked_add(
-        (manifest.frames as u64)
-            .checked_mul(2)?
-            .checked_mul(size_of::<f32>() as u64)?,
-    )?;
-    if expected_bytes > PCM_HEADER_BYTES + MAX_STEM_BYTES {
-        return None;
-    }
-    let mut paths = Vec::with_capacity(4);
-    for name in ["bass", "other", "guitar", "piano"] {
-        let unresolved = directory.join(format!("{name}.pcm"));
-        let metadata = fs::symlink_metadata(&unresolved).ok()?;
-        if !metadata.file_type().is_file() || metadata.len() != expected_bytes {
-            return None;
-        }
-        let path = unresolved.canonicalize().ok()?;
-        if !path.starts_with(&directory) {
-            return None;
-        }
-        let mut file = File::open(&path).ok()?;
-        let mut magic = [0_u8; 8];
-        let mut sample_rate = [0_u8; 4];
-        let mut frames = [0_u8; 8];
-        file.read_exact(&mut magic).ok()?;
-        file.read_exact(&mut sample_rate).ok()?;
-        file.read_exact(&mut frames).ok()?;
-        if magic != *STEM_MAGIC
-            || u32::from_le_bytes(sample_rate) != manifest.sample_rate
-            || u64::from_le_bytes(frames) as usize != manifest.frames
-        {
-            return None;
-        }
-        paths.push(path);
-    }
-    paths.try_into().ok()
-}
 fn modified_ns(metadata: &fs::Metadata) -> u64 {
     metadata
         .modified()
@@ -1168,40 +1121,6 @@ mod tests {
         assert_eq!(loaded[0].samples, stems[0].samples);
         assert_eq!(loaded[5].samples, stems[5].samples);
         assert!(load_cache(project.path(), track_id, 124, 456).is_none());
-    }
-
-    #[test]
-    fn exposes_only_valid_source_matched_stems_to_chord_analysis() {
-        let project = tempfile::tempdir().unwrap();
-        let media_path = project.path().join("track.mp3");
-        fs::write(&media_path, b"source identity").unwrap();
-        let source = media_path.metadata().unwrap();
-        let track_id = Uuid::new_v4();
-        let stems = std::array::from_fn(|index| {
-            Arc::new(DecodedAudio {
-                samples: vec![index as f32, 0.25, 0.5, 0.75],
-                channels: 2,
-                sample_rate: 48_000,
-                frames: 2,
-            })
-        });
-        store_cache(
-            project.path(),
-            track_id,
-            source.len(),
-            modified_ns(&source),
-            &stems,
-        )
-        .unwrap();
-
-        let paths = chord_analysis_stems(project.path(), track_id, &media_path).unwrap();
-        assert_eq!(
-            paths.map(|path| path.file_stem().unwrap().to_string_lossy().into_owned()),
-            ["bass", "other", "guitar", "piano"]
-        );
-
-        fs::write(&media_path, b"changed source identity").unwrap();
-        assert!(chord_analysis_stems(project.path(), track_id, &media_path).is_none());
     }
 
     #[test]

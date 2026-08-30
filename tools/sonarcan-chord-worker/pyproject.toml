@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sonarcan-lv-chordia-worker"
+version = "0.1.0"
+description = "Private, pinned LV-Chordia inference worker for SonArcan"
+# LV-Chordia 1.1.0 imports pydub's audioop compatibility path at module load.
+# audioop was removed in Python 3.13, so 3.12 is the newest verified runtime.
+requires-python = "==3.12.*"
+dependencies = [
+  # PyPI 1.1.0 predates the reusable ensemble and explicit MPS fixes. Pin the
+  # exact audited upstream revision rather than silently following main.
+  "lv-chordia @ git+https://github.com/openmirlab/lv-chordia.git@9d7de7bbf45efa6731ec8dc62d35280f141c0702",
+  "numpy==2.3.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+required-version = "==0.9.26"
+
+[dependency-groups]
+dev = []

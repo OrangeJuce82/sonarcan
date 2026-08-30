@@ -1,4 +1,4 @@
-//! Supervision, validation and versioned caching for librosa chord features.
+//! LV-Chordia process supervision, validation, cancellation, and caching.
 
 use std::{
     fs,
@@ -17,18 +17,14 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::{
-    chord_engine::{self, ChordAnalysis, ExtractedChordFeatures},
+    chord_contract::{ChordAnalysis, WorkerAnalysis},
     error::AppError,
-    stems,
 };
 
-const CACHE_VERSION: u32 = 7;
-const FEATURE_VERSION: u32 = 3;
-const MAX_SEGMENTS: usize = 4_096;
+const CACHE_VERSION: u32 = 9;
 const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 32 * 1024;
-const MAX_CACHE_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_DURATION_SECONDS: f64 = 24.0 * 60.0 * 60.0;
+const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct ChordAnalysisService {
@@ -42,7 +38,6 @@ struct CacheEnvelope {
     cache_version: u32,
     source_size: u64,
     source_modified_ns: u128,
-    stem_assisted: bool,
     analysis: ChordAnalysis,
 }
 
@@ -77,35 +72,30 @@ impl ChordAnalysisService {
         generation: u64,
     ) -> Result<ChordAnalysis, AppError> {
         ensure_current(&self.generation, generation)?;
-        let source_identity = source_identity(media_path)?;
-        let chord_stems = stems::chord_analysis_stems(package_path, track_id, media_path);
-        let stem_assisted = chord_stems.is_some();
-        if let Some(cached) = load_cached(package_path, track_id, source_identity, stem_assisted)? {
+        let source = source_identity(media_path)?;
+        if let Some(cached) = load_cached(package_path, track_id, source)? {
             return Ok(cached);
         }
 
         let worker = resolve_worker(app)?;
-        let mut command = Command::new(&worker.executable);
-        command
+        let mut child = Command::new(&worker.executable)
             .args(&worker.prefix_arguments)
             .arg(media_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some(paths) = chord_stems {
-            command.arg("--stems").args(paths);
-        }
-        let mut child = command.spawn().map_err(|error| {
-            AppError::ChordAnalysis(format!("could not start librosa worker: {error}"))
-        })?;
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| {
+                AppError::ChordAnalysis(format!("could not start LV-Chordia worker: {error}"))
+            })?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| AppError::ChordAnalysis("librosa stdout is unavailable".into()))?;
+            .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stdout is unavailable".into()))?;
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| AppError::ChordAnalysis("librosa stderr is unavailable".into()))?;
+            .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stderr is unavailable".into()))?;
         let child = Arc::new(Mutex::new(child));
         *self.child.lock().map_err(|_| {
             AppError::ChordAnalysis("analysis process state is unavailable".into())
@@ -117,36 +107,34 @@ impl ChordAnalysisService {
         clear_child(&self.child, &child);
         let stdout = stdout_reader
             .join()
-            .map_err(|_| AppError::ChordAnalysis("librosa stdout reader failed".into()))?
+            .map_err(|_| AppError::ChordAnalysis("LV-Chordia stdout reader failed".into()))?
             .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not read librosa stdout: {error}"))
+                AppError::ChordAnalysis(format!("could not read LV-Chordia stdout: {error}"))
             })?;
         let stderr = stderr_reader
             .join()
-            .map_err(|_| AppError::ChordAnalysis("librosa stderr reader failed".into()))?
+            .map_err(|_| AppError::ChordAnalysis("LV-Chordia stderr reader failed".into()))?
             .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not read librosa stderr: {error}"))
+                AppError::ChordAnalysis(format!("could not read LV-Chordia stderr: {error}"))
             })?;
         ensure_current(&self.generation, generation)?;
         if !status.success() {
             return Err(AppError::ChordAnalysis(format!(
-                "librosa feature extraction failed: {}",
+                "LV-Chordia failed: {}",
                 String::from_utf8_lossy(&stderr.bytes).trim()
             )));
         }
         if stdout.exceeded {
             return Err(AppError::ChordAnalysis(
-                "librosa feature output exceeded 8 MiB".into(),
+                "LV-Chordia output exceeded 8 MiB".into(),
             ));
         }
-        let features: ExtractedChordFeatures =
-            serde_json::from_slice(&stdout.bytes).map_err(|error| {
-                AppError::ChordAnalysis(format!("invalid librosa feature output: {error}"))
-            })?;
-        validate_features(&features)?;
-        let analysis = chord_engine::decode(track_id, CACHE_VERSION, &features);
+        let worker: WorkerAnalysis = serde_json::from_slice(&stdout.bytes).map_err(|error| {
+            AppError::ChordAnalysis(format!("invalid LV-Chordia JSON: {error}"))
+        })?;
+        let analysis = worker.validate(track_id, CACHE_VERSION)?;
         ensure_current(&self.generation, generation)?;
-        store(package_path, source_identity, stem_assisted, &analysis)?;
+        store(package_path, source, &analysis)?;
         Ok(analysis)
     }
 }
@@ -190,7 +178,7 @@ fn wait_for_child(child: &Arc<Mutex<Child>>) -> Result<std::process::ExitStatus,
             .map_err(|_| AppError::ChordAnalysis("analysis process state is unavailable".into()))?
             .try_wait()
             .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not wait for librosa worker: {error}"))
+                AppError::ChordAnalysis(format!("could not wait for LV-Chordia: {error}"))
             })?;
         if let Some(status) = status {
             return Ok(status);
@@ -200,68 +188,23 @@ fn wait_for_child(child: &Arc<Mutex<Child>>) -> Result<std::process::ExitStatus,
 }
 
 fn ensure_current(active: &AtomicU64, generation: u64) -> Result<(), AppError> {
-    if active.load(Ordering::Acquire) == generation {
-        Ok(())
-    } else {
-        Err(AppError::ChordAnalysis(
-            "chord analysis was cancelled or superseded".into(),
-        ))
-    }
-}
-
-fn validate_features(features: &ExtractedChordFeatures) -> Result<(), AppError> {
-    if features.feature_version != FEATURE_VERSION
-        || !features.duration_seconds.is_finite()
-        || !(0.0..=MAX_DURATION_SECONDS).contains(&features.duration_seconds)
-        || features.segments.len() > MAX_SEGMENTS
-        || features.key_root.is_some_and(|root| root >= 12)
-    {
-        return Err(AppError::ChordAnalysis(
-            "librosa feature header is outside accepted bounds".into(),
-        ));
-    }
-    let mut previous_end = 0.0;
-    for segment in &features.segments {
-        let scalars_valid = segment.start_seconds.is_finite()
-            && segment.end_seconds.is_finite()
-            && segment.silence.is_finite()
-            && segment.ambiguity.is_finite()
-            && segment.bass_strength.is_finite()
-            && segment.start_seconds >= previous_end - 0.001
-            && segment.start_seconds >= 0.0
-            && segment.end_seconds > segment.start_seconds
-            && segment.end_seconds <= features.duration_seconds + 0.05
-            && !matches!(segment.key_root, Some(root) if root >= 12)
-            && (0.0..=1.0).contains(&segment.silence)
-            && (0.0..=1.0).contains(&segment.ambiguity)
-            && (0.0..=1.0).contains(&segment.bass_strength);
-        let vectors_valid = segment
-            .chroma
-            .iter()
-            .chain(segment.bass_chroma.iter())
-            .all(|value| value.is_finite() && (0.0..=1.001).contains(value));
-        if !scalars_valid || !vectors_valid {
-            return Err(AppError::ChordAnalysis(
-                "librosa segment is outside accepted bounds".into(),
-            ));
-        }
-        previous_end = segment.end_seconds;
-    }
-    Ok(())
+    (active.load(Ordering::Acquire) == generation)
+        .then_some(())
+        .ok_or_else(|| AppError::ChordAnalysis("chord analysis was cancelled or superseded".into()))
 }
 
 fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
     if let Ok(resources) = app.path().resource_dir() {
         for relative in [
-            "mlx-runtime/bin/python3",
-            "mlx-runtime/bin/python",
-            "mlx-runtime/python.exe",
+            "chord-runtime/runtime/bin/python3.12",
+            "chord-runtime/runtime/bin/python3",
+            "chord-runtime/runtime/python.exe",
         ] {
             let executable = resources.join(relative);
             if executable.is_file() {
                 return Ok(WorkerCommand {
                     executable,
-                    prefix_arguments: vec!["-m".into(), "sonarcan_mlx_worker.chords".into()],
+                    prefix_arguments: vec!["-m".into(), "sonarcan_chord_worker.worker".into()],
                 });
             }
         }
@@ -271,7 +214,7 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
         let project = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
-            .join("tools/sonarcan-mlx-worker");
+            .join("tools/sonarcan-chord-worker");
         Ok(WorkerCommand {
             executable: PathBuf::from("uv"),
             prefix_arguments: vec![
@@ -281,13 +224,13 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
                 "--locked".into(),
                 "python".into(),
                 "-m".into(),
-                "sonarcan_mlx_worker.chords".into(),
+                "sonarcan_chord_worker.worker".into(),
             ],
         })
     }
     #[cfg(not(debug_assertions))]
     Err(AppError::ChordAnalysis(
-        "the bundled librosa runtime is unavailable".into(),
+        "the bundled LV-Chordia runtime is unavailable".into(),
     ))
 }
 
@@ -308,7 +251,6 @@ fn load_cached(
     package_path: &Path,
     track_id: Uuid,
     source: (u64, u128),
-    stem_assisted: bool,
 ) -> Result<Option<ChordAnalysis>, AppError> {
     let path = cache_path(package_path, track_id)?;
     if path
@@ -328,7 +270,6 @@ fn load_cached(
     Ok((cached.cache_version == CACHE_VERSION
         && cached.analysis.cache_version == CACHE_VERSION
         && cached.analysis.track_id == track_id
-        && cached.stem_assisted == stem_assisted
         && (cached.source_size, cached.source_modified_ns) == source)
         .then_some(cached.analysis))
 }
@@ -336,7 +277,6 @@ fn load_cached(
 fn store(
     package_path: &Path,
     source: (u64, u128),
-    stem_assisted: bool,
     analysis: &ChordAnalysis,
 ) -> Result<(), AppError> {
     let path = cache_path(package_path, analysis.track_id)?;
@@ -348,7 +288,6 @@ fn store(
         cache_version: CACHE_VERSION,
         source_size: source.0,
         source_modified_ns: source.1,
-        stem_assisted,
         analysis: analysis.clone(),
     };
     let mut file = fs::OpenOptions::new()
@@ -400,33 +339,15 @@ fn cache_path(package_path: &Path, track_id: Uuid) -> Result<PathBuf, AppError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chord_engine::FeatureSegment;
+    use std::collections::BTreeMap;
 
-    #[test]
-    fn rejects_unbounded_or_non_finite_worker_features() {
-        let mut features = ExtractedChordFeatures {
-            feature_version: FEATURE_VERSION,
-            duration_seconds: 2.0,
-            key_root: Some(0),
-            key_minor: Some(false),
-            segments: vec![FeatureSegment {
-                start_seconds: 0.0,
-                end_seconds: 2.0,
-                chroma: [0.0; 12],
-                bass_chroma: [0.0; 12],
-                bass_strength: 0.0,
-                silence: 1.0,
-                ambiguity: 1.0,
-                key_root: None,
-                key_minor: None,
-            }],
-        };
-        assert!(validate_features(&features).is_ok());
-        features.segments[0].chroma[3] = f32::NAN;
-        assert!(validate_features(&features).is_err());
-        features.segments[0].chroma[3] = 0.0;
-        features.segments[0].end_seconds = 3.0;
-        assert!(validate_features(&features).is_err());
+    fn analysis(track_id: Uuid) -> ChordAnalysis {
+        ChordAnalysis {
+            cache_version: CACHE_VERSION,
+            track_id,
+            model_version: "lv-chordia@test".into(),
+            modes: BTreeMap::new(),
+        }
     }
 
     #[test]
@@ -434,23 +355,14 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         fs::create_dir(temporary.path().join("Analysis")).unwrap();
         let track_id = Uuid::new_v4();
-        let analysis = ChordAnalysis {
-            cache_version: CACHE_VERSION,
-            track_id,
-            chords: Vec::new(),
-            simple_chords: Vec::new(),
-        };
-        store(temporary.path(), (12, 34), false, &analysis).unwrap();
+        let analysis = analysis(track_id);
+        store(temporary.path(), (12, 34), &analysis).unwrap();
         assert_eq!(
-            load_cached(temporary.path(), track_id, (12, 34), false).unwrap(),
+            load_cached(temporary.path(), track_id, (12, 34)).unwrap(),
             Some(analysis)
         );
         assert_eq!(
-            load_cached(temporary.path(), track_id, (13, 34), false).unwrap(),
-            None
-        );
-        assert_eq!(
-            load_cached(temporary.path(), track_id, (12, 34), true).unwrap(),
+            load_cached(temporary.path(), track_id, (13, 34)).unwrap(),
             None
         );
     }
@@ -459,7 +371,6 @@ mod tests {
     #[test]
     fn rejects_a_chord_cache_symlinked_outside_the_project() {
         use std::os::unix::fs::symlink;
-
         let project = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         symlink(outside.path(), project.path().join("Analysis")).unwrap();

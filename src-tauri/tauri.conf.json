@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run verify:mlx-release && npm run verify:ffmpeg-release && npm run build",
+    "beforeBuildCommand": "npm run verify:mlx-release && npm run verify:chord-release && npm run verify:ffmpeg-release && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -33,6 +33,7 @@
     "active": true,
     "resources": {
       "resources/mlx-runtime": "mlx-runtime",
+      "resources/chord-runtime": "chord-runtime",
       "resources/models/demucs-mlx": "models/demucs-mlx",
       "resources/audio-tools": "audio-tools"
     },

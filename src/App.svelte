@@ -13,7 +13,7 @@
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { shouldHandleGlobalShortcut } from "./lib/globalShortcuts";
-  import { presentChordSequence } from "./lib/chordNotes";
+  import { chordColor, chordDisplayLabel, chordRepertoire, chordsForMode, visibleChords, type ChordColorMode } from "./lib/chordViews";
   import Icon from "./lib/Icon.svelte";
   import ChordKeyboard from "./lib/ChordKeyboard.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
@@ -22,7 +22,7 @@
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
   import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, isMetronomeBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, trackLoadPosition, visiblePeaks, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
-  import type { AppLogEntry, ChordAnalysis, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
+  import type { AppLogEntry, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
@@ -64,7 +64,11 @@
   let chordsLoading = false;
   let chordAnalysisError = "";
   let chordAutoScroll = true;
-  let simplifiedChords = true;
+  let chordMode: ChordMode = "standard";
+  let chordMinimumStrength = 0;
+  let chordColorMode: ChordColorMode = "root";
+  let chordView: "timeline" | "repertoire" = "timeline";
+  let repertoireKeyboardLabel: string | null = null;
   let chordKeyboardVisible = true;
   let chordList: HTMLElement | undefined;
   let lastFollowedChordIndex = -1;
@@ -209,12 +213,13 @@
   $: importProgress = importQueue.length ? importQueue.reduce((sum, job) => sum + job.progress, 0) / importQueue.length : 0;
   $: consoleOrigins = logOrigins(appLogs);
   $: filteredAppLogs = filterLogs(appLogs, consoleMinimumLevel, consoleOrigin);
-  $: decodedChords = simplifiedChords ? chordAnalysis?.simpleChords ?? [] : chordAnalysis?.chords ?? [];
-  $: displayedChords = presentChordSequence(decodedChords, simplifiedChords);
+  $: decodedChords = chordsForMode(chordAnalysis, chordMode);
+  $: displayedChords = visibleChords(decodedChords, chordMinimumStrength);
+  $: repertoireLabels = chordRepertoire(displayedChords);
   $: activeChordIndex = displayedChords.findIndex((chord) => currentSeconds >= chord.startSeconds && currentSeconds < chord.endSeconds);
   $: activeChord = activeChordIndex >= 0 ? displayedChords[activeChordIndex] ?? null : null;
-  $: activeChordLabel = activeChord?.label ?? "N";
-  $: if (chordAutoScroll && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
+  $: activeChordLabel = repertoireKeyboardLabel ?? activeChord?.label ?? "N";
+  $: if (chordView === "timeline" && chordAutoScroll && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
     lastFollowedChordIndex = activeChordIndex;
     followChord(activeChordIndex);
   }
@@ -2319,28 +2324,54 @@
             <h2>{t("chords")}</h2>
             <div class="chord-panel-actions">
               {#if chordsLoading}<span><i class="mini-spinner"></i>{t("analyzingChords")}</span>{/if}
-              <button class="chord-simple-toggle" class:active={simplifiedChords} aria-pressed={simplifiedChords} aria-label={t("chordSimpleMode")} data-tooltip={t("chordSimpleModeHelp")} onclick={() => simplifiedChords = !simplifiedChords}>{simplifiedChords ? t("simple") : t("full")}</button>
+              <select aria-label={t("chordMode")} data-tooltip={t("chordModeHelp")} bind:value={chordMode} onchange={() => { repertoireKeyboardLabel = null; lastFollowedChordIndex = -1; }}>
+                <option value="essential">{t("chordEssential")}</option>
+                <option value="fundamentals">{t("chordFundamentals")}</option>
+                <option value="standard">{t("chordStandard")}</option>
+                <option value="complete">{t("chordComplete")}</option>
+              </select>
+              <select aria-label={t("chordConfidence")} data-tooltip={t("chordConfidenceHelp")} bind:value={chordMinimumStrength}>
+                <option value={0}>{t("chordConfidenceAll")}</option>
+                <option value={0.25}>≥ 25%</option><option value={0.5}>≥ 50%</option><option value={0.7}>≥ 70%</option><option value={0.85}>≥ 85%</option>
+              </select>
+              <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; }}><Icon name="music" size="12px" /></button>
+              <button aria-label={t("chordColors")} data-tooltip={t("chordColorsHelp")} onclick={() => chordColorMode = chordColorMode === "root" ? "score" : "root"}>{chordColorMode === "root" ? "12" : "%"}</button>
               <button class:active={chordKeyboardVisible} aria-pressed={chordKeyboardVisible} aria-label={t("toggleChordKeyboard")} data-tooltip={t("toggleChordKeyboardHelp")} onclick={() => chordKeyboardVisible = !chordKeyboardVisible}><Icon name="keyboard" size="13px" /></button>
-              <button class:active={chordAutoScroll} aria-pressed={chordAutoScroll} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="12px" /></button>
+              {#if chordView === "timeline"}<button class:active={chordAutoScroll} aria-pressed={chordAutoScroll} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="12px" /></button>{/if}
             </div>
           </div>
           {#if chordAnalysisError}
             <p class="chord-state failed">{t("chordAnalysisFailed")}</p>
-          {:else if !chordAnalysis || !chordAnalysis.chords.length}
+          {:else if !chordAnalysis || !chordAnalysis.modes.standard.length}
             <p class="chord-state">{chordsLoading ? t("analyzingChords") : t("noChords")}</p>
           {:else}
-            <div class="chords" aria-label={t("chords")} bind:this={chordList}>
-              {#each displayedChords as chord, chordIndex}
-                <button
-                  class:active={chordIndex === activeChordIndex}
-                  data-chord-index={chordIndex}
-                  aria-label={`${chord.label}, ${formatTime(chord.startSeconds)}, ${t("chordSeekHelp")}`}
-                  data-tooltip={t("chordSeekHelp")}
-                  title={`${formatTime(chord.startSeconds)}–${formatTime(chord.endSeconds)} · ${Math.round(chord.strength * 100)}%`}
-                  onclick={() => seek(chord.startSeconds)}
-                ><b>{chord.label}</b><small>{formatTime(chord.startSeconds)}</small></button>
-              {/each}
-            </div>
+            {#if chordView === "timeline"}
+              <div class="chords" aria-label={t("chords")} bind:this={chordList}>
+                {#each displayedChords as chord, chordIndex}
+                  <button
+                    class:active={chordIndex === activeChordIndex}
+                    style={`--chord-color:${chordColor(chord.label, chord.strength, chordColorMode)}`}
+                    data-chord-index={chordIndex}
+                    aria-label={`${chordDisplayLabel(chord.label)}, ${formatTime(chord.startSeconds)}, ${t("chordSeekHelp")}`}
+                    data-tooltip={t("chordSeekHelp")}
+                    title={`${formatTime(chord.startSeconds)}–${formatTime(chord.endSeconds)} · ${Math.round(chord.strength * 100)}%`}
+                    onclick={() => { repertoireKeyboardLabel = null; seek(chord.startSeconds); }}
+                  ><b>{chordDisplayLabel(chord.label)}</b><small>{formatTime(chord.startSeconds)}</small></button>
+                {/each}
+              </div>
+            {:else}
+              <div class="chords chord-repertoire" aria-label={t("chordRepertoire")}>
+                {#each repertoireLabels as label}
+                  <button
+                    class:active={repertoireKeyboardLabel === label}
+                    style={`--chord-color:${chordColor(label, Math.max(...displayedChords.filter((chord) => chord.label === label).map((chord) => chord.strength)), chordColorMode)}`}
+                    aria-label={`${label}, ${t("showChordOnKeyboard")}`}
+                    data-tooltip={t("showChordOnKeyboard")}
+                    onclick={() => repertoireKeyboardLabel = label}
+                  ><b>{label}</b></button>
+                {/each}
+              </div>
+            {/if}
             {#if chordKeyboardVisible}<ChordKeyboard label={activeChordLabel} accessibleLabel={t("chordKeyboard")} />{/if}
           {/if}
         </div>

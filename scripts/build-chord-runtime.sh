@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository_root="$(cd "$(dirname "$0")/.." && pwd)"
+worker_root="$repository_root/tools/sonarcan-chord-worker"
+runtime_dir="$repository_root/src-tauri/resources/chord-runtime/runtime"
+
+if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
+  echo "The LV-Chordia release runtime must be assembled on an Apple-silicon Mac." >&2
+  exit 1
+fi
+if [[ -e "$runtime_dir" ]]; then
+  echo "The LV-Chordia runtime already exists. Run npm run clean:all before rebuilding it." >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$runtime_dir")"
+staging_root="$(mktemp -d "$(dirname "$runtime_dir")/.runtime-build.XXXXXX")"
+staging_runtime="$staging_root/runtime"
+cleanup() { rm -rf "$staging_root"; }
+trap cleanup EXIT
+managed_python="$(uv python find --managed-python 3.12.12)"
+managed_root="$(cd "$(dirname "$managed_python")/.." && pwd)"
+cp -R "$managed_root" "$staging_runtime"
+find "$staging_runtime" -name .DS_Store -type f -delete
+uv export --quiet --project "$worker_root" --locked --no-dev --no-editable --output-file "$staging_runtime/requirements.lock.txt"
+(
+  cd "$worker_root"
+  uv pip sync --system --break-system-packages --python "$staging_runtime/bin/python3.12" "$staging_runtime/requirements.lock.txt"
+)
+"$staging_runtime/bin/python3.12" -m sonarcan_chord_worker.worker --self-test
+mv "$staging_runtime" "$runtime_dir"
+trap - EXIT
+rmdir "$staging_root"
+echo "Pinned LV-Chordia runtime assembled in $runtime_dir"

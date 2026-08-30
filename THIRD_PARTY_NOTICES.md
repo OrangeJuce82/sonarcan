@@ -22,6 +22,18 @@ SonArcan license. Release builders supply it as a verified binary resource. Any
 model-specific terms supplied by its distributor remain authoritative and must
 be reviewed before public distribution.
 
+## Chord recognition
+
+- LV-Chordia source and pretrained checkpoints — MIT License — Music X Lab.
+- PyTorch — BSD-3-Clause License.
+- Librosa — ISC License.
+
+These dependencies and checkpoints form SonArcan's local chord-recognition
+runtime and are shipped with the desktop application. The worker project pins
+source revision
+`9d7de7bbf45efa6731ec8dc62d35280f141c0702` and verifies all five checkpoint
+SHA-256 digests before loading them.
+
 ## Desktop and import tooling
 
 - Tauri — Apache License 2.0 or MIT License.
