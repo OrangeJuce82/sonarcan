@@ -39,6 +39,49 @@ The frontend uses TypeScript interfaces matching serialized Rust DTOs. Commands 
 
 Raw audio buffers and full-resolution waveform data must not cross the JSON IPC boundary. The UI receives bounded visualization data, metadata, or references to cached artifacts.
 
+Timed chord analysis follows the same boundary. A pinned private Python worker
+uses librosa to extract a fused high-resolution CQT/CENS chroma after strong
+harmonic/percussive separation, plus bass, silence, ambiguity, harmonic change
+boundaries, and a global key estimate from the canonical project media. When a
+validated six-stem cache is already available, the harmonic observation uses
+`other + guitar + piano`, the bass remains a separate low-weight observation,
+and vocals and drums are excluded. The original mix remains the fallback and
+the stem model is never a prerequisite for ordinary chord analysis.
+Its bounded JSON output contains at most 4,096 summarized segments and no PCM.
+Rust validates those observations before a pure SonArcan engine scores several
+extended chord candidates per segment and decodes the coherent passage with a
+Viterbi-style dynamic program. The simple and complete vocabularies are decoded
+independently; simple mode is not a cosmetic rewrite of the extended result.
+Librosa never assigns the displayed chord name.
+The decoder treats a stable bass as positive tonal evidence, prefers the
+major/minor vocabulary over transient suspension or extension interpretations,
+and reserves `N` for silence or unresolved evidence rather than using it as a
+low-cost bridge between chord changes. Real-mix observations cover that policy
+in Rust regression tests. Leading silence and trailing fades are omitted from
+the timed-chord result instead of being published as edge `N` cards; an `N`
+inside an otherwise audible passage remains meaningful and is preserved.
+Results are source-identity-checked, versioned disposable caches under
+`Analysis/chords`, including whether mix or stems supplied the observations.
+When stems finish later, the selected track is reanalysed from them. Starting
+another analysis cancels the worker and stale generations are rejected before
+cache or IPC publication.
+
+The chord panel wraps segments into a vertically scrollable grid. Playback can
+follow the active segment automatically (with an explicit user toggle), and a
+small local keyboard renders the notes of the active SonArcan label without an
+additional runtime dependency. The default presentation reduces uncertain
+extensions to major, minor, diminished, half-diminished, or augmented families;
+it also removes inversion basses and merges adjacent segments that become the
+same simple chord. The complete decoded labels remain available through the
+panel toggle, while a separate keyboard icon shows or hides the full-width note
+keyboard.
+
+Before publication, the temporal decoder stabilizes bass-driven detail. Short
+inversion labels are folded into their parent chord, and a short weak excursion
+is removed only when the same established harmony surrounds it. Sustained
+inversions and strong passing chords remain in the complete sequence. This
+keeps the score useful without treating every walking-bass note as a new chord.
+
 The webview is strictly a control surface. It never decodes audio or owns playback timing, looping, gain, time-stretching, or pitch-shifting. Those operations always run in Rust; TypeScript only sends control parameters and displays snapshots of engine state.
 
 The macOS window keeps its decorated native title bar explicitly visible, with
@@ -109,6 +152,18 @@ and background cache warming must yield to active user work.
 ## Error model
 
 Expected failures use typed Rust errors and are serialized as actionable messages at the Tauri boundary. A corrupt file, missing source, unsupported format, failed model, or cancelled job must not terminate the process.
+
+Global user-facing feedback is rendered as a bounded stack of at most three
+overlay toasts, never as a page-level banner that shifts the workspace. Toasts
+use the same information, warning, and error color language as the application
+console, add a success level for completed user actions, dismiss automatically
+after the saved one-to-ten-second user preference (three seconds by default),
+pause while hovered or focused, and always expose a close button. They use a
+compact title/icon presentation with an optional two-line detail and animate
+briefly when entering or leaving. Validation, progress, and failures owned by a
+specific panel remain inline, while decisions
+that can lose data remain modal. Import batches emit one terminal summary rather
+than one notification per track.
 
 The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
 

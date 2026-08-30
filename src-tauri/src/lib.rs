@@ -2,6 +2,8 @@ mod app_log;
 mod audio;
 mod audio_engine;
 mod audio_fingerprint;
+mod chord_analysis;
+mod chord_engine;
 mod error;
 mod ffmpeg;
 mod importer;
@@ -657,6 +659,33 @@ async fn analyze_tempo(
 }
 
 #[tauri::command]
+async fn analyze_chords(
+    app: AppHandle,
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+) -> Result<chord_engine::ChordAnalysis, AppError> {
+    info!(project = %package_path.display(), %track_id, "analyzing timed chords");
+    let generation = app.state::<chord_analysis::ChordAnalysisService>().begin();
+    tauri::async_runtime::spawn_blocking(move || {
+        let media_path = project::track_media_path(&package_path, track_id)?;
+        app.state::<chord_analysis::ChordAnalysisService>().analyze(
+            &app,
+            &package_path,
+            track_id,
+            &media_path,
+            generation,
+        )
+    })
+    .await
+    .map_err(|error| AppError::BackgroundTask(error.to_string()))?
+}
+
+#[tauri::command]
+fn cancel_chord_analysis(service: State<'_, chord_analysis::ChordAnalysisService>) {
+    service.cancel();
+}
+
+#[tauri::command]
 fn diagnostics_snapshot() -> DiagnosticsSnapshot {
     DiagnosticsSnapshot {
         app_version: env!("CARGO_PKG_VERSION"),
@@ -687,6 +716,7 @@ pub fn run() {
             }
             app.manage(audio_engine::AudioEngine::new()?);
             app.manage(stems::StemService::default());
+            app.manage(chord_analysis::ChordAnalysisService::default());
             app.manage(preferences::PreferencesStore::load());
             app.manage(importer::ImportService::default());
             app.manage(ProjectSession::default());
@@ -708,6 +738,8 @@ pub fn run() {
             save_project_as,
             get_waveform,
             analyze_tempo,
+            analyze_chords,
+            cancel_chord_analysis,
             list_recent_projects,
             request_application_exit,
             confirm_application_exit,

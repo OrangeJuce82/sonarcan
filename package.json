@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "clean:all": "node scripts/clean.mjs --dependencies",
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",

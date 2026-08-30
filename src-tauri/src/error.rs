@@ -35,6 +35,8 @@ pub enum AppError {
     AudioEngine(String),
     #[error("stem separation error: {0}")]
     StemSeparation(String),
+    #[error("chord analysis error: {0}")]
+    ChordAnalysis(String),
     #[error("the selected file does not exist: {0}")]
     MissingSource(PathBuf),
     #[error("the path is not a SonArcan project package: {0}")]

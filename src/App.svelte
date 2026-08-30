@@ -3,25 +3,31 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
   import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
   import { shouldConfirmDialogOnEnter } from "./lib/dialogKeyboard";
   import { droppedAudioPaths } from "./lib/importPaths";
   import { ImportSearchCache } from "./lib/importSearchCache";
+  import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { shouldHandleGlobalShortcut } from "./lib/globalShortcuts";
+  import { presentChordSequence } from "./lib/chordNotes";
   import Icon from "./lib/Icon.svelte";
+  import ChordKeyboard from "./lib/ChordKeyboard.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
+  import Toaster from "./lib/Toaster.svelte";
+  import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
   import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, isMetronomeBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, trackLoadPosition, visiblePeaks, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
-  import type { AppLogEntry, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
+  import type { AppLogEntry, ChordAnalysis, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
-  let errorMessage = "";
+  let toasts: ToastMessage[] = [];
+  let nextToastId = 1;
   let busy = false;
   let currentTrack: TrackSummary | null = null;
   let isPlaying = false;
@@ -54,6 +60,14 @@
   let loadingTrackId: string | null = null;
   let tempoLoading = false;
   let detectedBpm: number | null = null;
+  let chordAnalysis: ChordAnalysis | null = null;
+  let chordsLoading = false;
+  let chordAnalysisError = "";
+  let chordAutoScroll = true;
+  let simplifiedChords = true;
+  let chordKeyboardVisible = true;
+  let chordList: HTMLElement | undefined;
+  let lastFollowedChordIndex = -1;
   let gridBpm: number | null = null;
   let beatGridOffsetSeconds = 0;
   let metronomeEnabled = false;
@@ -81,8 +95,7 @@
   let stemStatusRequestActive = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  let stemExportCompletedPath = "";
-  let preferences: UserPreferences = { theme: "system", language: "en", concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  let preferences: UserPreferences = { theme: "system", language: "en", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
   let importCandidateGroups: ImportCandidateGroup[] = [];
@@ -104,6 +117,8 @@
   let importPendingGroupIds = new Set<string>();
   let importGroupErrors = new Map<string, string>();
   let importQueue: ImportJob[] = [];
+  type ImportBatch = { jobIds: Set<string>; states: Map<string, ImportJobState> };
+  let importBatches: ImportBatch[] = [];
   const importDismissTimers = new Map<string, number>();
   const masterMeterLevels = [8, 7, 6, 5, 4, 3, 2, 1] as const;
   let editingTrackId: string | null = null;
@@ -149,6 +164,24 @@
   let language: Language = systemLanguage();
   const t = (key: MessageKey): string => translate(language, key);
 
+  function errorText(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  function notify(level: ToastLevel, title: string, detail?: string): void {
+    toasts = appendToast(toasts, { id: nextToastId++, level, title, detail });
+  }
+
+  function dismissToast(id: number): void {
+    toasts = toasts.filter((toast) => toast.id !== id);
+  }
+
+  function importSummary(completed: number, failed: number): string {
+    const imported = `${completed} ${t(completed === 1 ? "tracksImportedSingular" : "tracksImportedPlural")}`;
+    if (failed === 0) return imported;
+    return `${imported}, ${failed} ${t(failed === 1 ? "importFailureSingular" : "importFailurePlural")}`;
+  }
+
   $: projectHeaderPath = project ? formatProjectHeaderPath(project.packagePath) : null;
 
   function focusOnMount(node: HTMLInputElement): void {
@@ -176,6 +209,37 @@
   $: importProgress = importQueue.length ? importQueue.reduce((sum, job) => sum + job.progress, 0) / importQueue.length : 0;
   $: consoleOrigins = logOrigins(appLogs);
   $: filteredAppLogs = filterLogs(appLogs, consoleMinimumLevel, consoleOrigin);
+  $: decodedChords = simplifiedChords ? chordAnalysis?.simpleChords ?? [] : chordAnalysis?.chords ?? [];
+  $: displayedChords = presentChordSequence(decodedChords, simplifiedChords);
+  $: activeChordIndex = displayedChords.findIndex((chord) => currentSeconds >= chord.startSeconds && currentSeconds < chord.endSeconds);
+  $: activeChord = activeChordIndex >= 0 ? displayedChords[activeChordIndex] ?? null : null;
+  $: activeChordLabel = activeChord?.label ?? "N";
+  $: if (chordAutoScroll && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
+    lastFollowedChordIndex = activeChordIndex;
+    followChord(activeChordIndex);
+  }
+
+  function followChord(index: number): void {
+    queueMicrotask(() => {
+      const item = chordList?.querySelector<HTMLElement>(`[data-chord-index="${index}"]`);
+      if (!chordList || !item) return;
+      const top = chordList.scrollTop
+        + item.getBoundingClientRect().top
+        - chordList.getBoundingClientRect().top
+        - (chordList.clientHeight - item.clientHeight) / 2;
+      chordList.scrollTo({
+        top: Math.max(0, top),
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    });
+  }
+
+  function toggleChordAutoScroll(): void {
+    chordAutoScroll = !chordAutoScroll;
+    if (chordAutoScroll) {
+      lastFollowedChordIndex = -1;
+    }
+  }
 
   onMount(() => {
     let unlisten: UnlistenFn | undefined;
@@ -366,18 +430,33 @@
       document.documentElement.lang = language;
       await setApplicationLanguage(language);
       await audioSetVolume(volume);
-    } catch { applyTheme(); }
+    } catch {
+      applyTheme();
+      notify("warn", t("preferencesLoadFallback"));
+    }
   }
 
   function applyTheme(): void { document.documentElement.dataset.theme = preferences.theme; }
 
-  async function persistPreferences(): Promise<void> {
-    preferences = await savePreferences(preferences);
-    language = preferences.language;
-    volume = preferences.masterVolume;
-    metronomeVolume = preferences.metronomeVolume;
-    applyTheme();
-    document.documentElement.lang = language;
+  async function persistPreferences(): Promise<boolean> {
+    try {
+      preferences = await savePreferences(preferences);
+      language = preferences.language;
+      volume = preferences.masterVolume;
+      metronomeVolume = preferences.metronomeVolume;
+      applyTheme();
+      document.documentElement.lang = language;
+      return true;
+    } catch (error) {
+      notify("error", t("preferencesSaveError"), errorText(error));
+      return false;
+    }
+  }
+
+  async function savePreferencesAndClose(): Promise<void> {
+    if (!await persistPreferences()) return;
+    preferencesVisible = false;
+    notify("success", t("preferencesSaved"));
   }
 
   function changeLanguage(nextLanguage: Language): void {
@@ -393,10 +472,10 @@
       if (project) return;
       await activateProject(initialized.project);
       if (initialized.unavailableProjectPath) {
-        errorMessage = `${t("previousProjectUnavailable")} ${initialized.unavailableProjectPath}\n${t("temporaryProjectCreated")}`;
+        notify("warn", t("previousProjectUnavailable"), t("temporaryProjectCreated"));
       }
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
+      notify("error", t("operationFailed"), errorText(error));
     }
   }
 
@@ -412,11 +491,10 @@
 
   async function run(action: () => Promise<void>): Promise<void> {
     busy = true;
-    errorMessage = "";
     try {
       await action();
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
+      notify("error", t("operationFailed"), errorText(error));
     } finally {
       busy = false;
     }
@@ -459,6 +537,7 @@
 
   async function resetTrackState(): Promise<void> {
     ++trackSelectionGeneration;
+    await cancelChordAnalysis();
     cancelPendingSeek();
     window.clearTimeout(playbackRateTimer);
     window.clearTimeout(pitchTimer);
@@ -472,6 +551,10 @@
     audioLoading = false;
     waveformLoading = false;
     tempoLoading = false;
+    chordsLoading = false;
+    chordAnalysis = null;
+    chordAnalysisError = "";
+    lastFollowedChordIndex = -1;
     currentSeconds = 0;
     durationSeconds = 0;
     playbackRate = preferences.defaultPlaybackRate;
@@ -622,6 +705,13 @@
       }
       await cancelImport(jobId);
       importQueue = importQueue.filter((job) => job.id !== jobId);
+      importBatches = importBatches
+        .map((batch) => {
+          batch.jobIds.delete(jobId);
+          batch.states.delete(jobId);
+          return batch;
+        })
+        .filter((batch) => batch.jobIds.size > 0);
     });
   }
 
@@ -666,17 +756,22 @@
   function saveCurrentProject(): void {
     if (!project) return;
     void run(async () => {
-      if (project?.temporary) await saveProjectToChosenLocation();
+      if (project?.temporary) {
+        if (!await saveProjectToChosenLocation()) return;
+      }
       else {
         window.clearTimeout(practiceSaveTimer);
-        await persistCurrentPracticeState();
+        if (!await persistCurrentPracticeState()) return;
       }
+      notify("success", t("projectSaved"));
     });
   }
 
   function saveAs(): void {
     if (!project) return;
-    void run(async () => { await saveProjectToChosenLocation(); });
+    void run(async () => {
+      if (await saveProjectToChosenLocation()) notify("success", t("projectSaved"));
+    });
   }
 
   function requestApplicationClose(): void {
@@ -690,13 +785,12 @@
 
   async function saveTemporaryAndClose(): Promise<void> {
     busy = true;
-    errorMessage = "";
     try {
       if (!await saveProjectToChosenLocation()) return;
       closePromptVisible = false;
       await confirmApplicationExit();
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
+      notify("error", t("operationFailed"), errorText(error));
     } finally {
       busy = false;
     }
@@ -770,7 +864,10 @@
       filters: [{ name: format === "json" ? "JSON" : "Markdown", extensions: [extension] }],
     });
     if (!destination) return;
-    await run(() => exportPlaylist(project!.packagePath, destination, format));
+    await run(async () => {
+      await exportPlaylist(project!.packagePath, destination, format);
+      notify("success", t("playlistExported"));
+    });
   }
 
   async function chooseImportFiles(): Promise<void> {
@@ -916,14 +1013,21 @@
     if (!project) await activateProject(await createTemporaryProject());
     const activeProject = project;
     if (!activeProject) return;
-    importQueue = await enqueueImports(activeProject.packagePath, inputs);
+    const addedJobs = await enqueueImports(activeProject.packagePath, inputs);
+    importQueue = [...importQueue, ...addedJobs];
+    if (addedJobs.length > 0) {
+      importBatches = [...importBatches, {
+        jobIds: new Set(addedJobs.map((job) => job.id)),
+        states: new Map(addedJobs.map((job) => [job.id, job.state])),
+      }];
+    }
     await refreshImportJobs();
   }
 
   async function importDroppedAudio(paths: string[]): Promise<void> {
     const audioPaths = droppedAudioPaths(paths);
     if (audioPaths.length === 0) {
-      errorMessage = t("unsupportedAudioDrop");
+      notify("warn", t("unsupportedAudioDrop"));
       return;
     }
     await run(() => enqueueImportInputs(audioPaths));
@@ -934,6 +1038,21 @@
       const previousCompleted = importQueue.filter((job) => job.state === "completed").length;
       const jobs = await importJobs();
       importQueue = jobs;
+      const jobsById = new Map(jobs.map((job) => [job.id, job]));
+      const pendingBatches: ImportBatch[] = [];
+      for (const batch of importBatches) {
+        for (const jobId of batch.jobIds) {
+          const state = jobsById.get(jobId)?.state;
+          if (state) batch.states.set(jobId, state);
+        }
+        const completion = completedImportBatch(batch.jobIds.size, batch.states.values());
+        if (!completion) {
+          pendingBatches.push(batch);
+          continue;
+        }
+        notify(completion.failed > 0 ? "warn" : "success", importSummary(completion.completed, completion.failed));
+      }
+      importBatches = pendingBatches;
       for (const job of jobs) {
         if (job.state !== "completed" || importDismissTimers.has(job.id)) continue;
         const timer = window.setTimeout(() => void dismissCompletedImport(job.id), 2_500);
@@ -959,7 +1078,7 @@
 
   function showPathInFileManager(path: string): void {
     void revealProject(path).catch((error) => {
-      errorMessage = error instanceof Error ? error.message : String(error);
+      notify("error", t("revealError"), errorText(error));
     });
   }
 
@@ -969,7 +1088,7 @@
 
   function openCommunityLink(target: "github" | "donate"): void {
     void openExternalLink(target).catch((error) => {
-      errorMessage = error instanceof Error ? error.message : String(error);
+      notify("error", t("linkOpenError"), errorText(error));
     });
   }
 
@@ -988,6 +1107,7 @@
     pitchTimer = undefined;
     void persistCurrentPracticeState();
     void audioPause();
+    void cancelChordAnalysis();
     void stemDisable();
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
     stemPeaks = Array<number>(6).fill(0);
@@ -1027,6 +1147,10 @@
     tapTimes = [];
     tempoLoading = false;
     detectedBpm = null;
+    chordAnalysis = null;
+    chordsLoading = false;
+    chordAnalysisError = "";
+    lastFollowedChordIndex = -1;
     void loadTrackWaveform(track, packagePath, selectionGeneration);
     void loadSelectedAudio(track, packagePath, selectionGeneration, autoplay);
   }
@@ -1035,7 +1159,7 @@
     if (!project || !currentTrack) return;
     stems = { state: "separating", enabled: true, progress: 0, stage: "checkingCache", trackId: currentTrack.id, cached: false, error: null, computeBackend: null };
     try { await stemStart(project.packagePath, currentTrack.id); schedulePracticeSave(); }
-    catch (error) { errorMessage = `${t("stemFailed")}: ${error instanceof Error ? error.message : String(error)}`; }
+    catch (error) { notify("error", t("stemFailed"), errorText(error)); }
   }
 
   async function disableStems(): Promise<void> {
@@ -1068,8 +1192,20 @@
     if (stemStatusRequestActive || stems.state === "disabled") return;
     stemStatusRequestActive = true;
     try {
+      const previous = stems;
       const next = await stemStatus();
-      if (!next.trackId || next.trackId === currentTrack?.id) stems = next;
+      if (!next.trackId || next.trackId === currentTrack?.id) {
+        stems = next;
+        if (next.state === "ready"
+          && next.trackId === currentTrack?.id
+          && (previous.state !== "ready" || previous.trackId !== next.trackId)
+          && project
+          && currentTrack) {
+          const track = currentTrack;
+          const packagePath = project.packagePath;
+          void loadTrackChords(track, packagePath, trackSelectionGeneration);
+        }
+      }
     } finally { stemStatusRequestActive = false; }
   }
 
@@ -1111,7 +1247,6 @@
   function openStemExport(): void {
     if (stems.state !== "ready" || stems.trackId !== currentTrack?.id) return;
     stemExportFormat = preferences.conversionFormat === "mp3" ? "mp3" : "wav";
-    stemExportCompletedPath = "";
     stemExportVisible = true;
   }
 
@@ -1128,10 +1263,10 @@
       defaultPath: `${safeStemExportFolderName(track.title)} - Stems`,
     });
     if (!destination) return;
-    stemExportCompletedPath = "";
     await run(async () => {
       await exportStems(packagePath, track.id, destination, stemExportFormat, stemNames.map((_, index) => stemDisplayName(index)));
-      stemExportCompletedPath = destination;
+      stemExportVisible = false;
+      notify("success", t("stemExportComplete"));
     });
   }
 
@@ -1160,6 +1295,29 @@
     }
   }
 
+  async function loadTrackChords(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
+    chordsLoading = true;
+    chordAnalysisError = "";
+    const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
+      && project?.packagePath === packagePath
+      && currentTrack?.id === track.id;
+    try {
+      // Rust owns the versioned, source-aware cache. Always cross that boundary
+      // so a newly available stem cache cannot be hidden by an older in-memory
+      // mix result retained by the webview.
+      const analysis = await analyzeChords(packagePath, track.id);
+      if (stillSelected()) chordAnalysis = analysis;
+    } catch (error) {
+      if (stillSelected()) {
+        chordAnalysisError = errorText(error);
+        chordAnalysis = null;
+        notify("error", t("chordAnalysisFailed"), chordAnalysisError);
+      }
+    } finally {
+      if (stillSelected()) chordsLoading = false;
+    }
+  }
+
   async function loadSelectedAudio(track: TrackSummary, packagePath: string, selectionGeneration: number, autoplay: boolean): Promise<void> {
     const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
       && project?.packagePath === packagePath
@@ -1184,6 +1342,7 @@
       audioLoading = false;
       loadingTrackId = null;
       void loadTrackTempo(track, packagePath, selectionGeneration);
+      void loadTrackChords(track, packagePath, selectionGeneration);
       if (track.practice.stemsEnabled) void enableStems();
       if (autoplay) await play();
       if (!stillSelected()) return;
@@ -1191,7 +1350,7 @@
       void warmPlaylistCache(packagePath, track.id);
     } catch (error) {
       if (stillSelected()) {
-        errorMessage = `${t("playbackError")}: ${error instanceof Error ? error.message : String(error)}`;
+        notify("error", t("playbackError"), errorText(error));
       }
     } finally {
       if (stillSelected()) {
@@ -1239,7 +1398,7 @@
         if (loaded.durationSeconds > 0) durationSeconds = loaded.durationSeconds;
       }
     } catch (error) {
-      if (stillSelected()) errorMessage = `${t("waveformError")}: ${error instanceof Error ? error.message : String(error)}`;
+      if (stillSelected()) notify("error", t("waveformError"), errorText(error));
     } finally {
       if (stillSelected()) waveformLoading = false;
     }
@@ -1252,7 +1411,7 @@
       await audioPlay();
       isPlaying = true;
     } catch (error) {
-      errorMessage = `${t("playbackError")}: ${error instanceof Error ? error.message : String(error)}`;
+      notify("error", t("playbackError"), errorText(error));
     }
   }
 
@@ -1305,7 +1464,7 @@
     try {
       await audioSeek(position);
     } catch (error) {
-      errorMessage = `${t("playbackError")}: ${error instanceof Error ? error.message : String(error)}`;
+      notify("error", t("playbackError"), errorText(error));
     } finally {
       seekRequestActive = false;
       if (pendingSeekPosition !== null) schedulePendingSeek();
@@ -1717,7 +1876,7 @@
       if (project?.packagePath === packagePath) project = updated;
       return true;
     } catch (error) {
-      errorMessage = `${t("saveError")}: ${error instanceof Error ? error.message : String(error)}`;
+      notify("error", t("saveError"), errorText(error));
       return false;
     }
   }
@@ -1925,7 +2084,7 @@
     </div>
   </header>
 
-  {#if errorMessage}<div class="error" role="alert">{errorMessage}</div>{/if}
+  <Toaster {toasts} durationMs={preferences.toastDurationSeconds * 1_000} closeLabel={t("closeNotification")} notificationsLabel={t("notifications")} dismiss={dismissToast} />
 
   <section class="workspace">
     <aside bind:this={playlistPanel} class="playlist panel" class:audio-drop-active={playlistDropActive}>
@@ -2155,7 +2314,36 @@
             </div>
           {/if}
         </div>
-        <div class="panel"><div class="panel-title"><h2>{t("chords")}</h2><span>{t("notAnalyzed")}</span></div><div class="chords"><b>Am7</b><b>Fmaj7</b><b>C</b><b>G</b></div></div>
+        <div class="panel chord-panel">
+          <div class="panel-title">
+            <h2>{t("chords")}</h2>
+            <div class="chord-panel-actions">
+              {#if chordsLoading}<span><i class="mini-spinner"></i>{t("analyzingChords")}</span>{/if}
+              <button class="chord-simple-toggle" class:active={simplifiedChords} aria-pressed={simplifiedChords} aria-label={t("chordSimpleMode")} data-tooltip={t("chordSimpleModeHelp")} onclick={() => simplifiedChords = !simplifiedChords}>{simplifiedChords ? t("simple") : t("full")}</button>
+              <button class:active={chordKeyboardVisible} aria-pressed={chordKeyboardVisible} aria-label={t("toggleChordKeyboard")} data-tooltip={t("toggleChordKeyboardHelp")} onclick={() => chordKeyboardVisible = !chordKeyboardVisible}><Icon name="keyboard" size="13px" /></button>
+              <button class:active={chordAutoScroll} aria-pressed={chordAutoScroll} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="12px" /></button>
+            </div>
+          </div>
+          {#if chordAnalysisError}
+            <p class="chord-state failed">{t("chordAnalysisFailed")}</p>
+          {:else if !chordAnalysis || !chordAnalysis.chords.length}
+            <p class="chord-state">{chordsLoading ? t("analyzingChords") : t("noChords")}</p>
+          {:else}
+            <div class="chords" aria-label={t("chords")} bind:this={chordList}>
+              {#each displayedChords as chord, chordIndex}
+                <button
+                  class:active={chordIndex === activeChordIndex}
+                  data-chord-index={chordIndex}
+                  aria-label={`${chord.label}, ${formatTime(chord.startSeconds)}, ${t("chordSeekHelp")}`}
+                  data-tooltip={t("chordSeekHelp")}
+                  title={`${formatTime(chord.startSeconds)}–${formatTime(chord.endSeconds)} · ${Math.round(chord.strength * 100)}%`}
+                  onclick={() => seek(chord.startSeconds)}
+                ><b>{chord.label}</b><small>{formatTime(chord.startSeconds)}</small></button>
+              {/each}
+            </div>
+            {#if chordKeyboardVisible}<ChordKeyboard label={activeChordLabel} accessibleLabel={t("chordKeyboard")} />{/if}
+          {/if}
+        </div>
       </div>
       {:else}
         <div class="no-track-stage panel" role="region" aria-labelledby="no-track-title">
@@ -2214,10 +2402,9 @@
     <Modal title={t("exportStems")} close={() => stemExportVisible = false}>
       <p class="stem-export-description">{t("exportStemsHelp")}</p>
       <div class="stem-export-formats" role="radiogroup" aria-label={t("stemExportFormat")}>
-        <button class:active={stemExportFormat === "wav"} role="radio" aria-checked={stemExportFormat === "wav"} onclick={() => { stemExportFormat = "wav"; stemExportCompletedPath = ""; }}><strong>WAV</strong><small>{t("stemExportWavHelp")}</small></button>
-        <button class:active={stemExportFormat === "mp3"} role="radio" aria-checked={stemExportFormat === "mp3"} onclick={() => { stemExportFormat = "mp3"; stemExportCompletedPath = ""; }}><strong>MP3</strong><small>{t("stemExportMp3Help")}</small></button>
+        <button class:active={stemExportFormat === "wav"} role="radio" aria-checked={stemExportFormat === "wav"} onclick={() => stemExportFormat = "wav"}><strong>WAV</strong><small>{t("stemExportWavHelp")}</small></button>
+        <button class:active={stemExportFormat === "mp3"} role="radio" aria-checked={stemExportFormat === "mp3"} onclick={() => stemExportFormat = "mp3"}><strong>MP3</strong><small>{t("stemExportMp3Help")}</small></button>
       </div>
-      {#if stemExportCompletedPath}<p class="stem-export-success" role="status"><Icon name="check" size="12px" /> {t("stemExportComplete")}</p>{/if}
       <div class="modal-actions"><button onclick={() => stemExportVisible = false}>{t("close")}</button><button class="primary" disabled={busy || stems.state !== "ready"} onclick={() => void exportCurrentStems()}>{busy ? t("working") : t("export")}</button></div>
     </Modal>
   {/if}
@@ -2237,11 +2424,11 @@
   {#if preferencesVisible}
     <Modal title={t("preferences")} wide close={() => preferencesVisible = false}>
       <div class="preferences-grid">
-        <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label></section>
+        <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
         <section><h3>{t("practiceDefaults")}</h3><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section><h3>Audio</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label></section>
-      </div><div class="modal-actions"><button onclick={() => preferencesVisible = false}>{t("close")}</button><button class="primary" onclick={() => { void persistPreferences(); preferencesVisible = false; }}>{t("savePreferences")}</button></div>
+      </div><div class="modal-actions"><button onclick={() => preferencesVisible = false}>{t("close")}</button><button class="primary" onclick={() => void savePreferencesAndClose()}>{t("savePreferences")}</button></div>
     </Modal>
   {/if}
 

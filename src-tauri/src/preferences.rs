@@ -11,6 +11,7 @@ use crate::error::AppError;
 pub struct UserPreferences {
     pub theme: Theme,
     pub language: String,
+    pub toast_duration_seconds: u32,
     pub concurrent_downloads: usize,
     pub conversion_format: ConversionFormat,
     pub sample_rate: SampleRatePreference,
@@ -77,6 +78,7 @@ impl Default for UserPreferences {
         Self {
             theme: Theme::System,
             language: "en".into(),
+            toast_duration_seconds: 3,
             concurrent_downloads: 3,
             conversion_format: ConversionFormat::Mp3,
             sample_rate: SampleRatePreference::Preserve,
@@ -136,6 +138,7 @@ fn preference_path() -> Option<PathBuf> {
         .map(|dirs| dirs.config_dir().join("preferences.json"))
 }
 fn validate(value: &mut UserPreferences) {
+    value.toast_duration_seconds = value.toast_duration_seconds.clamp(1, 10);
     value.concurrent_downloads = value.concurrent_downloads.clamp(1, 8);
     value.master_volume = value.master_volume.clamp(0.0, 1.0);
     value.metronome_volume = value.metronome_volume.clamp(0.0, 1.0);
@@ -159,11 +162,29 @@ mod tests {
     #[test]
     fn training_defaults_match_the_product_contract() {
         let preferences = UserPreferences::default();
+        assert_eq!(preferences.toast_duration_seconds, 3);
         assert_eq!(preferences.default_trainer_start_rate, 0.5);
         assert_eq!(preferences.default_trainer_target_rate, 1.0);
         assert_eq!(preferences.default_trainer_increment, 0.05);
         assert_eq!(preferences.default_trainer_repetitions, 1);
         assert_eq!(preferences.loop_load_position, LoopLoadPosition::Beginning);
+    }
+
+    #[test]
+    fn toast_duration_is_kept_within_the_supported_range() {
+        let mut too_short = UserPreferences {
+            toast_duration_seconds: 0,
+            ..UserPreferences::default()
+        };
+        validate(&mut too_short);
+        assert_eq!(too_short.toast_duration_seconds, 1);
+
+        let mut too_long = UserPreferences {
+            toast_duration_seconds: 30,
+            ..UserPreferences::default()
+        };
+        validate(&mut too_long);
+        assert_eq!(too_long.toast_duration_seconds, 10);
     }
 
     #[test]

@@ -6,6 +6,20 @@ Compressed media is decoded on Tauri's blocking worker pool, never on the UI thr
 
 Development builds use light optimization for SonArcan and full optimization for third-party audio and DSP crates. On the 175-second MP3 used for the August 2026 loading benchmark, waveform availability improved from about 10.26 seconds with the default debug profile to about 208 ms (172 ms decode plus 36 ms reduction). The release build measured 127 ms overall (123 ms decode plus 4 ms reduction). BPM analysis now starts only after the selected audio is ready, so it cannot compete with the initial decode. Release optimization remains unchanged.
 
+Chord extraction is not part of playback or decoded-audio ownership. It starts
+only after the selected track is ready, runs in a supervised librosa process,
+and can be killed when track selection changes. Neither feature extraction nor
+temporal chord decoding can execute on the CPAL callback. The webview receives
+only the final bounded timed-chord contract and seeks through the existing Rust
+transport command when a segment is activated.
+Chord cache revisions include decoder policy changes, so an older `N` decision
+is recomputed from the canonical media instead of surviving a scoring update.
+If a complete, source-matched stem cache exists, chord extraction reads its
+bass, other, guitar, and piano PCM files directly outside the callback. It never
+activates stem playback, exposes PCM through IPC, or waits for stem generation.
+Completion of an in-flight separation invalidates the mix-derived frontend
+result and schedules one new stem-assisted analysis for the selected track.
+
 Every in-flight decode is removed from the coordination set on both success and failure before waiting callers are notified. A damaged or unreadable media file therefore cannot leave waveform, playback, or tempo requests waiting permanently.
 
 Decoded samples are also written asynchronously to `Cache/decoded` in a compact binary PCM format. Its header fingerprints the source size and nanosecond modification time and records channels, sample rate, and frame count. A valid cache bypasses compressed-media decoding on later sessions. The remaining playlist is warmed sequentially in the background after the active track is ready, avoiding competing decoder jobs.

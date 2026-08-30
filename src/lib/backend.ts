@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppLogEntry, AudioStatus, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, TempoAnalysis, UserPreferences, WaveformData } from "./types";
+import type { AppLogEntry, AudioStatus, ChordAnalysis, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, TempoAnalysis, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -82,6 +82,15 @@ export async function getWaveform(packagePath: string, trackId: string): Promise
 export async function analyzeTempo(packagePath: string, trackId: string): Promise<TempoAnalysis> {
   if (!isTauri()) throw new Error("Tempo analysis requires the Tauri desktop runtime.");
   return invoke<TempoAnalysis>("analyze_tempo", { packagePath, trackId });
+}
+
+export async function analyzeChords(packagePath: string, trackId: string): Promise<ChordAnalysis> {
+  if (!isTauri()) throw new Error("Chord analysis requires the Tauri desktop runtime.");
+  return invoke<ChordAnalysis>("analyze_chords", { packagePath, trackId });
+}
+
+export async function cancelChordAnalysis(): Promise<void> {
+  if (isTauri()) await invoke("cancel_chord_analysis");
 }
 
 export async function listRecentProjects(): Promise<string[]> {

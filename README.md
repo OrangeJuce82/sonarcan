@@ -20,6 +20,7 @@ SonArcan helps musicians work through a band playlist without the complexity of 
 - Independent 50–200% time stretch and ±12-semitone pitch shift in Rust
 - Fine pitch correction in 1-cent steps
 - Automatic per-track BPM analysis with a persistent cache
+- Local timed-chord analysis using librosa observations and the Rust SonArcan decoder
 - Editable beat grid and a synchronized Rust real-time metronome
 - Progressive Loop Trainer and a Rust FFT spectrum worker
 - Persistent decoded PCM caches for fast playlist navigation across sessions
@@ -31,7 +32,9 @@ SonArcan helps musicians work through a band playlist without the complexity of 
 - Per-track practice-state persistence
 - Structured diagnostics and project-format tests
 
-Chord analysis, editable time signatures, and grid gestures are tracked in the [development roadmap](docs/ROADMAP.md).
+Editable time signatures and grid gestures are tracked in the [development roadmap](docs/ROADMAP.md).
+The chord engine's evidence, architectural decisions, evaluation plan, and
+research references are documented in [Chord analysis](docs/CHORD_ANALYSIS.md).
 
 ## Development
 
@@ -64,9 +67,11 @@ npm run mlx:model
 npm run quality
 ```
 
-`mlx:sync` creates the locked development environment used by `demucs-mlx`.
+`mlx:sync` creates the locked development environment used by `demucs-mlx` and
+librosa chord-feature extraction.
 `mlx:model` converts and verifies the pinned `htdemucs_6s` six-stem model. Both
-commands are required before testing stems from a fresh checkout.
+commands are required before testing stems from a fresh checkout; chord analysis
+needs `mlx:sync` but does not need the stem model.
 
 ### Run the application
 
@@ -94,7 +99,29 @@ Run the complete local gate before handing off a change:
 npm run quality
 ```
 
-This runs Svelte diagnostics, TypeScript tests, MLX worker contract tests, the
+Remove generated build and test artifacts without touching source files, lockfiles,
+or `.sac` projects:
+
+```bash
+npm run clean
+```
+
+For a completely fresh local dependency setup, also remove `node_modules`, the
+locked Python virtual environment, assembled release runtimes, downloaded audio
+tools, and the local stem model:
+
+```bash
+npm run clean:all
+npm ci
+npm run mlx:sync
+```
+
+The stem model and release resources can then be recreated with `npm run
+mlx:model`, `npm run mlx:runtime`, and `npm run ffmpeg:runtime` when needed.
+Neither clean command removes npm, Cargo, or uv's shared machine-level caches.
+Preview either command safely by appending `-- --dry-run`.
+
+The quality command runs Svelte diagnostics, TypeScript tests, MLX worker contract tests, the
 production frontend build, Rust formatting, Clippy, and all Rust tests. The
 network-backed dependency audit requires OSV-Scanner and is only needed after a
 dependency change:
