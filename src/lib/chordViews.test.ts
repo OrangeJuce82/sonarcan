@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { chordColor, chordDisplayLabel, chordRepertoire, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, chordColor, chordDisplayLabel, chordRepertoire, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
@@ -32,4 +32,15 @@ test("all model modes share the selected accidental spelling", () => {
 test("presented chords follow the playback pitch without changing timing or confidence", () => {
   assert.deepEqual(presentChordSequence([chord("Bb", 0.8)], 2, "sharp"), [chord("C", 0.8)]);
   assert.equal(presentChordLabel("D7/F#", -2, "flat"), "C7/E");
+});
+
+test("the active chord is shown shortly before its exact boundary", () => {
+  const chords = [
+    { ...chord("C", 0.8), startSeconds: 10, endSeconds: 12.345 },
+    { ...chord("Dm", 0.8), startSeconds: 12.345, endSeconds: 14 },
+  ];
+
+  assert.equal(activeChordIndexAt(chords, 12.334), 0);
+  assert.equal(activeChordIndexAt(chords, 12.335), 1);
+  assert.equal(activeChordIndexAt(chords, 12.345), 1);
 });

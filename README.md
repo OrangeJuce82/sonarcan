@@ -150,6 +150,8 @@ npm run mlx:sync
 npm run mlx:model
 npm run mlx:runtime
 npm run verify:mlx-release
+npm run chords:runtime
+npm run verify:chord-release
 npm run ffmpeg:runtime
 npm run verify:ffmpeg-release
 npm run quality

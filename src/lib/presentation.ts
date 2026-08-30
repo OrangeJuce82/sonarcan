@@ -201,9 +201,11 @@ export function formatTime(value: number): string {
 
 export function formatTimePrecise(value: number): string {
   if (!Number.isFinite(value) || value < 0) return "00:00.000";
-  const minutes = Math.floor(value / 60);
-  const seconds = value % 60;
-  return `${String(minutes).padStart(2, "0")}:${seconds.toFixed(3).padStart(6, "0")}`;
+  const totalMilliseconds = Math.round(value * 1_000);
+  const minutes = Math.floor(totalMilliseconds / 60_000);
+  const seconds = Math.floor(totalMilliseconds % 60_000 / 1_000);
+  const milliseconds = totalMilliseconds % 1_000;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}`;
 }
 
 export function formatPitch(value: number): string {

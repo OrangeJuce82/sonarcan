@@ -13,7 +13,11 @@ dictionary decoding never execute on the CPAL callback. The worker reads the
 canonical original media directly; it does not depend on stems, the beat grid,
 or decoded playback PCM. The webview receives only the final bounded timed-chord
 contract and seeks through the existing Rust transport command when a segment
-is activated. Cache revisions track the pinned model contract.
+is activated. Chord-card navigation targets the exact model timestamp. The UI
+anticipates only the active-chord highlight by 10 ms so transport refresh and
+sample rounding cannot briefly leave the preceding chord highlighted; stored,
+displayed, and sought timestamps remain unchanged. Cache revisions track the
+pinned model contract.
 
 Every in-flight decode is removed from the coordination set on both success and failure before waiting callers are notified. A damaged or unreadable media file therefore cannot leave waveform, playback, or tempo requests waiting permanently.
 

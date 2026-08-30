@@ -59,6 +59,7 @@ test("time and pitch formatters handle boundaries", () => {
   assert.equal(formatTime(65.9), "01:05");
   assert.equal(formatTime(Number.NaN), "00:00");
   assert.equal(formatTimePrecise(65.125), "01:05.125");
+  assert.equal(formatTimePrecise(59.9996), "01:00.000");
   assert.equal(formatPitch(0.25), "+25 ct");
   assert.equal(formatPitch(-2), "-2.00 st");
 });

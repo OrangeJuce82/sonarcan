@@ -11,6 +11,7 @@ use crate::error::AppError;
 pub struct UserPreferences {
     pub theme: Theme,
     pub language: String,
+    pub time_display: TimeDisplay,
     pub toast_duration_seconds: u32,
     pub concurrent_downloads: usize,
     pub conversion_format: ConversionFormat,
@@ -34,6 +35,12 @@ pub enum Theme {
     System,
     Dark,
     Light,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeDisplay {
+    Simple,
+    Precise,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -78,6 +85,7 @@ impl Default for UserPreferences {
         Self {
             theme: Theme::System,
             language: "en".into(),
+            time_display: TimeDisplay::Simple,
             toast_duration_seconds: 3,
             concurrent_downloads: 3,
             conversion_format: ConversionFormat::Mp3,
@@ -163,11 +171,22 @@ mod tests {
     fn training_defaults_match_the_product_contract() {
         let preferences = UserPreferences::default();
         assert_eq!(preferences.toast_duration_seconds, 3);
+        assert_eq!(preferences.time_display, TimeDisplay::Simple);
         assert_eq!(preferences.default_trainer_start_rate, 0.5);
         assert_eq!(preferences.default_trainer_target_rate, 1.0);
         assert_eq!(preferences.default_trainer_increment, 0.05);
         assert_eq!(preferences.default_trainer_repetitions, 1);
         assert_eq!(preferences.loop_load_position, LoopLoadPosition::Beginning);
+    }
+
+    #[test]
+    fn older_preferences_default_to_simplified_time() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("timeDisplay");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(preferences.time_display, TimeDisplay::Simple);
     }
 
     #[test]

@@ -49,6 +49,11 @@ export function chordRepertoire(chords: readonly TimedChord[]): string[] {
     .sort((left, right) => left.localeCompare(right, "fr", { sensitivity: "base", numeric: true }));
 }
 
+export function activeChordIndexAt(chords: readonly TimedChord[], positionSeconds: number, visualLeadSeconds = 0.01): number {
+  const displayPosition = positionSeconds + Math.max(0, visualLeadSeconds);
+  return chords.findIndex((chord) => displayPosition >= chord.startSeconds && displayPosition < chord.endSeconds);
+}
+
 export function chordDisplayLabel(label: string): string {
   return label === "N" ? "-" : label;
 }

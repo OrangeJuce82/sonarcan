@@ -13,14 +13,14 @@
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { shouldHandleGlobalShortcut } from "./lib/globalShortcuts";
-  import { chordColor, chordDisplayLabel, chordRepertoire, chordsForMode, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
+  import { activeChordIndexAt, chordColor, chordDisplayLabel, chordRepertoire, chordsForMode, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
   import Icon from "./lib/Icon.svelte";
   import ChordKeyboard from "./lib/ChordKeyboard.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
   import Toaster from "./lib/Toaster.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
-  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, isMetronomeBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, trackLoadPosition, visiblePeaks, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isMetronomeBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, trackLoadPosition, visiblePeaks, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import type { AppLogEntry, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
@@ -100,7 +100,7 @@
   let stemStatusRequestActive = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  let preferences: UserPreferences = { theme: "system", language: "en", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  let preferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
   let importCandidateGroups: ImportCandidateGroup[] = [];
@@ -168,6 +168,7 @@
   let viewportDrag: { mode: ViewportDragMode; pointerId: number; originRatio: number; originClientX: number; start: number; zoom: number; moved: boolean } | null = null;
   let language: Language = systemLanguage();
   const t = (key: MessageKey): string => translate(language, key);
+  const displayTime = (value: number): string => preferences.timeDisplay === "precise" ? formatTimePrecise(value) : formatTime(value);
 
   function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -217,7 +218,7 @@
   $: decodedChords = chordsForMode(chordAnalysis, chordMode);
   $: displayedChords = visibleChords(presentChordSequence(decodedChords, pitchSemitones, chordAccidentalMode), chordMinimumStrength);
   $: repertoireLabels = chordRepertoire(displayedChords);
-  $: activeChordIndex = displayedChords.findIndex((chord) => currentSeconds >= chord.startSeconds && currentSeconds < chord.endSeconds);
+  $: activeChordIndex = activeChordIndexAt(displayedChords, currentSeconds);
   $: activeChord = activeChordIndex >= 0 ? displayedChords[activeChordIndex] ?? null : null;
   $: activeChordLabel = repertoireKeyboardLabel ?? activeChord?.label ?? "N";
   $: if (chordView === "repertoire" && (activeChord?.label ?? null) !== lastRepertoirePlaybackLabel) {
@@ -2209,9 +2210,9 @@
           onchange={(event) => seek(Number(event.currentTarget.value))}
         />
         <div class="loop-status">
-          <span>A {loopA === null ? "—" : formatTime(loopA)}</span>
-          <strong class="playback-position" aria-label={t("playbackPosition")}>{formatTime(currentSeconds)}</strong>
-          <span>B {loopB === null ? "—" : formatTime(loopB)}</span>
+          <span>A {loopA === null ? "—" : displayTime(loopA)}</span>
+          <strong class="playback-position" aria-label={t("playbackPosition")}>{displayTime(currentSeconds)}</strong>
+          <span>B {loopB === null ? "—" : displayTime(loopB)}</span>
         </div>
         <div class="waveform-transport-row">
           <span aria-hidden="true"></span>
@@ -2365,11 +2366,11 @@
                     class:active={chordIndex === activeChordIndex}
                     style={`--chord-color:${chordColor(chord.label, chord.strength, chordColorMode)}`}
                     data-chord-index={chordIndex}
-                    aria-label={`${chordDisplayLabel(chord.label)}, ${formatTime(chord.startSeconds)}, ${t("chordSeekHelp")}`}
+                    aria-label={`${chordDisplayLabel(chord.label)}, ${displayTime(chord.startSeconds)}, ${t("chordSeekHelp")}`}
                     data-tooltip={t("chordSeekHelp")}
-                    title={`${formatTime(chord.startSeconds)}–${formatTime(chord.endSeconds)} · ${Math.round(chord.strength * 100)}%`}
+                    title={`${displayTime(chord.startSeconds)}–${displayTime(chord.endSeconds)} · ${Math.round(chord.strength * 100)}%`}
                     onclick={() => { repertoireKeyboardLabel = null; seek(chord.startSeconds); }}
-                  ><b>{chordDisplayLabel(chord.label)}</b><small>{formatTime(chord.startSeconds)}</small></button>
+                  ><b>{chordDisplayLabel(chord.label)}</b><small>{displayTime(chord.startSeconds)}</small></button>
                 {/each}
               </div>
             {:else}
@@ -2473,7 +2474,7 @@
   {#if preferencesVisible}
     <Modal title={t("preferences")} wide close={() => preferencesVisible = false}>
       <div class="preferences-grid">
-        <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
+        <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
         <section><h3>{t("practiceDefaults")}</h3><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section><h3>Audio</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label></section>

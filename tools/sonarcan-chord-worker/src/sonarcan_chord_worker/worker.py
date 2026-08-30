@@ -64,7 +64,11 @@ def main() -> int:
     try:
         if args.self_test:
             verify_checkpoints()
-            print(json.dumps({"ok": True, "modelVersion": f"lv-chordia@{SOURCE_REVISION}"}))
+            print(json.dumps({
+                "ok": True,
+                "modelVersion": f"lv-chordia@{SOURCE_REVISION}",
+                "modes": sorted(DICTIONARIES),
+            }))
             return 0
         if args.audio is None:
             parser.error("audio is required unless --self-test is used")
