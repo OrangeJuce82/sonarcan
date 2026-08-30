@@ -22,22 +22,30 @@ export interface PracticeState {
   loopEnabled: boolean;
   loopASeconds: number | null;
   loopBSeconds: number | null;
-  gridBpm: number | null;
-  beatGridOffsetSeconds: number;
   metronomeEnabled: boolean;
   metronomeVolume: number;
   trainerEnabled: boolean;
+  trainerStartRate: number;
   trainerRepetitions: number;
   trainerIncrement: number;
   trainerTargetRate: number;
+  stemsEnabled: boolean;
+  stemMix: StemMix[];
+  stemNames: string[];
 }
 
 export interface ProjectSummary {
   name: string;
   packagePath: string;
+  temporary: boolean;
   formatVersion: number;
   trackCount: number;
   tracks: TrackSummary[];
+}
+
+export interface StartupProject {
+  project: ProjectSummary;
+  unavailableProjectPath: string | null;
 }
 
 export interface DiagnosticsSnapshot {
@@ -67,13 +75,17 @@ export interface AudioStatus {
   outputSampleRate: number;
   outputChannels: number;
   underruns: number;
+  outputPeak: number;
+  outputPeakLeft: number;
+  outputPeakRight: number;
+  stemsEnabled: boolean;
+  stemPeaks: number[];
   playbackRate: number;
   pitchSemitones: number;
-  gridBpm: number | null;
-  beatGridOffsetSeconds: number;
   metronomeEnabled: boolean;
   metronomeVolume: number;
   trainerEnabled: boolean;
+  trainerStartRate: number;
   trainerRepetitions: number;
   trainerIncrement: number;
   trainerTargetRate: number;
@@ -82,11 +94,26 @@ export interface AudioStatus {
   endedGeneration: number;
 }
 
-export interface TempoAnalysis {
+export interface TimedChord {
+  label: string;
+  startSeconds: number;
+  endSeconds: number;
+  bass?: string;
+  strength: number;
+}
+
+export type ChordMode = "essential" | "standard" | "complete";
+export type MetronomeSound = "electronic" | "woodblock" | "metallic";
+
+export interface ChordAnalysis {
   cacheVersion: number;
   trackId: string;
+  modelVersion: string;
+  downbeatModelVersion: string;
   bpm: number | null;
-  confidence: number;
+  beats: number[];
+  downbeats: number[];
+  modes: Record<ChordMode, TimedChord[]>;
 }
 
 export interface SpectrumFrame {
@@ -95,6 +122,24 @@ export interface SpectrumFrame {
   maximumHz: number;
 }
 
-export type StemState = "disabled" | "ready" | "downloading" | "separating" | "failed";
-export interface StemStatus { state: StemState; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; }
-export interface StemMix { gain: number; muted: boolean; soloed: boolean; }
+export interface SystemMetrics {
+  cpuPercent: number | null;
+  memoryMegabytes: number | null;
+}
+
+export type StemState = "disabled" | "ready" | "separating" | "failed";
+export interface StemStatus { state: StemState; enabled: boolean; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; computeBackend: "MLX" | null; }
+export interface StemMix { gain: number; pan: number; muted: boolean; soloed: boolean; }
+
+export type Theme = "system" | "dark" | "light";
+export type ConversionFormat = "keep" | "mp3" | "wav" | "flac";
+export type SampleRatePreference = "preserve" | "hz44100" | "hz48000";
+export type ChannelPreference = "preserve" | "stereo" | "mono";
+export type Mp3Quality = "vbrHigh" | "kbps320" | "kbps256" | "kbps192";
+export type LoopLoadPosition = "beginning" | "loopStart";
+export type TimeDisplay = "simple" | "precise";
+export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; metronomeVolume: number; metronomeSound: MetronomeSound; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
+export type ImportJobState = "queued" | "downloading" | "converting" | "importing" | "completed" | "failed";
+export interface ImportJob { id: string; label: string; state: ImportJobState; progress: number; error: string | null; suggestion: string | null; diagnostic: string | null; }
+export interface ImportCandidate { input: string; title: string; detail: string; kind: "local" | "video" | "playlist" | "search"; }
+export interface AppLogEntry { timestampMs: number; origin: string; level: string; message: string; }

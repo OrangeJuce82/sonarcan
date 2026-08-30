@@ -5,6 +5,8 @@
   export let minimum: number;
   export let maximum: number;
   export let step: number;
+  export let buttonStep: number = step;
+  export let shiftButtonStep: number = step;
   export let display: (value: number) => string = (current) => String(current);
   export let onChange: (value: number) => void;
   export let onTap: (() => void) | undefined = undefined;
@@ -19,8 +21,14 @@
     return Number(Math.max(minimum, Math.min(maximum, stepped)).toFixed(precision));
   }
 
-  function increment(direction: number): void {
-    onChange(normalized(value + direction * step));
+  function increment(direction: number, incrementStep = step): void {
+    const precision = Math.max(0, (String(incrementStep).split(".")[1] ?? "").length);
+    const next = Math.max(minimum, Math.min(maximum, value + direction * incrementStep));
+    onChange(Number(next.toFixed(precision)));
+  }
+
+  function buttonIncrement(event: MouseEvent, direction: number): void {
+    increment(direction, event.shiftKey ? shiftButtonStep : buttonStep);
   }
 
   function reset(): void {
@@ -60,17 +68,20 @@
 </script>
 
 <div class="numeric-control" class:dragging={drag?.moved} data-tooltip={tooltip}>
-  <button type="button" class="step" aria-label={`${label} −`} onclick={() => increment(-1)}>−</button>
-  <button
-    type="button"
-    class="value"
-    aria-label={label}
-    onpointerdown={startDrag}
-    onpointermove={moveDrag}
-    onpointerup={finishDrag}
-    onpointercancel={() => drag = null}
-    onwheel={adjustWithWheel}
-    ondblclick={onTap ? undefined : reset}
-  ><small>{label}</small><strong>{display(value)}</strong></button>
-  <button type="button" class="step" aria-label={`${label} +`} onclick={() => increment(1)}>+</button>
+  <span class="numeric-label" aria-hidden="true">{label}</span>
+  <div class="numeric-buttons">
+    <button type="button" class="step" aria-label={`${label} −`} onclick={(event) => buttonIncrement(event, -1)}><span aria-hidden="true">−</span></button>
+    <button
+      type="button"
+      class="value"
+      aria-label={label}
+      onpointerdown={startDrag}
+      onpointermove={moveDrag}
+      onpointerup={finishDrag}
+      onpointercancel={() => drag = null}
+      onwheel={adjustWithWheel}
+      ondblclick={onTap ? undefined : reset}
+    ><strong>{display(value)}</strong></button>
+    <button type="button" class="step" aria-label={`${label} +`} onclick={(event) => buttonIncrement(event, 1)}><span aria-hidden="true">+</span></button>
+  </div>
 </div>

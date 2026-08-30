@@ -4,11 +4,17 @@
 
 Every change must provide:
 
-1. compiling code;
-2. focused tests for business rules;
+1. production builds with no project error or warning;
+2. focused tests for business rules and important regressions;
 3. useful structured diagnostics;
-4. English documentation for public behavior;
-5. no known regression in the supported vertical slice.
+4. English documentation for public behavior and architecture changes;
+5. no known regression in the supported vertical slice;
+6. no unreviewed applicable dependency advisory.
+
+Run the complete local quality gate with `npm run quality`. Run the network-backed
+dependency gate with `npm run security` only when adding a new library or package.
+Use focused validation for trust-boundary changes. See `CONTRIBUTING.md` and
+`SECURITY.md` for the exact policy.
 
 ## Debugging workflow
 
@@ -44,4 +50,3 @@ Measure, identify the bottleneck, change one relevant variable, measure again, a
 - Keep Tauri command functions thin.
 - Prefer typed errors and explicit state transitions.
 - Add a regression test for every important fixed defect.
-

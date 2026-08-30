@@ -8,18 +8,43 @@ pub enum AppError {
     EmptyTrackName,
     #[error("track {0} was not found in the project")]
     TrackNotFound(uuid::Uuid),
+    #[error("track media is outside the project audio directory: {0}")]
+    TrackMediaOutsideProject(PathBuf),
+    #[error("analysis cache is outside the project package: {0}")]
+    AnalysisCacheOutsideProject(PathBuf),
+    #[error("invalid practice state: {0}")]
+    InvalidPracticeState(String),
     #[error("a project already exists at {0}")]
     ProjectAlreadyExists(PathBuf),
+    #[error("the selected project destination is invalid: {0}")]
+    InvalidProjectDestination(PathBuf),
     #[error("unsupported audio format for {0}")]
     UnsupportedAudioFormat(PathBuf),
     #[error("could not read audio metadata from {path}: {reason}")]
     InvalidAudio { path: PathBuf, reason: String },
+    #[error("audio fingerprinting failed for {path}: {reason}")]
+    AudioFingerprint { path: PathBuf, reason: String },
+    #[error("this audio is already in the project as \"{existing_title}\": {incoming}")]
+    DuplicateAudio {
+        incoming: PathBuf,
+        existing_title: String,
+    },
     #[error("internal background task failed: {0}")]
     BackgroundTask(String),
+    #[error("audio engine error: {0}")]
+    AudioEngine(String),
+    #[error("stem separation error: {0}")]
+    StemSeparation(String),
+    #[error("chord analysis error: {0}")]
+    ChordAnalysis(String),
     #[error("the selected file does not exist: {0}")]
     MissingSource(PathBuf),
     #[error("the path is not a SonArcan project package: {0}")]
     InvalidProjectPackage(PathBuf),
+    #[error("project manifest exceeds the 8 MiB safety limit: {0}")]
+    ProjectManifestTooLarge(PathBuf),
+    #[error("import text exceeds the 1 MiB per-file or 2 MiB total safety limit: {0}")]
+    ImportTextTooLarge(PathBuf),
     #[error(
         "project format version {found} is not supported; this build supports version {supported}"
     )]

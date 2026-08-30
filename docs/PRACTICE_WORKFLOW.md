@@ -6,7 +6,8 @@ This document translates the useful interaction model observed in musician pract
 
 1. A detailed waveform provides precise navigation around the playhead.
 2. An overview waveform shows the whole song, loop boundaries, sections, and marks.
-3. An editable beat grid is shown at both waveform levels and drives the Rust metronome.
+3. A read-only Beat This! beat timeline appears behind the detailed waveform
+   when zoom permits and drives the Rust metronome.
 4. The practice strip keeps loop, tempo, pitch, and jump controls visible at all times.
 5. The transport remains centered and usable without opening another panel.
 
@@ -19,9 +20,19 @@ This document translates the useful interaction model observed in musician pract
 - configurable backward and forward jumps;
 - previous and next track;
 - volume;
-- restore the last playback position.
+- apply the configured start rule consistently whenever a track loads.
 
-The current implementation persists position, tempo, volume, and A/B boundaries per track in `project.json`. Saves are debounced during playback and flushed immediately when playback pauses or the active track changes.
+The current implementation persists position, tempo, volume, and A/B boundaries per track in `project.json`. Saves are debounced during playback and flushed immediately when playback pauses or the active track changes. The stored position remains project state but does not determine where a newly loaded track starts.
+
+Every track load, including project restoration and playlist switches, uses the
+same start rule. A track with Loop off starts at the beginning. A track with
+Loop on starts at the beginning by default, while the user preference can make
+it start at A instead.
+
+The last selected track is remembered per project as local user-interface state.
+Reopening a known project restores that track; a missing remembered track falls
+back to the first playlist entry. Opening an empty project clears every track
+control and shows a dedicated import action instead of stale practice panels.
 
 ### 2. A/B practice loop
 
@@ -36,9 +47,8 @@ The current implementation persists position, tempo, volume, and A/B boundaries 
 ### 3. Tempo
 
 - adjust playback speed independently from pitch;
-- display both percentage and effective BPM when BPM is known;
-- provide reset and small increment/decrement controls;
-- provide button and `T` keyboard tap tempo using a robust rolling median;
+- display playback percentage and the separate indicative Beat This! BPM;
+- keep detected BPM read-only and use individual beat timestamps for timing;
 - retain the setting per track.
 
 ### 4. Pitch
@@ -51,7 +61,7 @@ The current implementation persists position, tempo, volume, and A/B boundaries 
 
 ## Numeric control interaction
 
-Every adjustable integer or floating-point parameter uses the same interaction model: `+` and `−` apply one configured step, vertical dragging changes the value continuously by steps, the mouse wheel changes a focused value, and double-click restores its default. BPM additionally interprets repeated stationary clicks as tap tempo. The pitch control uses 1-cent steps; speed, BPM, volume, metronome volume, and Loop Trainer settings use domain-appropriate steps.
+Every adjustable integer or floating-point parameter uses the same interaction model: `+` and `−` apply one configured step, vertical dragging changes the value continuously by steps, the mouse wheel changes a focused value, and double-click restores its default. The detected BPM is not adjustable. The pitch control uses 1-cent steps; speed, volume, metronome volume, and Loop Trainer settings use domain-appropriate steps.
 
 ### 5. Marks and navigation
 
@@ -68,7 +78,7 @@ Every adjustable integer or floating-point parameter uses the same interaction m
 - stop at a configured target tempo;
 - optionally add a delay before restarting the loop.
 
-The implemented Loop Trainer performs the first three operations directly in the Rust renderer. It counts A/B repetitions when Loop is active and complete-track repetitions in normal mode. Repetition count, percentage increment, target speed, progress, and enabled state are visible in the practice workspace and persisted per track.
+The implemented Loop Trainer performs the first three operations directly in the Rust renderer. It counts complete A/B repetitions when Loop is active and complete-track repetitions in normal mode. A lead-in before A is available for context but is not counted; the first counted cycle always reaches B after entering the loop. Repetition count, percentage increment, target speed, progress, and enabled state are visible in the practice workspace and persisted per track.
 
 ## SonArcan-specific decisions
 
@@ -86,4 +96,3 @@ The implemented Loop Trainer performs the first three operations directly in the
 | Set loop A/B | A / B |
 | Clear loop | Escape |
 | Toggle metronome | M |
-| Tap tempo | T |

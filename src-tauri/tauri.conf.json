@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run verify:mlx-release && npm run verify:chord-release && npm run verify:ytdlp-search-release && npm run verify:ffmpeg-release && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -18,23 +18,55 @@
         "minWidth": 900,
         "minHeight": 650,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "decorations": true,
+        "titleBarStyle": "Visible",
+        "hiddenTitle": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; media-src 'self' asset: http://asset.localhost; connect-src ipc: http://ipc.localhost",
-      "assetProtocol": {
-        "enable": true,
-        "scope": ["**"]
-      }
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "assetProtocol": { "enable": false }
     }
   },
   "bundle": {
     "active": true,
-    "icon": [],
+    "resources": {
+      "resources/mlx-runtime": "mlx-runtime",
+      "resources/chord-runtime": "chord-runtime",
+      "resources/ytdlp-search": "ytdlp-search",
+      "resources/models/demucs-mlx": "models/demucs-mlx",
+      "resources/models/beat-this": "models/beat-this",
+      "resources/audio-tools": "audio-tools"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
     "targets": "all",
     "category": "Music",
     "shortDescription": "Professional music learning workspace",
-    "longDescription": "Learn, isolate, analyze, and rehearse music in one focused workspace."
+    "longDescription": "Learn, isolate, analyze, and rehearse music in one focused workspace.",
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "infoPlist": "Info.plist",
+      "dmg": {
+        "background": "dmg/background-v2.png",
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "appPosition": {
+          "x": 151,
+          "y": 195
+        },
+        "applicationFolderPosition": {
+          "x": 506,
+          "y": 195
+        }
+      }
+    }
   }
 }

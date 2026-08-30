@@ -1,0 +1,88 @@
+# OSV treats maintenance notices as vulnerabilities. These explicit,
+# time-bounded exceptions are reviewed in SECURITY.md. New advisories still
+# fail `npm run security` and expired exceptions become visible again.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0411"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0412"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0413"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0414"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0415"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0416"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0417"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0418"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0419"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0420"
+reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0429"
+reason = "Affected glib API is in Tauri's Linux-only GTK3 stack and is not reachable in the supported macOS build; review before Linux release."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+reason = "Unmaintained build-time macro in the GTK3/Tauri graph; no runtime vulnerability is reported."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0075"
+reason = "Unmaintained Unicode dependency of Tauri urlpattern; no vulnerability is reported."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0080"
+reason = "Unmaintained Unicode dependency of Tauri urlpattern; no vulnerability is reported."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0081"
+reason = "Unmaintained Unicode dependency of Tauri urlpattern; no vulnerability is reported."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0098"
+reason = "Unmaintained Unicode dependency of Tauri urlpattern; no vulnerability is reported."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0100"
+reason = "Unmaintained Unicode dependency of Tauri urlpattern; no vulnerability is reported."
+ignoreUntil = 2026-11-30
