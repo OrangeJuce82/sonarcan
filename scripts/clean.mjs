@@ -14,6 +14,12 @@ if (unsupported.length > 0) {
 
 const includeDependencies = argumentsSet.has("--dependencies");
 const dryRun = argumentsSet.has("--dry-run");
+const removalOptions = {
+  recursive: true,
+  force: true,
+  maxRetries: 5,
+  retryDelay: 100,
+};
 
 const generatedArtifacts = [
   "dist",
@@ -78,7 +84,7 @@ for (const relativePath of [...new Set(targets)]) {
   if (dryRun) {
     console.log(`[dry-run] ${relativePath}`);
   } else {
-    await rm(target, { recursive: true, force: true });
+    await rm(target, removalOptions);
     console.log(`removed ${relativePath}`);
   }
   removed += 1;

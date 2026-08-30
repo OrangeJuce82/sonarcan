@@ -39,12 +39,18 @@ The frontend uses TypeScript interfaces matching serialized Rust DTOs. Commands 
 
 Raw audio buffers and full-resolution waveform data must not cross the JSON IPC boundary. The UI receives bounded visualization data, metadata, or references to cached artifacts.
 
-Timed chord analysis follows the same boundary through a pinned LV-Chordia
-Python worker. The worker reads the canonical original media, runs the learned
+Timed chord analysis follows the same boundary through a pinned Python worker.
+The worker reads the canonical original media, runs the learned LV-Chordia
 five-model ensemble, and emits three bounded timed-label sequences using the
-official `ismir2017`, `submission`, and `full` dictionary decodes. It does not
-use stems, tonal rules, the beat grid, or a
-SonArcan decoder. Rust validates the four sequences, supervises cancellation,
+official `ismir2017`, `submission`, and `full` dictionary decodes. A separate
+pinned Beat This! `final0` model detects beats and downbeats with its official
+minimal post-processing and no DBN. Beat timestamps drive the waveform grid and
+metronome, their median interval provides a read-only indicative BPM, and
+downbeats split long harmonic regions into
+measure occurrences for the timeline only; they never change an LV-Chordia
+label, boundary, score, or repertoire entry. Neither model uses stems, UI beat
+visualization, tonal rules, or a SonArcan decoder. Rust validates the
+sequences and downbeat positions, supervises cancellation,
 rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
@@ -69,7 +75,7 @@ while the workspace is scrolled.
 
 ## Localization
 
-User-facing interface and help text use typed English and French catalogs. The saved language preference defaults to the operating-system language and rebuilds the native Tauri menu immediately when changed. Internal identifiers, project manifests, logs, and source code remain in English.
+User-facing interface, help text, accessibility labels, dialogs, and native menus use complete typed catalogs for English, French, Spanish, German, Portuguese, Italian, Simplified Chinese, Japanese, Korean, Arabic, Hindi, and Indonesian. The saved language preference defaults to the first supported operating-system language, rebuilds the native Tauri menu immediately when changed, and switches document direction for Arabic. Automated catalog-parity tests reject missing or extra message keys. Internal identifiers, project manifests, logs, technical format names, and source code remain in English.
 
 ## Project format
 

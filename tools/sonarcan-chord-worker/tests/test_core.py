@@ -1,9 +1,14 @@
 import unittest
 
 from sonarcan_chord_worker.core import pitch_class, reduced_label, sonarcan_label
+from sonarcan_chord_worker.engine import bpm_from_beats
 
 
 class CoreTests(unittest.TestCase):
+    def test_bpm_is_an_indication_derived_from_detected_beat_intervals(self):
+        self.assertEqual(bpm_from_beats([0.1, 0.6, 1.1, 1.6]), 120.0)
+        self.assertIsNone(bpm_from_beats([0.1]))
+
     def test_extension_reduction_does_not_change_root_or_triad(self):
         self.assertEqual(reduced_label("C:maj7").label, "C")
         self.assertEqual(reduced_label("D:min9").label, "Dm")

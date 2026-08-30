@@ -49,6 +49,26 @@ export function chordRepertoire(chords: readonly TimedChord[]): string[] {
     .sort((left, right) => left.localeCompare(right, "fr", { sensitivity: "base", numeric: true }));
 }
 
+export function chordOccurrencesAtDownbeats(chords: readonly TimedChord[], downbeats: readonly number[]): TimedChord[] {
+  if (!chords.length || !downbeats.length) return [...chords];
+  const occurrences: TimedChord[] = [];
+  let downbeatIndex = 0;
+  for (const chord of chords) {
+    while (downbeatIndex < downbeats.length && downbeats[downbeatIndex] <= chord.startSeconds) downbeatIndex += 1;
+    let startSeconds = chord.startSeconds;
+    let index = downbeatIndex;
+    while (index < downbeats.length && downbeats[index] < chord.endSeconds) {
+      const boundary = downbeats[index];
+      if (boundary > startSeconds) occurrences.push({ ...chord, startSeconds, endSeconds: boundary });
+      startSeconds = boundary;
+      index += 1;
+    }
+    occurrences.push({ ...chord, startSeconds, endSeconds: chord.endSeconds });
+    downbeatIndex = index;
+  }
+  return occurrences;
+}
+
 export function activeChordIndexAt(chords: readonly TimedChord[], positionSeconds: number, visualLeadSeconds = 0.01): number {
   const displayPosition = positionSeconds + Math.max(0, visualLeadSeconds);
   return chords.findIndex((chord) => displayPosition >= chord.startSeconds && displayPosition < chord.endSeconds);

@@ -73,10 +73,6 @@ pub struct PracticeState {
     pub loop_a_seconds: Option<f64>,
     pub loop_b_seconds: Option<f64>,
     #[serde(default)]
-    pub grid_bpm: Option<f64>,
-    #[serde(default)]
-    pub beat_grid_offset_seconds: f64,
-    #[serde(default)]
     pub metronome_enabled: bool,
     #[serde(default = "default_metronome_volume", skip_serializing)]
     pub metronome_volume: f64,
@@ -134,8 +130,6 @@ impl Default for PracticeState {
             loop_enabled: false,
             loop_a_seconds: None,
             loop_b_seconds: None,
-            grid_bpm: None,
-            beat_grid_offset_seconds: 0.0,
             metronome_enabled: false,
             metronome_volume: default_metronome_volume(),
             trainer_enabled: false,
@@ -810,7 +804,6 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
         state.playback_rate,
         state.pitch_semitones,
         state.volume,
-        state.beat_grid_offset_seconds,
         state.metronome_volume,
         state.trainer_start_rate,
         state.trainer_increment,
@@ -820,17 +813,12 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
     .all(f64::is_finite)
         && optional_f64_is_finite(state.loop_a_seconds)
         && optional_f64_is_finite(state.loop_b_seconds);
-    let finite = finite && optional_f64_is_finite(state.grid_bpm);
     if !finite
         || state.position_seconds < 0.0
         || !(0.5..=2.0).contains(&state.playback_rate)
         || !(-12.0..=12.0).contains(&state.pitch_semitones)
         || !(0.0..=1.0).contains(&state.volume)
         || !(0.0..=1.0).contains(&state.metronome_volume)
-        || state.beat_grid_offset_seconds < 0.0
-        || state
-            .grid_bpm
-            .is_some_and(|bpm| !(30.0..=300.0).contains(&bpm))
         || !(1..=99).contains(&state.trainer_repetitions)
         || !(0.5..2.0).contains(&state.trainer_start_rate)
         || !(0.01..=0.25).contains(&state.trainer_increment)
@@ -1196,8 +1184,6 @@ mod tests {
             loop_enabled: true,
             loop_a_seconds: Some(0.0002),
             loop_b_seconds: Some(0.0008),
-            grid_bpm: Some(120.0),
-            beat_grid_offset_seconds: 0.0001,
             metronome_enabled: true,
             metronome_volume: 0.5,
             trainer_enabled: true,
@@ -1251,6 +1237,19 @@ mod tests {
             StemMixState::default()
         ]);
         assert!(serde_json::from_value::<PracticeState>(value).is_err());
+    }
+
+    #[test]
+    fn legacy_beat_grid_fields_are_read_but_not_rewritten() {
+        let mut value = serde_json::to_value(PracticeState::default()).unwrap();
+        value["gridBpm"] = serde_json::json!(123.4);
+        value["beatGridOffsetSeconds"] = serde_json::json!(1.25);
+
+        let state = serde_json::from_value::<PracticeState>(value).unwrap();
+        let rewritten = serde_json::to_value(state).unwrap();
+
+        assert!(rewritten.get("gridBpm").is_none());
+        assert!(rewritten.get("beatGridOffsetSeconds").is_none());
     }
 
     #[test]

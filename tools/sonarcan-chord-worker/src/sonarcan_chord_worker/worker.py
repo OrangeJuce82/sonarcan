@@ -10,10 +10,19 @@ from pathlib import Path
 import numpy as np
 
 from .core import sonarcan_label
-from .engine import DICTIONARIES, FACTOR_NAMES, SOURCE_REVISION, dictionary_decode, verify_checkpoints
+from .engine import (
+    BEAT_THIS_VERSION,
+    DICTIONARIES,
+    FACTOR_NAMES,
+    SOURCE_REVISION,
+    detect_rhythm,
+    dictionary_decode,
+    verify_checkpoints,
+    verify_downbeat_checkpoint,
+)
 
 
-def analyze(audio_path: Path, requested_device: str = "auto") -> dict:
+def analyze(audio_path: Path, downbeat_model: Path, requested_device: str = "auto") -> dict:
     import torch
     from lv_chordia.chord_recognition import load_ensemble
     from lv_chordia.device_utils import resolve_device
@@ -40,8 +49,13 @@ def analyze(audio_path: Path, requested_device: str = "auto") -> dict:
     for mode, dictionary in DICTIONARIES.items():
         segments = dictionary_decode(entry, probabilities, dictionary)
         modes[mode] = [_timed(segment, sonarcan_label(segment["rawLabel"])) for segment in segments]
+    beats, downbeats, bpm = detect_rhythm(audio_path, downbeat_model, device)
     return {
         "modelVersion": f"lv-chordia@{SOURCE_REVISION}",
+        "downbeatModelVersion": f"beat-this@{BEAT_THIS_VERSION}:final0",
+        "bpm": bpm,
+        "beats": beats,
+        "downbeats": downbeats,
         "modes": modes,
     }
 
@@ -59,23 +73,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SonArcan LV-Chordia production worker")
     parser.add_argument("audio", nargs="?", type=Path)
     parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="auto")
+    parser.add_argument("--downbeat-model", type=Path)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     try:
         if args.self_test:
             verify_checkpoints()
+            if args.downbeat_model is None:
+                parser.error("--downbeat-model is required")
+            verify_downbeat_checkpoint(args.downbeat_model)
             print(json.dumps({
                 "ok": True,
                 "modelVersion": f"lv-chordia@{SOURCE_REVISION}",
+                "downbeatModelVersion": f"beat-this@{BEAT_THIS_VERSION}:final0",
                 "modes": sorted(DICTIONARIES),
             }))
             return 0
         if args.audio is None:
             parser.error("audio is required unless --self-test is used")
-        print(json.dumps(analyze(args.audio, args.device), separators=(",", ":")))
+        if args.downbeat_model is None:
+            parser.error("--downbeat-model is required")
+        print(json.dumps(analyze(args.audio, args.downbeat_model, args.device), separators=(",", ":")))
         return 0
     except Exception as error:
-        print(f"LV-Chordia analysis failed: {error}", file=sys.stderr)
+        print(f"Chord/downbeat analysis failed: {error}", file=sys.stderr)
         return 1
 
 

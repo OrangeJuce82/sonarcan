@@ -3,8 +3,8 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeChords, analyzeImportText, analyzeTempo, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatGrid, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
-  import { systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
+  import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
   import { shouldConfirmDialogOnEnter } from "./lib/dialogKeyboard";
@@ -13,16 +13,16 @@
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { shouldHandleGlobalShortcut } from "./lib/globalShortcuts";
-  import { activeChordIndexAt, chordColor, chordDisplayLabel, chordRepertoire, chordsForMode, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
+  import { activeChordIndexAt, chordColor, chordDisplayLabel, chordOccurrencesAtDownbeats, chordRepertoire, chordsForMode, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
   import Icon from "./lib/Icon.svelte";
   import ChordKeyboard from "./lib/ChordKeyboard.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
   import Toaster from "./lib/Toaster.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
-  import { buildProjectPath, calculateBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isMetronomeBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, trackLoadPosition, visiblePeaks, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, nearestDetectedBeat, panWaveformViewportFromWheel, resizeWaveformViewport, trackLoadPosition, visiblePeaks, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
-  import type { AppLogEntry, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, ProjectSummary, StemMix, StemStatus, SystemMetrics, TempoAnalysis, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
+  import type { AppLogEntry, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, MetronomeSound, ProjectSummary, StemMix, StemStatus, SystemMetrics, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
@@ -73,12 +73,11 @@
   let lastRepertoirePlaybackLabel: string | null = null;
   let chordList: HTMLElement | undefined;
   let lastFollowedChordIndex = -1;
-  let gridBpm: number | null = null;
-  let beatGridOffsetSeconds = 0;
   let metronomeEnabled = false;
+  let loopSnapEnabled = true;
   let metronomeVolume = 0.55;
+  let metronomeSound: MetronomeSound = "electronic";
   let metronomeBeating = false;
-  let tapTimes: number[] = [];
   let trainerEnabled = false;
   let trainerStartRate = 0.5;
   let trainerRepetitions = 1;
@@ -100,7 +99,7 @@
   let stemStatusRequestActive = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  let preferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  let preferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, metronomeSound: "electronic", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
   let importCandidateGroups: ImportCandidateGroup[] = [];
@@ -158,7 +157,6 @@
   let systemMetricsSnapshot: SystemMetrics = { cpuPercent: null, memoryMegabytes: null };
   let trackSelectionGeneration = 0;
   const waveformCache = new Map<string, WaveformData>();
-  const tempoCache = new Map<string, TempoAnalysis>();
   const loadingWave = Array.from({ length: 72 }, (_, index) => Math.min(0.95, 0.12 + Math.abs(Math.sin(index * 0.71) * Math.cos(index * 0.17)) * 0.78));
   const warmedProjects = new Set<string>();
   type LoopDragMode = "a" | "b";
@@ -208,17 +206,17 @@
   $: overviewPeaks = visiblePeaks(waveform?.peaks ?? [], 1, 0, 700);
   $: playheadPercent = durationSeconds > 0 ? ((currentSeconds / durationSeconds - waveformStart) * waveformZoom * 100) : 0;
   $: detailedBeatLines = beatLines(true);
-  $: overviewBeatLines = beatLines(false);
-  $: metronomeBeating = metronomeEnabled && isPlaying && isMetronomeBeatActive(currentSeconds, gridBpm, beatGridOffsetSeconds, playbackRate);
+  $: metronomeBeating = metronomeEnabled && isPlaying && isDetectedBeatActive(currentSeconds, chordAnalysis?.beats ?? [], playbackRate);
   $: activeImports = importQueue.filter((job) => !["completed", "failed"].includes(job.state));
   $: importProgress = importQueue.length ? importQueue.reduce((sum, job) => sum + job.progress, 0) / importQueue.length : 0;
   $: consoleOrigins = logOrigins(appLogs);
   $: filteredAppLogs = filterLogs(appLogs, consoleMinimumLevel, consoleOrigin);
   $: decodedChords = chordsForMode(chordAnalysis, chordMode);
   $: displayedChords = visibleChords(presentChordSequence(decodedChords, pitchSemitones, chordAccidentalMode), chordMinimumStrength);
+  $: timelineChords = chordOccurrencesAtDownbeats(displayedChords, chordAnalysis?.downbeats ?? []);
   $: repertoireLabels = chordRepertoire(displayedChords);
-  $: activeChordIndex = activeChordIndexAt(displayedChords, currentSeconds);
-  $: activeChord = activeChordIndex >= 0 ? displayedChords[activeChordIndex] ?? null : null;
+  $: activeChordIndex = activeChordIndexAt(timelineChords, currentSeconds);
+  $: activeChord = activeChordIndex >= 0 ? timelineChords[activeChordIndex] ?? null : null;
   $: activeChordLabel = repertoireKeyboardLabel ?? activeChord?.label ?? "N";
   $: if (chordView === "repertoire" && (activeChord?.label ?? null) !== lastRepertoirePlaybackLabel) {
     lastRepertoirePlaybackLabel = activeChord?.label ?? null;
@@ -287,7 +285,6 @@
       else if (key === "l") { event.preventDefault(); toggleLoop(); }
       else if (event.key === "Escape") { event.preventDefault(); clearLoop(); }
       else if (key === "m") { event.preventDefault(); toggleMetronome(); }
-      else if (key === "t") { event.preventDefault(); tapTempo(); }
       else if (event.key === "ArrowLeft") { event.preventDefault(); jump(-5); }
       else if (event.key === "ArrowRight") { event.preventDefault(); jump(5); }
       else if (event.key === "-" || event.key === "_") { event.preventDefault(); changePlaybackRate(-0.05); }
@@ -436,10 +433,13 @@
       language = preferences.language;
       volume = preferences.masterVolume;
       metronomeVolume = preferences.metronomeVolume;
+      metronomeSound = preferences.metronomeSound;
       applyTheme();
       document.documentElement.lang = language;
+      document.documentElement.dir = languageDirection(language);
       await setApplicationLanguage(language);
       await audioSetVolume(volume);
+      await audioSetMetronome(false, metronomeVolume, metronomeSound);
     } catch {
       applyTheme();
       notify("warn", t("preferencesLoadFallback"));
@@ -454,8 +454,11 @@
       language = preferences.language;
       volume = preferences.masterVolume;
       metronomeVolume = preferences.metronomeVolume;
+      metronomeSound = preferences.metronomeSound;
       applyTheme();
       document.documentElement.lang = language;
+      document.documentElement.dir = languageDirection(language);
+      await audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
       return true;
     } catch (error) {
       notify("error", t("preferencesSaveError"), errorText(error));
@@ -585,11 +588,9 @@
     waveformDragPointerId = null;
     viewportDrag = null;
     detectedBpm = null;
-    gridBpm = null;
-    beatGridOffsetSeconds = 0;
     metronomeEnabled = false;
     metronomeVolume = preferences.metronomeVolume;
-    tapTimes = [];
+    metronomeSound = preferences.metronomeSound;
     trainerEnabled = false;
     trainerStartRate = preferences.defaultTrainerStartRate;
     trainerRepetitions = preferences.defaultTrainerRepetitions;
@@ -610,7 +611,7 @@
     await audioPause();
     await stemDisable();
     await audioSetLoop(null, null);
-    await audioSetMetronome(false, metronomeVolume);
+    await audioSetMetronome(false, metronomeVolume, metronomeSound);
     await audioSetLoopTrainer(false, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, null, null);
     await audioSetPlaybackRate(playbackRate);
     await audioSetPitch(pitchSemitones);
@@ -696,7 +697,6 @@
       const packagePath = project!.packagePath;
       project = await deleteTrackFromProject(packagePath, track.id);
       waveformCache.delete(`${packagePath}:${track.id}`);
-      tempoCache.delete(`${packagePath}:${track.id}`);
       if (wasCurrent) {
         await resetTrackState();
         const replacement = project.tracks[deletedIndex] ?? project.tracks[project.tracks.length - 1];
@@ -746,7 +746,7 @@
     const destination = await save({
       title: t("saveProjectFile"),
       defaultPath: `${project.name.replace(/[\\/:*?"<>|]/g, "_")}.sac`,
-      filters: [{ name: "SonArcan project", extensions: ["sac"] }],
+      filters: [{ name: t("openProject"), extensions: ["sac"] }],
     });
     if (!destination) return false;
     const sourcePackagePath = project.packagePath;
@@ -883,7 +883,7 @@
   async function chooseImportFiles(): Promise<void> {
     const selected = await open({
         multiple: true,
-        title: t("importAudio"), filters: [{ name: "Audio and text", extensions: ["wav", "mp3", "flac", "txt", "md"] }],
+        title: t("importAudio"), filters: [{ name: t("importAudio"), extensions: ["wav", "mp3", "flac", "txt", "md"] }],
       });
     if (!selected) return;
     await acceptDroppedPaths(Array.isArray(selected) ? selected : [selected]);
@@ -1147,10 +1147,9 @@
     loopB = loopBounds.b;
     currentSeconds = trackLoadPosition(loopEnabled, loopA, preferences.loopLoadPosition);
     usingDefaultLoopBounds = track.practice.loopASeconds === null && track.practice.loopBSeconds === null;
-    gridBpm = track.practice.gridBpm ?? null;
-    beatGridOffsetSeconds = loopA ?? 0;
     metronomeEnabled = track.practice.metronomeEnabled ?? false;
     metronomeVolume = preferences.metronomeVolume;
+    metronomeSound = preferences.metronomeSound;
     trainerEnabled = track.practice.trainerEnabled ?? false;
     trainerStartRate = track.practice.trainerStartRate;
     trainerRepetitions = track.practice.trainerRepetitions ?? 1;
@@ -1161,8 +1160,7 @@
     stemMix.forEach((value, index) => void stemSetMix(index, value.gain, value.pan, value.muted, value.soloed));
     trainerLoopCount = 0;
     spectrumBands = Array<number>(64).fill(0);
-    tapTimes = [];
-    tempoLoading = false;
+    tempoLoading = true;
     detectedBpm = null;
     chordAnalysis = null;
     chordsLoading = false;
@@ -1287,33 +1285,10 @@
     });
   }
 
-  async function loadTrackTempo(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
-    tempoLoading = true;
-    detectedBpm = null;
-    const cacheKey = `${packagePath}:${track.id}`;
-    const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
-      && project?.packagePath === packagePath
-      && currentTrack?.id === track.id;
-    try {
-      const analysis = tempoCache.get(cacheKey) ?? await analyzeTempo(packagePath, track.id);
-      tempoCache.set(cacheKey, analysis);
-      if (stillSelected()) {
-        detectedBpm = analysis.bpm;
-        if (gridBpm === null && analysis.bpm !== null) {
-          gridBpm = analysis.bpm;
-          applyBeatGridToEngine();
-          schedulePracticeSave();
-        }
-      }
-    } catch {
-      if (stillSelected()) detectedBpm = null;
-    } finally {
-      if (stillSelected()) tempoLoading = false;
-    }
-  }
-
   async function loadTrackChords(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
     chordsLoading = true;
+    tempoLoading = true;
+    detectedBpm = null;
     chordAnalysisError = "";
     const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
       && project?.packagePath === packagePath
@@ -1323,15 +1298,24 @@
       // so a newly available stem cache cannot be hidden by an older in-memory
       // mix result retained by the webview.
       const analysis = await analyzeChords(packagePath, track.id);
-      if (stillSelected()) chordAnalysis = analysis;
+      if (stillSelected()) {
+        chordAnalysis = analysis;
+        detectedBpm = analysis.bpm;
+        await audioSetBeatTimeline(analysis.beats, analysis.downbeats);
+      }
     } catch (error) {
       if (stillSelected()) {
         chordAnalysisError = errorText(error);
         chordAnalysis = null;
+        detectedBpm = null;
+        await audioSetBeatTimeline([], []);
         notify("error", t("chordAnalysisFailed"), chordAnalysisError);
       }
     } finally {
-      if (stillSelected()) chordsLoading = false;
+      if (stillSelected()) {
+        chordsLoading = false;
+        tempoLoading = false;
+      }
     }
   }
 
@@ -1347,8 +1331,8 @@
       await audioSetVolume(volume);
       await audioSetPlaybackRate(playbackRate);
       await audioSetPitch(pitchSemitones);
-      await audioSetBeatGrid(gridBpm, beatGridOffsetSeconds);
-      await audioSetMetronome(metronomeEnabled, metronomeVolume);
+      await audioSetBeatTimeline([], []);
+      await audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
       await audioSetLoopTrainer(trainerEnabled, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, loopA, loopB);
       await audioSetEndBehavior(endBehavior);
       if (!stillSelected()) return;
@@ -1358,7 +1342,6 @@
       if (!stillSelected()) return;
       audioLoading = false;
       loadingTrackId = null;
-      void loadTrackTempo(track, packagePath, selectionGeneration);
       void loadTrackChords(track, packagePath, selectionGeneration);
       if (track.practice.stemsEnabled) void enableStems();
       if (autoplay) await play();
@@ -1531,49 +1514,25 @@
     if (event.detail === 0) jump(seconds);
   }
 
-  function changeGridBpm(value: number): void {
-    if (!Number.isFinite(value)) return;
-    gridBpm = Math.max(30, Math.min(300, Math.round(value * 10) / 10));
-    applyBeatGridToEngine();
-    schedulePracticeSave();
-  }
-
-  function tapTempo(): void {
-    if (!currentTrack) return;
-    const now = performance.now();
-    const previous = tapTimes.at(-1);
-    if (previous === undefined || now - previous > 2_000) tapTimes = [now];
-    else tapTimes = [...tapTimes.slice(-7), now];
-    if (tapTimes.length < 2) return;
-    const intervals = tapTimes.slice(1).map((time, index) => time - tapTimes[index]);
-    const sorted = [...intervals].sort((left, right) => left - right);
-    const middle = Math.floor(sorted.length / 2);
-    const median = sorted.length % 2 === 0
-      ? (sorted[middle - 1] + sorted[middle]) / 2
-      : sorted[middle];
-    changeGridBpm(60_000 / median);
-  }
-
-  function applyBeatGridToEngine(): void {
-    void audioSetBeatGrid(gridBpm, beatGridOffsetSeconds);
-  }
-
-  function alignBeatGridWithLoopStart(): void {
-    beatGridOffsetSeconds = loopA ?? 0;
-    applyBeatGridToEngine();
-  }
-
   function toggleMetronome(): void {
-    if (gridBpm === null) return;
+    if (!chordAnalysis?.beats.length) return;
     metronomeEnabled = !metronomeEnabled;
-    void audioSetMetronome(metronomeEnabled, metronomeVolume);
+    void audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
     schedulePracticeSave();
   }
 
   function changeMetronomeVolume(value: number): void {
     metronomeVolume = Math.max(0, Math.min(1, value));
-    void audioSetMetronome(metronomeEnabled, metronomeVolume);
+    void audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
     preferences = { ...preferences, metronomeVolume };
+    void persistPreferences();
+  }
+
+  function changeMetronomeSound(value: string): void {
+    if (value !== "electronic" && value !== "woodblock" && value !== "metallic") return;
+    metronomeSound = value;
+    void audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
+    preferences = { ...preferences, metronomeSound };
     void persistPreferences();
   }
 
@@ -1589,7 +1548,6 @@
         loopA = 0;
         loopB = durationSeconds;
         usingDefaultLoopBounds = true;
-        alignBeatGridWithLoopStart();
       }
       loopEnabled = true;
       playbackRate = trainerStartRate;
@@ -1624,22 +1582,21 @@
   }
 
   function beatLines(detailed: boolean): { percent: number; accent: boolean }[] {
-    return calculateBeatLines({
-      bpm: gridBpm,
+    return calculateDetectedBeatLines(
+      chordAnalysis?.beats ?? [],
+      chordAnalysis?.downbeats ?? [],
       durationSeconds,
-      offsetSeconds: beatGridOffsetSeconds,
       detailed,
-      zoom: waveformZoom,
-      start: waveformStart,
-    });
+      waveformZoom,
+      waveformStart,
+    );
   }
 
   function setLoopA(): void {
-    loopA = currentSeconds;
+    loopA = snappedLoopTime(currentSeconds);
     if (usingDefaultLoopBounds || (loopB !== null && loopB <= loopA)) loopB = null;
     usingDefaultLoopBounds = false;
     loopEnabled = true;
-    alignBeatGridWithLoopStart();
     applyLoopToEngine();
     schedulePracticeSave();
   }
@@ -1647,9 +1604,9 @@
   function setLoopB(): void {
     if (loopA === null) {
       loopA = 0;
-      alignBeatGridWithLoopStart();
     }
-    if (currentSeconds > loopA) loopB = currentSeconds;
+    const nextLoopB = snappedLoopTime(currentSeconds);
+    if (nextLoopB > loopA) loopB = nextLoopB;
     usingDefaultLoopBounds = false;
     loopEnabled = true;
     applyLoopToEngine();
@@ -1661,9 +1618,19 @@
     loopB = null;
     usingDefaultLoopBounds = false;
     loopEnabled = false;
-    alignBeatGridWithLoopStart();
     void audioSetLoop(null, null);
     schedulePracticeSave();
+  }
+
+  function snappedLoopTime(seconds: number): number {
+    return loopSnapEnabled
+      ? nearestDetectedBeat(seconds, chordAnalysis?.beats ?? [])
+      : seconds;
+  }
+
+  function toggleLoopSnap(): void {
+    if (!chordAnalysis?.beats.length) return;
+    loopSnapEnabled = !loopSnapEnabled;
   }
 
   function resetLoopBoundary(event: MouseEvent, boundary: "a" | "b"): void {
@@ -1672,7 +1639,6 @@
     if (durationSeconds <= 0) return;
     if (boundary === "a") {
       loopA = 0;
-      alignBeatGridWithLoopStart();
     } else {
       loopB = durationSeconds;
     }
@@ -1739,7 +1705,6 @@
       const span = Math.min(5, Math.max(0.25, durationSeconds));
       loopA = Math.min(currentSeconds, Math.max(0, durationSeconds - span));
       loopB = Math.min(durationSeconds, loopA + span);
-      alignBeatGridWithLoopStart();
     }
     loopEnabled = !loopEnabled;
     applyLoopToEngine();
@@ -1769,11 +1734,10 @@
 
   function moveLoopDrag(event: PointerEvent, detailed: boolean): void {
     if (!loopDrag || loopDrag.pointerId !== event.pointerId || durationSeconds <= 0) return;
-    const time = eventTime(event, detailed);
+    const time = snappedLoopTime(eventTime(event, detailed));
     const minimum = Math.min(0.05, durationSeconds);
     if (loopDrag.mode === "a") {
       loopA = Math.max(0, Math.min(time, loopDrag.b - minimum));
-      alignBeatGridWithLoopStart();
     }
     else loopB = Math.min(durationSeconds, Math.max(time, loopDrag.a + minimum));
     usingDefaultLoopBounds = false;
@@ -1878,8 +1842,6 @@
         loopEnabled,
         loopASeconds: loopA,
         loopBSeconds: loopB,
-        gridBpm,
-        beatGridOffsetSeconds,
         metronomeEnabled,
         metronomeVolume,
         trainerEnabled,
@@ -2140,7 +2102,7 @@
     <section class="main-stage">
       {#if currentTrack}
       <div class="visualizer panel">
-        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if tempoLoading}<span><i class="mini-spinner"></i>{t("bpmAnalyzing")}</span>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div></div>
+        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div></div>
         <div
           class="wave detailed-wave"
           class:dragging={waveformDragPointerId !== null}
@@ -2187,9 +2149,6 @@
                 <line x1={index} x2={index} y1={30 - peak.max * 28} y2={30 - peak.min * 28} />
               {/each}
             </svg>
-            <div class="beat-grid overview" aria-hidden="true">
-              {#each overviewBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
-            </div>
             <button type="button" class="viewport" class:dragging={viewportDrag?.mode === "move"} aria-label={t("moveViewport")} style={`left:${waveformStart * 100}%;width:${100 / waveformZoom}%`} onpointerdown={(event) => startViewportDrag(event, "move")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             <button type="button" class="viewport-handle start" aria-label={t("resizeViewportStart")} data-tooltip={t("resizeViewportStart")} style={`left:${waveformStart * 100}%`} onpointerdown={(event) => startViewportDrag(event, "start")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
             <button type="button" class="viewport-handle end" aria-label={t("resizeViewportEnd")} data-tooltip={t("resizeViewportEnd")} style={`left:${(waveformStart + 1 / waveformZoom) * 100}%`} onpointerdown={(event) => startViewportDrag(event, "end")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
@@ -2240,7 +2199,14 @@
       <div class="practice panel">
         <div class="control-block loop-controls">
           <span class="control-block-label">{t("loop")}</span>
-          <div class="control-group loop-actions"><button class="loop-action-a" onclick={setLoopA} ondblclick={(event) => resetLoopBoundary(event, "a")} aria-label={`${t("moveA")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveA")} · ${t("doubleClickResetA")}`}>A</button><button onclick={clearLoop} data-tooltip={t("resetAB")} aria-label={t("resetAB")}><Icon name="xmark" size="11px" /></button><button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button><button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="rotate-right" size="11px" /></button></div>
+          <div class="control-group loop-actions">
+            <button class="loop-action-a" onclick={setLoopA} ondblclick={(event) => resetLoopBoundary(event, "a")} aria-label={`${t("moveA")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveA")} · ${t("doubleClickResetA")}`}>A</button>
+            <button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button>
+            <i class="control-separator" aria-hidden="true"></i>
+            <button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="rotate-left" size="11px" /></button>
+            <button class:active={loopSnapEnabled} disabled={!chordAnalysis?.beats.length} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={t("loopSnapHelp")}><Icon name="magnet" size="12px" /></button>
+            <button onclick={clearLoop} data-tooltip={t("resetAB")} aria-label={t("resetAB")}><Icon name="eraser" size="12px" /></button>
+          </div>
         </div>
         <div class="practice-center-controls">
           <div class="control-block trainer-control">
@@ -2254,11 +2220,19 @@
           <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} buttonStep={1} shiftButtonStep={0.01} display={formatPitch} onChange={setPitch} tooltip={t("pitchFineHelp")} />
         </div>
         <div class="practice-right-controls">
-          <NumericControl label={t("gridTempo")} value={gridBpm ?? detectedBpm ?? 120} defaultValue={detectedBpm ?? 120} minimum={30} maximum={300} step={0.1} display={(value) => value.toFixed(1)} onChange={changeGridBpm} onTap={tapTempo} tooltip={t("tapTempoHelp")} />
+          <div class="control-block bpm-indicator" aria-live="polite" data-tooltip={t("bpmEstimateHelp")}>
+            <span class="control-block-label">{t("gridTempo")}</span>
+            {#if tempoLoading}
+              <span class="bpm-indicator-value"><i class="mini-spinner"></i><span class="sr-only">{t("bpmAnalyzing")}</span></span>
+            {:else}
+              <strong>{detectedBpm === null ? "—" : detectedBpm.toFixed(1)}</strong>
+            {/if}
+          </div>
           <div class="control-block metronome-block">
             <span class="control-block-label">{t("metronome")}</span>
             <div class="metronome-control">
-              <button class:active={metronomeEnabled} class:beating={metronomeBeating} disabled={gridBpm === null} aria-pressed={metronomeEnabled} aria-label={t("metronome")} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}><Icon name="metronome" size="14px" /></button>
+              <button class:active={metronomeEnabled} class:beating={metronomeBeating} disabled={!chordAnalysis?.beats.length} aria-pressed={metronomeEnabled} aria-label={t("metronome")} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}><Icon name="metronome" size="14px" /></button>
+              <select class="metronome-sound" aria-label={t("metronomeSound")} data-tooltip={t("metronomeSound")} value={metronomeSound} onchange={(event) => changeMetronomeSound(event.currentTarget.value)}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select>
               <label class="metronome-volume" data-tooltip={t("metronomeVolume")}><Icon name="volume-high" size="11px" /><input aria-label={t("metronomeVolume")} type="range" min="0" max="1" step="0.01" value={metronomeVolume} oninput={(event) => changeMetronomeVolume(Number(event.currentTarget.value))} /></label>
             </div>
           </div>
@@ -2367,7 +2341,7 @@
           {:else}
             {#if chordView === "timeline"}
               <div class="chords" aria-label={t("chords")} bind:this={chordList}>
-                {#each displayedChords as chord, chordIndex}
+                {#each timelineChords as chord, chordIndex}
                   <button
                     class:active={chordIndex === activeChordIndex}
                     style={`--chord-color:${chordColor(chord.label, chord.strength, chordColorMode)}`}
@@ -2440,7 +2414,7 @@
   {/if}
 
   {#if closePromptVisible}
-    <Modal title={t("saveTemporaryTitle")} close={() => closePromptVisible = false}>
+    <Modal title={t("saveTemporaryTitle")} closeLabel={t("close")} close={() => closePromptVisible = false}>
       <p>{t("saveTemporaryPrompt")}</p>
       <div class="modal-actions">
         <button onclick={() => closePromptVisible = false}>{t("cancel")}</button>
@@ -2451,11 +2425,11 @@
   {/if}
 
   {#if diagnosticInfo}
-    <Modal title={t("diagnostics")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
+    <Modal title={t("diagnostics")} closeLabel={t("close")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
   {/if}
 
   {#if stemExportVisible}
-    <Modal title={t("exportStems")} close={() => stemExportVisible = false}>
+    <Modal title={t("exportStems")} closeLabel={t("close")} close={() => stemExportVisible = false}>
       <p class="stem-export-description">{t("exportStemsHelp")}</p>
       <div class="stem-export-formats" role="radiogroup" aria-label={t("stemExportFormat")}>
         <button class:active={stemExportFormat === "wav"} role="radio" aria-checked={stemExportFormat === "wav"} onclick={() => stemExportFormat = "wav"}><strong>WAV</strong><small>{t("stemExportWavHelp")}</small></button>
@@ -2466,7 +2440,7 @@
   {/if}
 
   {#if trainingSettingsVisible}
-    <Modal title={t("trainingSettings")} close={() => trainingSettingsVisible = false}>
+    <Modal title={t("trainingSettings")} closeLabel={t("close")} close={() => trainingSettingsVisible = false}>
       <div class="training-settings-form">
         <label><span>{t("startSpeed")}</span><span><input type="number" min="50" max="199" step="1" value={Math.round(trainingDraft.startRate * 100)} oninput={(event) => trainingDraft = { ...trainingDraft, startRate: Number(event.currentTarget.value) / 100 }} /><b>%</b></span></label>
         <label><span>{t("endSpeed")}</span><span><input type="number" min="51" max="200" step="1" value={Math.round(trainingDraft.targetRate * 100)} oninput={(event) => trainingDraft = { ...trainingDraft, targetRate: Number(event.currentTarget.value) / 100 }} /><b>%</b></span></label>
@@ -2478,22 +2452,22 @@
   {/if}
 
   {#if preferencesVisible}
-    <Modal title={t("preferences")} wide close={() => preferencesVisible = false}>
+    <Modal title={t("preferences")} closeLabel={t("close")} wide close={() => preferencesVisible = false}>
       <div class="preferences-grid">
-        <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}><option value="fr">{t("french")}</option><option value="en">{t("english")}</option></select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
+        <section><h3>{t("appearance")}</h3><label>{t("language")}<select bind:value={preferences.language}>{#each languageOptions as option}<option value={option.value}>{option.label}</option>{/each}</select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
         <section><h3>{t("practiceDefaults")}</h3><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
-        <section><h3>Audio</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label></section>
+        <section><h3>{t("audio")}</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
       </div><div class="modal-actions"><button onclick={() => preferencesVisible = false}>{t("close")}</button><button class="primary" onclick={() => void savePreferencesAndClose()}>{t("savePreferences")}</button></div>
     </Modal>
   {/if}
 
   {#if shortcutsVisible}
-    <Modal title={t("shortcuts")} close={() => shortcutsVisible = false}><dl><dt>{t("playPause")}</dt><dd>Space</dd><dt>{t("jump")}</dt><dd>← / →</dd><dt>{t("loopAB")}</dt><dd>A / B</dd><dt>{t("clearLoop")}</dt><dd>Escape</dd><dt>{t("tempo")}</dt><dd>− / +</dd><dt>{t("tapTempo")}</dt><dd>T</dd><dt>{t("metronome")}</dt><dd>M</dd><dt>{t("showConsole")}</dt><dd>C</dd><dt>{t("showHelp")}</dt><dd>H</dd></dl><button onclick={() => shortcutsVisible = false}>{t("close")}</button></Modal>
+    <Modal title={t("shortcuts")} closeLabel={t("close")} close={() => shortcutsVisible = false}><dl><dt>{t("playPause")}</dt><dd>␣</dd><dt>{t("jump")}</dt><dd>← / →</dd><dt>{t("loopAB")}</dt><dd>A / B</dd><dt>{t("clearLoop")}</dt><dd>Esc</dd><dt>{t("tempo")}</dt><dd>− / +</dd><dt>{t("metronome")}</dt><dd>M</dd><dt>{t("showConsole")}</dt><dd>C</dd><dt>{t("showHelp")}</dt><dd>H</dd></dl><button onclick={() => shortcutsVisible = false}>{t("close")}</button></Modal>
   {/if}
 
   {#if importVisible}
-    <Modal title={t("importCenter")} wide close={() => importVisible = false} keydown={handleImportDialogKeydown}>
+    <Modal title={t("importCenter")} closeLabel={t("close")} wide close={() => importVisible = false} keydown={handleImportDialogKeydown}>
       <div class="import-center" role="region" aria-label={t("importCenter")}>
         <div class="import-toolbar">
           <div class="import-toolbar-actions">
@@ -2535,7 +2509,7 @@
   {/if}
 
   {#if tasksVisible}
-    <Modal title={t("importQueue")} wide close={() => tasksVisible = false}>{#if !importQueue.length}<p>{t("noTasks")}</p>{:else}<div class="job-list">{#each [...importQueue].reverse() as job}<article class:failed={job.state === "failed"}><div class="job-heading"><span><strong>{job.label}</strong><span>{t(job.state as MessageKey)} · {Math.round(job.progress * 100)}%</span></span><button class="job-remove" aria-label={t("cancelImport")} data-tooltip={t("cancelImport")} onclick={() => void cancelImportJob(job.id)}><Icon name="xmark" size="11px" /></button></div><i><b style={`width:${job.progress * 100}%`}></b></i>{#if job.error}<p>{job.error}</p>{/if}{#if job.suggestion}<small>{job.suggestion}</small>{/if}{#if job.diagnostic}<details><summary>{t("technicalDetails")}</summary><pre>{job.diagnostic}</pre></details>{/if}</article>{/each}</div>{/if}<button onclick={() => tasksVisible = false}>{t("close")}</button></Modal>
+    <Modal title={t("importQueue")} closeLabel={t("close")} wide close={() => tasksVisible = false}>{#if !importQueue.length}<p>{t("noTasks")}</p>{:else}<div class="job-list">{#each [...importQueue].reverse() as job}<article class:failed={job.state === "failed"}><div class="job-heading"><span><strong>{job.label}</strong><span>{t(job.state as MessageKey)} · {Math.round(job.progress * 100)}%</span></span><button class="job-remove" aria-label={t("cancelImport")} data-tooltip={t("cancelImport")} onclick={() => void cancelImportJob(job.id)}><Icon name="xmark" size="11px" /></button></div><i><b style={`width:${job.progress * 100}%`}></b></i>{#if job.error}<p>{job.error}</p>{/if}{#if job.suggestion}<small>{job.suggestion}</small>{/if}{#if job.diagnostic}<details><summary>{t("technicalDetails")}</summary><pre>{job.diagnostic}</pre></details>{/if}</article>{/each}</div>{/if}<button onclick={() => tasksVisible = false}>{t("close")}</button></Modal>
   {/if}
 
   {#if trackContextMenu}

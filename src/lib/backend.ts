@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppLogEntry, AudioStatus, ChordAnalysis, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, TempoAnalysis, UserPreferences, WaveformData } from "./types";
+import type { Language } from "./i18n";
+import type { AppLogEntry, AudioStatus, ChordAnalysis, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, MetronomeSound, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -79,11 +80,6 @@ export async function getWaveform(packagePath: string, trackId: string): Promise
   return invoke<WaveformData>("get_waveform", { packagePath, trackId });
 }
 
-export async function analyzeTempo(packagePath: string, trackId: string): Promise<TempoAnalysis> {
-  if (!isTauri()) throw new Error("Tempo analysis requires the Tauri desktop runtime.");
-  return invoke<TempoAnalysis>("analyze_tempo", { packagePath, trackId });
-}
-
 export async function analyzeChords(packagePath: string, trackId: string): Promise<ChordAnalysis> {
   if (!isTauri()) throw new Error("Chord analysis requires the Tauri desktop runtime.");
   return invoke<ChordAnalysis>("analyze_chords", { packagePath, trackId });
@@ -101,7 +97,7 @@ export async function listRecentProjects(): Promise<string[]> {
 export const requestApplicationExit = (): Promise<void> => invoke("request_application_exit");
 export const confirmApplicationExit = (): Promise<void> => invoke("confirm_application_exit");
 
-export async function setApplicationLanguage(language: "en" | "fr"): Promise<void> {
+export async function setApplicationLanguage(language: Language): Promise<void> {
   if (isTauri()) await invoke("set_language", { language });
 }
 
@@ -114,8 +110,8 @@ export const audioSetLoop = (aSeconds: number | null, bSeconds: number | null): 
 export const audioSetVolume = (volume: number): Promise<void> => invoke("audio_set_volume", { volume });
 export const audioSetPlaybackRate = (rate: number): Promise<void> => invoke("audio_set_playback_rate", { rate });
 export const audioSetPitch = (semitones: number): Promise<void> => invoke("audio_set_pitch", { semitones });
-export const audioSetBeatGrid = (bpm: number | null, offsetSeconds: number): Promise<void> => invoke("audio_set_beat_grid", { bpm, offsetSeconds });
-export const audioSetMetronome = (enabled: boolean, volume: number): Promise<void> => invoke("audio_set_metronome", { enabled, volume });
+export const audioSetBeatTimeline = (beats: number[], downbeats: number[]): Promise<void> => invoke("audio_set_beat_timeline", { beats, downbeats });
+export const audioSetMetronome = (enabled: boolean, volume: number, sound: MetronomeSound): Promise<void> => invoke("audio_set_metronome", { enabled, volume, sound });
 export const audioSetLoopTrainer = (enabled: boolean, startRate: number, repetitions: number, increment: number, targetRate: number, loopASeconds: number | null, loopBSeconds: number | null): Promise<void> => invoke("audio_set_loop_trainer", { settings: { enabled, startRate, repetitions, increment, targetRate, loopASeconds, loopBSeconds } });
 export const audioSetEndBehavior = (behavior: EndBehavior): Promise<void> => invoke("audio_set_end_behavior", { behavior });
 export const audioSpectrum = (): Promise<SpectrumFrame> => invoke("audio_spectrum");

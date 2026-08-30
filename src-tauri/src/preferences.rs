@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf, sync::Mutex};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::error::AppError;
+use crate::{audio_engine::MetronomeSound, error::AppError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +20,7 @@ pub struct UserPreferences {
     pub mp3_quality: Mp3Quality,
     pub master_volume: f32,
     pub metronome_volume: f32,
+    pub metronome_sound: MetronomeSound,
     pub default_playback_rate: f64,
     pub default_pitch_semitones: f64,
     pub loop_load_position: LoopLoadPosition,
@@ -94,6 +95,7 @@ impl Default for UserPreferences {
             mp3_quality: Mp3Quality::VbrHigh,
             master_volume: 0.8,
             metronome_volume: 0.55,
+            metronome_sound: MetronomeSound::Electronic,
             default_playback_rate: 1.0,
             default_pitch_semitones: 0.0,
             loop_load_position: LoopLoadPosition::Beginning,
@@ -158,7 +160,10 @@ fn validate(value: &mut UserPreferences) {
         .clamp(value.default_trainer_start_rate + 0.01, 2.0);
     value.default_trainer_repetitions = value.default_trainer_repetitions.clamp(1, 99);
     value.default_trainer_increment = value.default_trainer_increment.clamp(0.01, 0.25);
-    if value.language != "fr" {
+    const SUPPORTED_LANGUAGES: &[&str] = &[
+        "en", "fr", "es", "de", "pt", "it", "zh", "ja", "ko", "ar", "hi", "id",
+    ];
+    if !SUPPORTED_LANGUAGES.contains(&value.language.as_str()) {
         value.language = "en".into();
     }
 }
@@ -177,6 +182,7 @@ mod tests {
         assert_eq!(preferences.default_trainer_increment, 0.05);
         assert_eq!(preferences.default_trainer_repetitions, 1);
         assert_eq!(preferences.loop_load_position, LoopLoadPosition::Beginning);
+        assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
     }
 
     #[test]
@@ -187,6 +193,16 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert_eq!(preferences.time_display, TimeDisplay::Simple);
+    }
+
+    #[test]
+    fn older_preferences_default_to_the_electronic_metronome() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("metronomeSound");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
     }
 
     #[test]
@@ -216,5 +232,25 @@ mod tests {
         validate(&mut preferences);
         assert_eq!(preferences.default_trainer_start_rate, 1.5);
         assert_eq!(preferences.default_trainer_target_rate, 1.51);
+    }
+
+    #[test]
+    fn supported_languages_are_preserved_and_unknown_languages_fall_back() {
+        for language in [
+            "en", "fr", "es", "de", "pt", "it", "zh", "ja", "ko", "ar", "hi", "id",
+        ] {
+            let mut preferences = UserPreferences {
+                language: language.into(),
+                ..UserPreferences::default()
+            };
+            validate(&mut preferences);
+            assert_eq!(preferences.language, language);
+        }
+        let mut preferences = UserPreferences {
+            language: "xx".into(),
+            ..UserPreferences::default()
+        };
+        validate(&mut preferences);
+        assert_eq!(preferences.language, "en");
     }
 }

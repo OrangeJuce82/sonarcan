@@ -12,6 +12,7 @@
     "test": "node --test src/lib/*.test.ts",
     "test:mlx": "PYTHONPATH=tools/sonarcan-mlx-worker/src python3 -m unittest discover -s tools/sonarcan-mlx-worker/tests -v",
     "test:chords": "uv run --project tools/sonarcan-chord-worker --locked python -m unittest discover -s tools/sonarcan-chord-worker/tests -v",
+    "chords:downbeat-model": "bash scripts/prepare-beat-this-model.sh",
     "chords:runtime": "bash scripts/build-chord-runtime.sh",
     "verify:chord-release": "bash scripts/verify-chord-release.sh",
     "ytdlp:search": "node scripts/prepare-ytdlp-search.mjs",

@@ -6,7 +6,8 @@ This document translates the useful interaction model observed in musician pract
 
 1. A detailed waveform provides precise navigation around the playhead.
 2. An overview waveform shows the whole song, loop boundaries, sections, and marks.
-3. An editable beat grid is shown at both waveform levels and drives the Rust metronome.
+3. A read-only Beat This! beat timeline appears behind the detailed waveform
+   when zoom permits and drives the Rust metronome.
 4. The practice strip keeps loop, tempo, pitch, and jump controls visible at all times.
 5. The transport remains centered and usable without opening another panel.
 
@@ -46,9 +47,8 @@ control and shows a dedicated import action instead of stale practice panels.
 ### 3. Tempo
 
 - adjust playback speed independently from pitch;
-- display both percentage and effective BPM when BPM is known;
-- provide reset and small increment/decrement controls;
-- provide button and `T` keyboard tap tempo using a robust rolling median;
+- display playback percentage and the separate indicative Beat This! BPM;
+- keep detected BPM read-only and use individual beat timestamps for timing;
 - retain the setting per track.
 
 ### 4. Pitch
@@ -61,7 +61,7 @@ control and shows a dedicated import action instead of stale practice panels.
 
 ## Numeric control interaction
 
-Every adjustable integer or floating-point parameter uses the same interaction model: `+` and `−` apply one configured step, vertical dragging changes the value continuously by steps, the mouse wheel changes a focused value, and double-click restores its default. BPM additionally interprets repeated stationary clicks as tap tempo. The pitch control uses 1-cent steps; speed, BPM, volume, metronome volume, and Loop Trainer settings use domain-appropriate steps.
+Every adjustable integer or floating-point parameter uses the same interaction model: `+` and `−` apply one configured step, vertical dragging changes the value continuously by steps, the mouse wheel changes a focused value, and double-click restores its default. The detected BPM is not adjustable. The pitch control uses 1-cent steps; speed, volume, metronome volume, and Loop Trainer settings use domain-appropriate steps.
 
 ### 5. Marks and navigation
 
@@ -96,4 +96,3 @@ The implemented Loop Trainer performs the first three operations directly in the
 | Set loop A/B | A / B |
 | Clear loop | Escape |
 | Toggle metronome | M |
-| Tap tempo | T |

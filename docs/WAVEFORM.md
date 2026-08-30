@@ -13,7 +13,8 @@ when Loop is on. For tracks without saved bounds, the inactive default is A at
 the beginning and B at the end of the track.
 
 The `A` and `B` keyboard shortcuts move the corresponding loop point to the
-playhead, `L` toggles looping, and `Escape` clears the range. `C` toggles the
+playhead, `L` toggles looping, `M` toggles the metronome, and `Escape` clears
+the range. Beat snapping has an explicit button and no keyboard shortcut. `C` toggles the
 application console and `H` toggles contextual help. Global shortcuts are
 suspended while a dialog is open and never intercept text inputs, text areas,
 selects, editable content, IME composition, or modified system shortcuts such
@@ -58,6 +59,16 @@ a diagonal trackpad gesture cannot pan and zoom at the same time.
 
 Zoom is bounded between `1×` and `128×`. Loop markers share the same time-to-screen transform as the playhead so they remain aligned at every zoom level.
 
-When a track has a grid BPM, both waveform levels render source-time beat lines. Every fourth beat is emphasized. The grid is derived only from numeric timing metadata received from Rust; no audio samples or audio processing enter the frontend. Users can place beat one at the playhead and nudge the complete grid in 10 ms increments.
+Beat This! timestamps appear as light vertical lines behind the detailed
+waveform from `1.5×` zoom onward. Detected downbeats are emphasized. The
+full-song overview and the widest detailed view intentionally omit these lines
+to avoid visual noise. Beat This! provides beats and downbeats but no reliable
+subdivision positions, so SonArcan never invents half-beats from the indicative
+BPM.
+
+The optional magnet control snaps A and B to the nearest detected beat when
+they are placed from the playhead or dragged on either waveform. Disabling it
+restores exact free placement. Snapping is presentation-side interaction only:
+it never changes the model timeline, BPM, audio clock, or stored analysis.
 
 The loading state uses a symmetric waveform-shaped SVG with a moving highlight, matching the geometry of the final peak view. Loop overlays use a separate violet palette so the editable range remains visually distinct from the teal source waveform.

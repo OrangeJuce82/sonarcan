@@ -3,13 +3,14 @@ import test from "node:test";
 
 import {
   buildProjectPath,
-  calculateBeatLines,
+  calculateDetectedBeatLines,
   defaultLoopBounds,
   formatPitch,
   formatProjectHeaderPath,
   formatTime,
   formatTimePrecise,
-  isMetronomeBeatActive,
+  isDetectedBeatActive,
+  nearestDetectedBeat,
   moveWaveformViewport,
   panWaveformViewportFromWheel,
   resizeWaveformViewport,
@@ -77,46 +78,24 @@ test("visiblePeaks keeps extrema while reducing the sample count", () => {
   ]);
 });
 
-test("calculateBeatLines bounds density and accents every fourth beat", () => {
-  const lines = calculateBeatLines({
-    bpm: 120,
-    durationSeconds: 2,
-    offsetSeconds: 0,
-    detailed: false,
-    zoom: 1,
-    start: 0,
-  });
-  assert.deepEqual(lines, [
-    { percent: 0, accent: true },
-    { percent: 25, accent: false },
-    { percent: 50, accent: false },
-    { percent: 75, accent: false },
-    { percent: 100, accent: true },
-  ]);
-  assert.equal(calculateBeatLines({
-    bpm: 300,
-    durationSeconds: 1_000,
-    offsetSeconds: 0,
-    detailed: false,
-    zoom: 1,
-    start: 0,
-  }).length, 500);
+test("detected beat lines preserve irregular timing and downbeat accents", () => {
+  const beats = [0.4, 0.91, 1.43, 1.96, 2.5];
+  const lines = calculateDetectedBeatLines(beats, [0.4, 2.5], 6, true, 2, 0);
+  assert.deepEqual(lines.map(({ accent }) => accent), [true, false, false, false, true]);
+  assert.equal(lines[1]?.percent, 0.91 / 6 * 2 * 100);
+  assert.deepEqual(calculateDetectedBeatLines(beats, [0.4, 2.5], 3, false, 1, 0), []);
+  assert.deepEqual(calculateDetectedBeatLines(beats, [0.4, 2.5], 3, true, 1, 0), []);
+  assert.equal(isDetectedBeatActive(0.42, beats, 1), true);
+  assert.equal(isDetectedBeatActive(0.7, beats, 1), false);
+  assert.equal(isDetectedBeatActive(0.95, beats, 0.5), true);
 });
 
-test("beat grid and metronome start at A and never pulse during its lead-in", () => {
-  const lines = calculateBeatLines({
-    bpm: 120,
-    durationSeconds: 10,
-    offsetSeconds: 2,
-    detailed: false,
-    zoom: 1,
-    start: 0,
-  });
-  assert.equal(lines[0]?.percent, 20);
-  assert.equal(lines[0]?.accent, true);
-  assert.equal(isMetronomeBeatActive(1.5, 120, 2, 1), false);
-  assert.equal(isMetronomeBeatActive(2.02, 120, 2, 1), true);
-  assert.equal(isMetronomeBeatActive(2.25, 120, 2, 1), false);
+test("loop boundaries snap to the nearest detected Beat This! beat", () => {
+  const beats = [0.4, 0.91, 1.43, 1.96];
+  assert.equal(nearestDetectedBeat(0.65, beats), 0.4);
+  assert.equal(nearestDetectedBeat(0.66, beats), 0.91);
+  assert.equal(nearestDetectedBeat(2.2, beats), 1.96);
+  assert.equal(nearestDetectedBeat(0.7, []), 0.7);
 });
 
 test("waveform viewport movement preserves its span and stays in bounds", () => {

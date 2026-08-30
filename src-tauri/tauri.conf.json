@@ -36,6 +36,7 @@
       "resources/chord-runtime": "chord-runtime",
       "resources/ytdlp-search": "ytdlp-search",
       "resources/models/demucs-mlx": "models/demucs-mlx",
+      "resources/models/beat-this": "models/beat-this",
       "resources/audio-tools": "audio-tools"
     },
     "icon": [

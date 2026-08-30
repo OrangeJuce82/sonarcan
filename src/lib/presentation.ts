@@ -25,15 +25,6 @@ export interface BeatLine {
   accent: boolean;
 }
 
-export interface BeatLineOptions {
-  bpm: number | null;
-  durationSeconds: number;
-  offsetSeconds: number;
-  detailed: boolean;
-  zoom: number;
-  start: number;
-}
-
 export interface WaveformViewport {
   start: number;
   zoom: number;
@@ -237,36 +228,63 @@ export function visiblePeaks(
   return result;
 }
 
-export function calculateBeatLines(options: BeatLineOptions): BeatLine[] {
-  const { bpm, durationSeconds, offsetSeconds, detailed, zoom, start } = options;
-  if (bpm === null || durationSeconds <= 0) return [];
-  const period = 60 / bpm;
+export function calculateDetectedBeatLines(
+  beats: readonly number[],
+  downbeats: readonly number[],
+  durationSeconds: number,
+  detailed: boolean,
+  zoom: number,
+  start: number,
+): BeatLine[] {
+  // The overview is intentionally left clean, as is the detailed waveform at
+  // its widest zoom level. Beat This! does not provide beat subdivisions, so
+  // only model-detected beats are ever drawn.
+  if (durationSeconds <= 0 || !beats.length || !detailed || zoom < 1.5) return [];
   const visibleStart = detailed ? start * durationSeconds : 0;
   const visibleEnd = detailed ? (start + 1 / zoom) * durationSeconds : durationSeconds;
-  const firstBeat = Math.max(0, Math.ceil((visibleStart - offsetSeconds) / period));
-  const lastBeat = Math.floor((visibleEnd - offsetSeconds) / period);
-  const count = Math.min(500, Math.max(0, lastBeat - firstBeat + 1));
-  return Array.from({ length: count }, (_, index) => {
-    const beat = firstBeat + index;
-    const seconds = offsetSeconds + beat * period;
-    return {
-      percent: detailed
-        ? (seconds / durationSeconds - start) * zoom * 100
-        : seconds / durationSeconds * 100,
-      accent: ((beat % 4) + 4) % 4 === 0,
-    };
-  });
+  const visible = beats.filter((seconds) => seconds >= visibleStart && seconds <= visibleEnd);
+  const stride = Math.max(1, Math.ceil(visible.length / 500));
+  return visible.filter((_, index) => index % stride === 0).map((seconds) => ({
+    percent: detailed
+      ? (seconds / durationSeconds - start) * zoom * 100
+      : seconds / durationSeconds * 100,
+    accent: downbeats.includes(seconds),
+  }));
 }
 
-export function isMetronomeBeatActive(
+export function nearestDetectedBeat(
   positionSeconds: number,
-  bpm: number | null,
-  offsetSeconds: number,
+  beats: readonly number[],
+): number {
+  if (!beats.length || !Number.isFinite(positionSeconds)) return positionSeconds;
+  let low = 0;
+  let high = beats.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((beats[middle] ?? 0) < positionSeconds) low = middle + 1;
+    else high = middle;
+  }
+  const after = beats[low];
+  const before = beats[low - 1];
+  if (before === undefined) return after ?? positionSeconds;
+  if (after === undefined) return before;
+  return positionSeconds - before <= after - positionSeconds ? before : after;
+}
+
+export function isDetectedBeatActive(
+  positionSeconds: number,
+  beats: readonly number[],
   playbackRate: number,
   pulseSeconds = 0.08,
 ): boolean {
-  if (bpm === null || bpm <= 0 || positionSeconds < offsetSeconds || playbackRate <= 0) return false;
-  const period = 60 / bpm;
-  const elapsedSourceSeconds = (positionSeconds - offsetSeconds) % period;
-  return elapsedSourceSeconds / playbackRate < pulseSeconds;
+  if (!beats.length || playbackRate <= 0) return false;
+  let low = 0;
+  let high = beats.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (beats[middle] <= positionSeconds) low = middle + 1;
+    else high = middle;
+  }
+  if (low === 0) return false;
+  return (positionSeconds - beats[low - 1]) / playbackRate < pulseSeconds;
 }

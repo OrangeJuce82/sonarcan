@@ -34,6 +34,9 @@ const MAX_DECODED_CACHE_BYTES: usize = 384 * 1024 * 1024;
 const MAX_DSP_OUTPUT_FRAMES: usize = 1_024;
 const MAX_DSP_INPUT_FRAMES: usize = MAX_DSP_OUTPUT_FRAMES * 2 + 8;
 const MAX_DSP_PREROLL_FRAMES: usize = 65_536;
+const MAX_BEATS: usize = 262_144;
+const MAX_DOWNBEATS: usize = 65_536;
+const MAX_BEAT_POSITION_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 const PCM_CACHE_MAGIC: &[u8; 8] = b"SACPCM01";
 type StemChannelGains = [[f32; 2]; STEM_COUNT];
 
@@ -81,10 +84,10 @@ struct SharedState {
     volume_bits: AtomicU32,
     playback_rate_bits: AtomicU64,
     pitch_semitones_bits: AtomicU32,
-    grid_bpm_bits: AtomicU64,
-    beat_grid_offset_bits: AtomicU64,
+    beat_timeline: ArcSwapOption<BeatTimeline>,
     metronome_enabled: AtomicBool,
     metronome_volume_bits: AtomicU32,
+    metronome_sound: AtomicU32,
     trainer_enabled: AtomicBool,
     trainer_start_bits: AtomicU64,
     trainer_repetitions: AtomicU32,
@@ -97,6 +100,50 @@ struct SharedState {
     output_peak_bits: AtomicU32,
     output_peak_left_bits: AtomicU32,
     output_peak_right_bits: AtomicU32,
+}
+
+#[derive(Clone, Copy)]
+struct BeatPoint {
+    seconds: f64,
+    downbeat: bool,
+}
+
+struct BeatTimeline {
+    points: Vec<BeatPoint>,
+}
+
+impl BeatTimeline {
+    fn from_detected(beats: &[f64], downbeats: &[f64]) -> Result<Self, AppError> {
+        let positions_are_valid = |positions: &[f64], maximum: usize| {
+            positions.len() <= maximum
+                && positions.iter().all(|seconds| {
+                    seconds.is_finite() && *seconds >= 0.0 && *seconds <= MAX_BEAT_POSITION_SECONDS
+                })
+                && positions.windows(2).all(|pair| pair[0] < pair[1])
+        };
+        if !positions_are_valid(beats, MAX_BEATS)
+            || !positions_are_valid(downbeats, MAX_DOWNBEATS)
+            || downbeats.iter().any(|downbeat| {
+                beats
+                    .binary_search_by(|beat| beat.total_cmp(downbeat))
+                    .is_err()
+            })
+        {
+            return Err(AppError::AudioEngine("invalid Beat This! timeline".into()));
+        }
+
+        let points = beats
+            .iter()
+            .copied()
+            .map(|seconds| BeatPoint {
+                seconds,
+                downbeat: downbeats
+                    .binary_search_by(|value| value.total_cmp(&seconds))
+                    .is_ok(),
+            })
+            .collect();
+        Ok(Self { points })
+    }
 }
 
 pub struct AudioEngine {
@@ -126,8 +173,6 @@ pub struct AudioStatus {
     pub stem_peaks: [f32; STEM_COUNT],
     pub playback_rate: f64,
     pub pitch_semitones: f32,
-    pub grid_bpm: Option<f64>,
-    pub beat_grid_offset_seconds: f64,
     pub metronome_enabled: bool,
     pub metronome_volume: f32,
     pub trainer_enabled: bool,
@@ -138,6 +183,33 @@ pub struct AudioStatus {
     pub trainer_loop_count: u32,
     pub end_behavior: EndBehavior,
     pub ended_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum MetronomeSound {
+    #[default]
+    Electronic,
+    Woodblock,
+    Metallic,
+}
+
+impl MetronomeSound {
+    const fn code(self) -> u32 {
+        match self {
+            Self::Electronic => 0,
+            Self::Woodblock => 1,
+            Self::Metallic => 2,
+        }
+    }
+
+    const fn from_code(code: u32) -> Self {
+        match code {
+            1 => Self::Woodblock,
+            2 => Self::Metallic,
+            _ => Self::Electronic,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -199,10 +271,10 @@ impl AudioEngine {
             volume_bits: AtomicU32::new(0.8_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(0_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(false),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(1),
@@ -261,6 +333,7 @@ impl AudioEngine {
         }
         self.shared.playing.store(false, Ordering::Release);
         self.shared.stems.store(None);
+        self.shared.beat_timeline.store(None);
         self.shared.audio.store(Some(decoded));
         if let Ok(mut loaded_path) = self.loaded_path.lock() {
             *loaded_path = Some(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()));
@@ -499,26 +572,22 @@ impl AudioEngine {
             .store(semitones.clamp(-12.0, 12.0).to_bits(), Ordering::Release);
     }
 
-    pub fn set_beat_grid(&self, bpm: Option<f64>, offset_seconds: f64) {
-        self.shared.grid_bpm_bits.store(
-            bpm.filter(|value| value.is_finite())
-                .map(|value| value.clamp(30.0, 300.0))
-                .unwrap_or(0.0)
-                .to_bits(),
-            Ordering::Release,
-        );
-        self.shared
-            .beat_grid_offset_bits
-            .store(offset_seconds.max(0.0).to_bits(), Ordering::Release);
+    pub fn set_beat_timeline(&self, beats: &[f64], downbeats: &[f64]) -> Result<(), AppError> {
+        let timeline = BeatTimeline::from_detected(beats, downbeats)?;
+        self.shared.beat_timeline.store(Some(Arc::new(timeline)));
+        Ok(())
     }
 
-    pub fn set_metronome(&self, enabled: bool, volume: f32) {
+    pub fn set_metronome(&self, enabled: bool, volume: f32, sound: MetronomeSound) {
         self.shared
             .metronome_enabled
             .store(enabled, Ordering::Release);
         self.shared
             .metronome_volume_bits
             .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
+        self.shared
+            .metronome_sound
+            .store(sound.code(), Ordering::Release);
     }
 
     pub fn set_loop_trainer(&self, settings: LoopTrainerSettings) {
@@ -598,13 +667,6 @@ impl AudioEngine {
             playback_rate: f64::from_bits(self.shared.playback_rate_bits.load(Ordering::Acquire)),
             pitch_semitones: f32::from_bits(
                 self.shared.pitch_semitones_bits.load(Ordering::Acquire),
-            ),
-            grid_bpm: match f64::from_bits(self.shared.grid_bpm_bits.load(Ordering::Acquire)) {
-                bpm if bpm > 0.0 => Some(bpm),
-                _ => None,
-            },
-            beat_grid_offset_seconds: f64::from_bits(
-                self.shared.beat_grid_offset_bits.load(Ordering::Acquire),
             ),
             metronome_enabled: self.shared.metronome_enabled.load(Ordering::Acquire),
             metronome_volume: f32::from_bits(
@@ -959,6 +1021,7 @@ impl RealtimeRenderer {
         let mut output_peak = 0.0_f32;
         let mut channel_peaks = [0.0_f32; 2];
         let mut stem_peaks = [0.0_f32; STEM_COUNT];
+        let beat_timeline = shared.beat_timeline.load_full();
         for output_chunk in output.chunks_mut(MAX_DSP_OUTPUT_FRAMES * self.channels) {
             let output_frames = output_chunk.len() / self.channels;
             let output_start_position = position;
@@ -1016,13 +1079,28 @@ impl RealtimeRenderer {
             );
             for (frame_index, frame) in output_chunk.chunks_mut(self.channels).enumerate() {
                 let seek_blend = self.seek_transition.begin_frame(generation);
-                let metronome_position = wrap_loop_position(
+                let metronome_position = metronome_loop_position(
                     output_start_position + frame_index as f64 * source_step * rate,
+                    audio.sample_rate,
                     loop_a,
                     loop_b,
                     valid_loop,
                 );
-                let click = metronome_sample(metronome_position, audio.sample_rate, rate, shared);
+                let metronome_crossfade = loop_crossfade_at(
+                    metronome_position,
+                    audio.sample_rate,
+                    loop_a,
+                    loop_b,
+                    valid_loop,
+                );
+                let click = metronome_sample_with_crossfade(
+                    metronome_position,
+                    audio.sample_rate,
+                    rate,
+                    shared,
+                    beat_timeline.as_deref(),
+                    metronome_crossfade,
+                );
                 for (channel, target) in frame.iter_mut().enumerate() {
                     let value = apply_master_gain(
                         self.processed[frame_index * self.channels + channel],
@@ -1220,6 +1298,7 @@ fn render_with_gains<T>(
     let mut output_peak = 0.0_f32;
     let mut channel_peaks = [0.0_f32; 2];
     let mut stem_peaks = [0.0_f32; STEM_COUNT];
+    let beat_timeline = shared.beat_timeline.load_full();
     for frame in output.chunks_mut(output_channels) {
         let seek_blend = seek_transition
             .as_deref_mut()
@@ -1239,7 +1318,6 @@ fn render_with_gains<T>(
                 break;
             }
         }
-        let click = metronome_sample(position, audio.sample_rate, 1.0, shared);
         let crossfade = loop_crossfade_at(
             position,
             audio.sample_rate,
@@ -1250,6 +1328,15 @@ fn render_with_gains<T>(
                 loop_b
             },
             valid_loop || repeat_full_track,
+        );
+        let metronome_crossfade = if valid_loop { crossfade } else { None };
+        let click = metronome_sample_with_crossfade(
+            position,
+            audio.sample_rate,
+            1.0,
+            shared,
+            beat_timeline.as_deref(),
+            metronome_crossfade,
         );
         for (channel, sample) in frame.iter_mut().enumerate() {
             let value = playback_sample(
@@ -1384,34 +1471,98 @@ fn metronome_sample(
     source_rate: u32,
     playback_rate: f64,
     shared: &SharedState,
+    timeline: Option<&BeatTimeline>,
 ) -> f32 {
     if !shared.metronome_enabled.load(Ordering::Relaxed) {
         return 0.0;
     }
-    let bpm = f64::from_bits(shared.grid_bpm_bits.load(Ordering::Relaxed));
-    if !(30.0..=300.0).contains(&bpm) {
+    let Some(timeline) = timeline else {
         return 0.0;
-    }
-    let offset = f64::from_bits(shared.beat_grid_offset_bits.load(Ordering::Relaxed));
+    };
     let seconds = source_position / source_rate as f64;
-    if seconds < offset {
+    let next_index = timeline
+        .points
+        .partition_point(|point| point.seconds <= seconds);
+    let Some(point) = next_index
+        .checked_sub(1)
+        .and_then(|index| timeline.points.get(index))
+    else {
         return 0.0;
-    }
-    let period = 60.0 / bpm;
-    let grid_position = (seconds - offset) / period;
-    let source_elapsed = (grid_position - grid_position.floor()) * period;
+    };
+    let source_elapsed = seconds - point.seconds;
     let output_elapsed = source_elapsed / playback_rate.max(0.01);
-    const CLICK_SECONDS: f64 = 0.035;
-    if output_elapsed >= CLICK_SECONDS {
-        return 0.0;
-    }
-    let beat = grid_position.floor() as i64;
-    let accented = beat.rem_euclid(4) == 0;
-    let frequency = if accented { 1_760.0 } else { 1_180.0 };
-    let envelope = (1.0 - output_elapsed / CLICK_SECONDS).powi(3) as f32;
-    let oscillator = (std::f64::consts::TAU * frequency * output_elapsed).sin() as f32;
+    let sound = MetronomeSound::from_code(shared.metronome_sound.load(Ordering::Relaxed));
+    let oscillator = synthesize_metronome_sound(sound, output_elapsed, point.downbeat);
     let volume = f32::from_bits(shared.metronome_volume_bits.load(Ordering::Relaxed));
-    oscillator * envelope * volume * if accented { 0.42 } else { 0.28 }
+    oscillator * volume
+}
+
+fn metronome_sample_with_crossfade(
+    source_position: f64,
+    source_rate: u32,
+    playback_rate: f64,
+    shared: &SharedState,
+    timeline: Option<&BeatTimeline>,
+    crossfade: Option<LoopCrossfade>,
+) -> f32 {
+    let primary = metronome_sample(
+        source_position,
+        source_rate,
+        playback_rate,
+        shared,
+        timeline,
+    );
+    let Some(crossfade) = crossfade else {
+        return primary;
+    };
+    let wrapped = metronome_sample(
+        crossfade.wrapped_position,
+        source_rate,
+        playback_rate,
+        shared,
+        timeline,
+    );
+    primary * (1.0 - crossfade.mix) + wrapped * crossfade.mix
+}
+
+fn synthesize_metronome_sound(sound: MetronomeSound, elapsed: f64, downbeat: bool) -> f32 {
+    let tau = std::f64::consts::TAU;
+    match sound {
+        MetronomeSound::Electronic => {
+            const DURATION: f64 = 0.035;
+            if elapsed >= DURATION {
+                return 0.0;
+            }
+            let frequency = if downbeat { 1_760.0 } else { 1_180.0 };
+            let envelope = (1.0 - elapsed / DURATION).powi(3) as f32;
+            let oscillator = (tau * frequency * elapsed).sin() as f32;
+            oscillator * envelope * if downbeat { 0.42 } else { 0.28 }
+        }
+        MetronomeSound::Woodblock => {
+            const DURATION: f64 = 0.055;
+            if elapsed >= DURATION {
+                return 0.0;
+            }
+            let fundamental = if downbeat { 1_050.0 } else { 760.0 };
+            let envelope = (1.0 - elapsed / DURATION).powi(4) as f32;
+            let modes = (tau * fundamental * elapsed).sin()
+                + 0.58 * (tau * fundamental * 1.47 * elapsed).sin()
+                + 0.24 * (tau * fundamental * 2.09 * elapsed).sin();
+            modes as f32 * envelope * if downbeat { 0.34 } else { 0.27 }
+        }
+        MetronomeSound::Metallic => {
+            const DURATION: f64 = 0.075;
+            if elapsed >= DURATION {
+                return 0.0;
+            }
+            let base = if downbeat { 690.0 } else { 510.0 };
+            let envelope = (1.0 - elapsed / DURATION).powi(3) as f32;
+            let partials = (tau * base * elapsed).sin()
+                + 0.72 * (tau * base * 1.53 * elapsed).sin()
+                + 0.38 * (tau * base * 2.37 * elapsed).sin();
+            partials as f32 * envelope * if downbeat { 0.30 } else { 0.23 }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1453,6 +1604,20 @@ fn loop_resume_position(position: f64, sample_rate: u32, loop_a: u64, loop_b: u6
     let resumed =
         loop_a as f64 + loop_crossfade_frames(sample_rate, loop_a, loop_b) as f64 + overshoot;
     wrap_loop_position(resumed, loop_a, loop_b, true)
+}
+
+fn metronome_loop_position(
+    position: f64,
+    sample_rate: u32,
+    loop_a: u64,
+    loop_b: u64,
+    valid_loop: bool,
+) -> f64 {
+    if valid_loop && position >= loop_b as f64 {
+        loop_resume_position(position, sample_rate, loop_a, loop_b)
+    } else {
+        position
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1777,10 +1942,10 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(0_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(true),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(2),
@@ -1947,10 +2112,10 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(0.8_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(0_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(true),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(2),
@@ -2022,10 +2187,10 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(0_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(false),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
@@ -2129,10 +2294,10 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(0_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(true),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(1),
@@ -2196,10 +2361,10 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(0.75_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(3_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(120_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(false),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
@@ -2272,10 +2437,10 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(12_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(0_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(false),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
@@ -2340,10 +2505,10 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
-            grid_bpm_bits: AtomicU64::new(120_f64.to_bits()),
-            beat_grid_offset_bits: AtomicU64::new(0_f64.to_bits()),
+            beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(true),
             metronome_volume_bits: AtomicU32::new(1_f32.to_bits()),
+            metronome_sound: AtomicU32::new(MetronomeSound::Electronic.code()),
             trainer_enabled: AtomicBool::new(false),
             trainer_start_bits: AtomicU64::new(0.5_f64.to_bits()),
             trainer_repetitions: AtomicU32::new(3),
@@ -2358,19 +2523,125 @@ mod tests {
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
         };
 
-        let on_beat = metronome_sample(0.0, 48_000, 1.0, &shared);
-        let just_after_beat = metronome_sample(240.0, 48_000, 1.0, &shared);
-        let between_beats = metronome_sample(12_000.0, 48_000, 1.0, &shared);
+        let timeline = BeatTimeline {
+            points: vec![
+                BeatPoint {
+                    seconds: 0.0,
+                    downbeat: true,
+                },
+                BeatPoint {
+                    seconds: 0.51,
+                    downbeat: false,
+                },
+                BeatPoint {
+                    seconds: 1.03,
+                    downbeat: false,
+                },
+            ],
+        };
+        let on_beat = metronome_sample(0.0, 48_000, 1.0, &shared, Some(&timeline));
+        let just_after_beat = metronome_sample(240.0, 48_000, 1.0, &shared, Some(&timeline));
+        let between_beats = metronome_sample(12_000.0, 48_000, 1.0, &shared, Some(&timeline));
 
         assert_eq!(on_beat, 0.0);
         assert_ne!(just_after_beat, 0.0);
         assert_eq!(between_beats, 0.0);
 
-        shared
-            .beat_grid_offset_bits
-            .store(1_f64.to_bits(), Ordering::Relaxed);
-        assert_eq!(metronome_sample(24_000.0, 48_000, 1.0, &shared), 0.0);
-        assert_ne!(metronome_sample(48_240.0, 48_000, 1.0, &shared), 0.0);
+        assert_eq!(metronome_sample(24_000.0, 48_000, 1.0, &shared, None), 0.0);
+        assert_ne!(
+            metronome_sample(49_440.0 + 240.0, 48_000, 1.0, &shared, Some(&timeline)),
+            0.0
+        );
+        assert_eq!(
+            metronome_sample(
+                4_800.0,
+                48_000,
+                1.0,
+                &shared,
+                Some(&BeatTimeline {
+                    points: vec![BeatPoint {
+                        seconds: 0.5,
+                        downbeat: true,
+                    }],
+                }),
+            ),
+            0.0,
+            "the metronome must remain silent before the first detected beat"
+        );
+
+        let normal_speed = metronome_sample(240.0, 48_000, 1.0, &shared, Some(&timeline));
+        let half_speed = metronome_sample(120.0, 48_000, 0.5, &shared, Some(&timeline));
+        assert!((normal_speed - half_speed).abs() < f32::EPSILON);
+
+        let loop_timeline = BeatTimeline {
+            points: vec![BeatPoint {
+                seconds: 0.5,
+                downbeat: true,
+            }],
+        };
+        let loop_a = 24_000;
+        let loop_b = 48_000;
+        let position_before_b = loop_b as f64 - 288.0;
+        let crossfade = loop_crossfade_at(position_before_b, 48_000, loop_a, loop_b, true);
+        assert_eq!(
+            metronome_sample(
+                position_before_b,
+                48_000,
+                1.0,
+                &shared,
+                Some(&loop_timeline),
+            ),
+            0.0,
+            "the outgoing timeline has no beat near B"
+        );
+        assert_ne!(
+            metronome_sample_with_crossfade(
+                position_before_b,
+                48_000,
+                1.0,
+                &shared,
+                Some(&loop_timeline),
+                crossfade,
+            ),
+            0.0,
+            "the Beat This! click at A must follow the loop-head crossfade"
+        );
+        assert_eq!(
+            metronome_loop_position(loop_b as f64, 48_000, loop_a, loop_b, true),
+            loop_a as f64 + loop_crossfade_frames(48_000, loop_a, loop_b) as f64,
+            "direct and stretched playback must resume the metronome at the same source phase"
+        );
+    }
+
+    #[test]
+    fn beat_timeline_rejects_untrusted_or_inconsistent_positions() {
+        assert!(BeatTimeline::from_detected(&[0.5, 1.0], &[0.5]).is_ok());
+        assert!(BeatTimeline::from_detected(&[1.0, 0.5], &[]).is_err());
+        assert!(BeatTimeline::from_detected(&[0.5, f64::NAN], &[]).is_err());
+        assert!(BeatTimeline::from_detected(&[0.5], &[0.6]).is_err());
+        assert!(BeatTimeline::from_detected(&[MAX_BEAT_POSITION_SECONDS + 1.0], &[]).is_err());
+    }
+
+    #[test]
+    fn metronome_timbres_are_distinct_bounded_bursts() {
+        let elapsed = 0.005;
+        let electronic = synthesize_metronome_sound(MetronomeSound::Electronic, elapsed, false);
+        let woodblock = synthesize_metronome_sound(MetronomeSound::Woodblock, elapsed, false);
+        let metallic = synthesize_metronome_sound(MetronomeSound::Metallic, elapsed, false);
+
+        assert!((electronic - woodblock).abs() > 0.01);
+        assert!((woodblock - metallic).abs() > 0.01);
+        for sample in [electronic, woodblock, metallic] {
+            assert!(sample.is_finite());
+            assert!(sample.abs() <= 1.0);
+        }
+        for sound in [
+            MetronomeSound::Electronic,
+            MetronomeSound::Woodblock,
+            MetronomeSound::Metallic,
+        ] {
+            assert_eq!(synthesize_metronome_sound(sound, 0.1, false), 0.0);
+        }
     }
 
     #[test]

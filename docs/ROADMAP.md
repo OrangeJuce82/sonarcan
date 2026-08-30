@@ -46,11 +46,9 @@
 - [x] streaming pitch reset fix with a stem-mix-to-pitch integration regression test
 - [x] debounced speed/pitch controls with click-free 40 ms real-time parameter smoothing
 - [x] global header volume, mute, compact slider, and Rust-backed output peak meter
-- [x] automatic BPM analysis with a persistent per-track cache
-- [x] editable and persisted BPM with automatic-analysis fallback
-- [x] button and keyboard tap tempo with outlier-resistant interval averaging
-- [x] visible beat grid with an editable beat-one anchor and 10 ms nudging
-- [x] Rust real-time metronome synchronized to speed changes, seeks, and loops
+- [x] Beat This! beat/downbeat analysis with a source-aware disposable cache and indicative BPM
+- [x] waveform grid driven by individual detected beat timestamps
+- [x] Rust real-time metronome synchronized to detected beats, speed changes, seeks, and loops
 - [x] bounded concurrent background import queue with progress and error diagnostics
 - [ ] background-job cancellation
 - [x] optional HTDemucs 6s separation through the supervised `demucs-mlx` worker
@@ -88,9 +86,8 @@
 - [x] loop trainer with configurable repetitions, increments, and target tempo
 - [x] Loop Trainer compatibility with A/B loops and complete-track normal playback
 - [x] keyboard shortcuts for playback, jumps, and loop points
-- [x] automatic BPM detection and cached display
-- [x] editable BPM, synchronized metronome, and beat grid
-- [ ] time signatures, draggable grid gesture, markers, and sections
+- [x] Beat This! beat/downbeat detection, indicative BPM, synchronized metronome, and waveform grid
+- [ ] time signatures, markers, and sections
 - [x] persisted and synchronized playback state
 
 ## Phase 3 — analysis and models

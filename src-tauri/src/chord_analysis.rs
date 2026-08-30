@@ -23,7 +23,7 @@ use crate::{
     error::AppError,
 };
 
-const CACHE_VERSION: u32 = 9;
+const CACHE_VERSION: u32 = 10;
 const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 32 * 1024;
 const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024;
@@ -80,8 +80,11 @@ impl ChordAnalysisService {
         }
 
         let worker = resolve_worker(app)?;
+        let downbeat_model = resolve_downbeat_model(app)?;
         let mut child = Command::new(&worker.executable)
             .args(&worker.prefix_arguments)
+            .arg("--downbeat-model")
+            .arg(downbeat_model)
             .arg(media_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -213,6 +216,29 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
         Err(AppError::ChordAnalysis(
             "the bundled LV-Chordia runtime is unavailable".into(),
         ))
+    }
+}
+
+fn resolve_downbeat_model(app: &AppHandle) -> Result<PathBuf, AppError> {
+    #[cfg(debug_assertions)]
+    {
+        let _ = app;
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/models/beat-this/final0.ckpt");
+        path.is_file().then_some(path).ok_or_else(|| {
+            AppError::ChordAnalysis(
+                "the Beat This! model is unavailable; run npm run chords:downbeat-model".into(),
+            )
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = app;
+        return crate::python_runtime::resource_path("models/beat-this/final0.ckpt")
+            .filter(|path| path.is_file())
+            .ok_or_else(|| {
+                AppError::ChordAnalysis("the bundled Beat This! model is unavailable".into())
+            });
     }
 }
 
@@ -348,6 +374,10 @@ mod tests {
             cache_version: CACHE_VERSION,
             track_id,
             model_version: "lv-chordia@test".into(),
+            downbeat_model_version: "beat-this@test".into(),
+            bpm: Some(120.0),
+            beats: vec![0.5, 1.0, 1.5, 2.0, 2.5],
+            downbeats: vec![0.5, 2.5],
             modes: BTreeMap::new(),
         }
     }

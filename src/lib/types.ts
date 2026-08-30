@@ -22,8 +22,6 @@ export interface PracticeState {
   loopEnabled: boolean;
   loopASeconds: number | null;
   loopBSeconds: number | null;
-  gridBpm: number | null;
-  beatGridOffsetSeconds: number;
   metronomeEnabled: boolean;
   metronomeVolume: number;
   trainerEnabled: boolean;
@@ -84,8 +82,6 @@ export interface AudioStatus {
   stemPeaks: number[];
   playbackRate: number;
   pitchSemitones: number;
-  gridBpm: number | null;
-  beatGridOffsetSeconds: number;
   metronomeEnabled: boolean;
   metronomeVolume: number;
   trainerEnabled: boolean;
@@ -98,13 +94,6 @@ export interface AudioStatus {
   endedGeneration: number;
 }
 
-export interface TempoAnalysis {
-  cacheVersion: number;
-  trackId: string;
-  bpm: number | null;
-  confidence: number;
-}
-
 export interface TimedChord {
   label: string;
   startSeconds: number;
@@ -114,11 +103,16 @@ export interface TimedChord {
 }
 
 export type ChordMode = "essential" | "standard" | "complete";
+export type MetronomeSound = "electronic" | "woodblock" | "metallic";
 
 export interface ChordAnalysis {
   cacheVersion: number;
   trackId: string;
   modelVersion: string;
+  downbeatModelVersion: string;
+  bpm: number | null;
+  beats: number[];
+  downbeats: number[];
   modes: Record<ChordMode, TimedChord[]>;
 }
 
@@ -144,7 +138,7 @@ export type ChannelPreference = "preserve" | "stereo" | "mono";
 export type Mp3Quality = "vbrHigh" | "kbps320" | "kbps256" | "kbps192";
 export type LoopLoadPosition = "beginning" | "loopStart";
 export type TimeDisplay = "simple" | "precise";
-export interface UserPreferences { theme: Theme; language: "en" | "fr"; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; metronomeVolume: number; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
+export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; metronomeVolume: number; metronomeSound: MetronomeSound; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
 export type ImportJobState = "queued" | "downloading" | "converting" | "importing" | "completed" | "failed";
 export interface ImportJob { id: string; label: string; state: ImportJobState; progress: number; error: string | null; suggestion: string | null; diagnostic: string | null; }
 export interface ImportCandidate { input: string; title: string; detail: string; kind: "local" | "video" | "playlist" | "search"; }

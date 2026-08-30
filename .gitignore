@@ -16,5 +16,6 @@ src-tauri/resources/audio-tools/*
 src-tauri/resources/ytdlp-search/yt-dlp
 src-tauri/resources/models/demucs-mlx/*.safetensors
 src-tauri/resources/models/demucs-mlx/*_config.json
+src-tauri/resources/models/beat-this/*.ckpt
 release-artifacts/
 .idea/workspace.xml

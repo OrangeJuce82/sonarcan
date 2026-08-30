@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeChordIndexAt, chordColor, chordDisplayLabel, chordRepertoire, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, chordColor, chordDisplayLabel, chordOccurrencesAtDownbeats, chordRepertoire, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
@@ -43,4 +43,28 @@ test("the active chord is shown shortly before its exact boundary", () => {
   assert.equal(activeChordIndexAt(chords, 12.334), 0);
   assert.equal(activeChordIndexAt(chords, 12.335), 1);
   assert.equal(activeChordIndexAt(chords, 12.345), 1);
+});
+
+test("downbeats preserve repeated measures without changing the chord decision", () => {
+  const chords = [
+    { label: "A", strength: 0.9, startSeconds: 0, endSeconds: 2 },
+    { label: "G", strength: 0.8, startSeconds: 2, endSeconds: 4 },
+    { label: "D", strength: 0.9, startSeconds: 4, endSeconds: 6 },
+    { label: "A", strength: 0.85, startSeconds: 6, endSeconds: 10 },
+    { label: "G", strength: 0.8, startSeconds: 10, endSeconds: 12 },
+    { label: "D", strength: 0.9, startSeconds: 12, endSeconds: 14 },
+    { label: "A", strength: 0.9, startSeconds: 14, endSeconds: 16 },
+  ];
+
+  const occurrences = chordOccurrencesAtDownbeats(chords, [0, 2, 4, 6, 8, 10, 12, 14]);
+  assert.deepEqual(occurrences.map(({ label }) => label), ["A", "G", "D", "A", "A", "G", "D", "A"]);
+  assert.deepEqual(occurrences.filter(({ label, startSeconds }) => label === "A" && startSeconds >= 6 && startSeconds < 10).map(({ startSeconds }) => startSeconds), [6, 8]);
+  assert.equal(occurrences[4].strength, 0.85);
+});
+
+test("downbeat projection leaves raw segments untouched and works without downbeats", () => {
+  const chords = [{ label: "Am", strength: 0.7, startSeconds: 1, endSeconds: 5 }];
+  assert.deepEqual(chordOccurrencesAtDownbeats(chords, []), chords);
+  assert.deepEqual(chordOccurrencesAtDownbeats(chords, [0, 1, 5]), chords);
+  assert.deepEqual(chords, [{ label: "Am", strength: 0.7, startSeconds: 1, endSeconds: 5 }]);
 });

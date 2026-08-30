@@ -191,7 +191,7 @@ button:disabled { opacity: .4; cursor: default; }
 .visualizer { padding: 16px; min-height: 300px; }
 .wave { position: relative; height: 205px; border-block: 1px solid #27343a; overflow: hidden; touch-action: none; cursor: grab; user-select: none; }
 .wave.dragging { cursor: grabbing; }
-.wave svg, .overview-wave svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wave svg, .overview-wave svg { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
 .wave svg line { stroke: #56c9c1; stroke-width: 1; opacity: .8; }
 .wave-message { position: absolute; inset: 0; display: grid; place-items: center; color: #657981; font-size: .8rem; }
 .wave-skeleton { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; color: #82969d; font-size: .72rem; letter-spacing: .04em; }
@@ -206,9 +206,13 @@ button:disabled { opacity: .4; cursor: default; }
 .load-states .bpm { padding: 3px 7px; border-color: #38555a; color: #71cfc7; background: #122326; font-size: .65rem; }
 .load-states .loaded { color: #58aaa4; }
 .mini-spinner, .button-spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid #385158; border-top-color: #66d2c9; border-radius: 50%; animation: spin .7s linear infinite; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.bpm-indicator { min-width: 72px; }
+.bpm-indicator > strong, .bpm-indicator-value { display: flex; align-items: center; justify-content: center; min-height: 30px; color: var(--text); font-variant-numeric: tabular-nums; }
+.bpm-indicator-value .mini-spinner { width: 13px; height: 13px; }
 .button-spinner { width: 17px; height: 17px; border-color: #6f572c; border-top-color: #17130b; }
-.playhead, .overview-playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: #e1a23d; pointer-events: none; }
-.beat-grid { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.playhead, .overview-playhead { position: absolute; z-index: 6; top: 0; bottom: 0; width: 1px; background: #e1a23d; pointer-events: none; }
+.beat-grid { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
 .beat-grid i { position: absolute; top: 0; bottom: 0; width: 1px; background: #9cb4ba24; }
 .beat-grid i.accent { background: #d9a64a55; box-shadow: 1px 0 #0005; }
 .beat-grid.overview i { background: #9cb4ba18; }
@@ -262,6 +266,7 @@ button:disabled { opacity: .4; cursor: default; }
 .practice-right-controls { justify-content: flex-end; }
 .metronome-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .metronome-control { justify-content: flex-end; }
+.metronome-sound { width: 94px; min-width: 0; height: 28px; padding: 3px 20px 3px 6px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); background: var(--surface); font-size: .62rem; }
 .metronome-control button.active { border-color: #d9a64a; background: #3a2d17; color: #ffd892; }
 .metronome-control button.beating { color: #fff5cf; background: #78581d; border-color: #ffd36a; box-shadow: 0 0 0 2px #d9a64a33, 0 0 14px #d9a64a66; }
 .metronome-volume { display: flex; align-items: center; gap: 6px; color: #71858d; }
@@ -284,6 +289,7 @@ button:disabled { opacity: .4; cursor: default; }
 .stereo-track { height: 9px; overflow: hidden; border: 1px solid #304047; border-radius: 999px; background: #10191d; }
 .stereo-track i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #4fc5bd 0 72%, #d8aa4e 86%, #db5966 100%); transition: width 70ms linear; }
 .loop-controls { display: grid; gap: 5px; }
+.loop-actions .control-separator { width: 1px; height: 22px; margin-inline: 2px; background: var(--button-border); }
 .loop-actions .loop-action-a { border-color: #b78af0; color: #f0e3ff; background: #281a38e8; }
 .loop-actions .loop-action-a:hover:not(:disabled) { border-color: #d2b5ff; color: #fff4ff; background: #3a2750; }
 .loop-actions .loop-action-b { border-color: #d99c3c; color: #ffd698; background: #302619e8; }

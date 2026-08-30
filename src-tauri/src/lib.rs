@@ -8,6 +8,7 @@ mod error;
 mod ffmpeg;
 mod importer;
 mod native_menu;
+mod native_menu_translations;
 mod preferences;
 mod project;
 mod python_runtime;
@@ -16,7 +17,6 @@ mod spectrum;
 mod stem_contract;
 mod stems;
 mod system_metrics;
-mod tempo;
 mod waveform;
 mod youtube_search;
 
@@ -271,8 +271,11 @@ fn save_preferences(
         .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
     app.state::<audio_engine::AudioEngine>()
         .set_volume(saved.master_volume);
-    app.state::<audio_engine::AudioEngine>()
-        .set_metronome(false, saved.metronome_volume);
+    app.state::<audio_engine::AudioEngine>().set_metronome(
+        false,
+        saved.metronome_volume,
+        saved.metronome_sound,
+    );
     Ok(saved)
 }
 
@@ -509,17 +512,22 @@ fn audio_set_pitch(engine: State<'_, audio_engine::AudioEngine>, semitones: f32)
 }
 
 #[tauri::command]
-fn audio_set_beat_grid(
+fn audio_set_beat_timeline(
     engine: State<'_, audio_engine::AudioEngine>,
-    bpm: Option<f64>,
-    offset_seconds: f64,
-) {
-    engine.set_beat_grid(bpm, offset_seconds);
+    beats: Vec<f64>,
+    downbeats: Vec<f64>,
+) -> Result<(), AppError> {
+    engine.set_beat_timeline(&beats, &downbeats)
 }
 
 #[tauri::command]
-fn audio_set_metronome(engine: State<'_, audio_engine::AudioEngine>, enabled: bool, volume: f32) {
-    engine.set_metronome(enabled, volume);
+fn audio_set_metronome(
+    engine: State<'_, audio_engine::AudioEngine>,
+    enabled: bool,
+    volume: f32,
+    sound: audio_engine::MetronomeSound,
+) {
+    engine.set_metronome(enabled, volume, sound);
 }
 
 #[tauri::command]
@@ -650,27 +658,6 @@ async fn get_waveform(
 }
 
 #[tauri::command]
-async fn analyze_tempo(
-    app: AppHandle,
-    package_path: PathBuf,
-    track_id: uuid::Uuid,
-) -> Result<tempo::TempoAnalysis, AppError> {
-    info!(project = %package_path.display(), %track_id, "analyzing tempo");
-    tauri::async_runtime::spawn_blocking(move || {
-        if let Some(cached) = tempo::load_cached(&package_path, track_id) {
-            return Ok(cached);
-        }
-        let media_path = project::track_media_path(&package_path, track_id)?;
-        let decoded = app
-            .state::<audio_engine::AudioEngine>()
-            .decoded_for_analysis(&media_path)?;
-        tempo::analyze_and_store_from_decoded(&package_path, track_id, &decoded)
-    })
-    .await
-    .map_err(|error| AppError::BackgroundTask(error.to_string()))?
-}
-
-#[tauri::command]
 async fn analyze_chords(
     app: AppHandle,
     package_path: PathBuf,
@@ -751,7 +738,6 @@ pub fn run() {
             update_practice_state,
             save_project_as,
             get_waveform,
-            analyze_tempo,
             analyze_chords,
             cancel_chord_analysis,
             list_recent_projects,
@@ -781,7 +767,7 @@ pub fn run() {
             audio_set_volume,
             audio_set_playback_rate,
             audio_set_pitch,
-            audio_set_beat_grid,
+            audio_set_beat_timeline,
             audio_set_metronome,
             audio_set_loop_trainer,
             audio_set_end_behavior,

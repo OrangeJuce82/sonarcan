@@ -2,15 +2,16 @@
 
 ## Loading and decoded-audio cache
 
-Compressed media is decoded on Tauri's blocking worker pool, never on the UI thread or the CPAL callback. The engine keeps a metadata-validated LRU cache of up to three recently used decoded tracks, capped at 384 MiB. Playback, waveform generation, and tempo analysis share the same immutable PCM data and coordinate in-flight requests, so selecting one track never starts several identical decoders.
+Compressed media is decoded on Tauri's blocking worker pool, never on the UI thread or the CPAL callback. The engine keeps a metadata-validated LRU cache of up to three recently used decoded tracks, capped at 384 MiB. Playback and waveform generation share the same immutable PCM data and coordinate in-flight requests, so selecting one track never starts several identical decoders.
 
-Development builds use light optimization for SonArcan and full optimization for third-party audio and DSP crates. On the 175-second MP3 used for the August 2026 loading benchmark, waveform availability improved from about 10.26 seconds with the default debug profile to about 208 ms (172 ms decode plus 36 ms reduction). The release build measured 127 ms overall (123 ms decode plus 4 ms reduction). BPM analysis now starts only after the selected audio is ready, so it cannot compete with the initial decode. Release optimization remains unchanged.
+Development builds use light optimization for SonArcan and full optimization for third-party audio and DSP crates. On the 175-second MP3 used for the August 2026 loading benchmark, waveform availability improved from about 10.26 seconds with the default debug profile to about 208 ms (172 ms decode plus 36 ms reduction). The release build measured 127 ms overall (123 ms decode plus 4 ms reduction). Beat This! analysis starts only after the selected audio is ready, so it cannot compete with the initial decode. Release optimization remains unchanged.
 
-Chord recognition is not part of playback or decoded-audio ownership. It starts
-only after the selected track is ready, runs in a supervised LV-Chordia process,
-and can be killed when track selection changes. Model inference and official
-dictionary decoding never execute on the CPAL callback. The worker reads the
-canonical original media directly; it does not depend on stems, the beat grid,
+Chord and downbeat recognition are not part of playback or decoded-audio
+ownership. They start only after the selected track is ready and run in one
+supervised process containing independent LV-Chordia and Beat This! models. The
+process can be killed when track selection changes. Model inference and official
+decoding never execute on the CPAL callback. The worker reads the canonical
+original media directly; it does not depend on stems, UI beat visualization,
 or decoded playback PCM. The webview receives only the final bounded timed-chord
 contract and seeks through the existing Rust transport command when a segment
 is activated. Chord-card navigation targets the exact model timestamp. The UI
@@ -18,6 +19,10 @@ anticipates only the active-chord highlight by 10 ms so transport refresh and
 sample rounding cannot briefly leave the preceding chord highlighted; stored,
 displayed, and sought timestamps remain unchanged. Cache revisions track the
 pinned model contract.
+
+On the August 30, 2026 Apple-silicon integration check, Beat This! detected 75
+downbeats in a 173-second MP3 in 6.47 seconds on MPS. The warmed combined
+LV-Chordia and Beat This! worker completed the same track in 9.27 seconds.
 
 Every in-flight decode is removed from the coordination set on both success and failure before waiting callers are notified. A damaged or unreadable media file therefore cannot leave waveform, playback, or tempo requests waiting permanently.
 
@@ -110,13 +115,26 @@ The UI updates its readout immediately and applies a 65 ms trailing debounce bef
 
 ## Tempo analysis
 
-Automatic BPM analysis runs outside the real-time callback using the shared decoded PCM. It derives a short-hop energy-onset envelope and evaluates normalized autocorrelation candidates from 60 to 200 BPM. Results and confidence are stored under `Analysis/tempo/<track-id>.json`, so reopening a project or revisiting a track does not repeat the analysis.
+Beat This! detects the track's beat and downbeat timestamps in the supervised
+analysis worker. The displayed BPM is an indication derived from the median
+interval between detected beats; it is not an editable timing source. The old
+energy-autocorrelation tempo analyzer and its separate cache have been removed.
 
 ## Beat grid and metronome
 
-Each track can override the automatically detected tempo with an editable BPM from 30 to 300 BPM. A is always beat one: moving or resetting the loop start immediately moves the grid and metronome origin with it. The metronome stays silent during any lead-in before A. BPM, the derived A offset, and the metronome enabled state are part of the track practice state; metronome volume is a global preference.
+The waveform grid and metronome use Beat This!'s individual beat timestamps,
+not a regular interval synthesized from BPM. Detected downbeats receive the
+accented grid line and click. This preserves expressive tempo variation and
+prevents a wrong scalar BPM from shifting the grid. The metronome stays silent
+before the first detected beat. Its enabled state remains part of track practice
+state; volume and timbre are global preferences.
 
-The metronome is synthesized directly in the CPAL callback. It performs no allocation, locking, or IPC. Beat phase is derived from the current source position, BPM, and grid offset, which keeps the click aligned after seeks and A/B loop wraps. Playback speed changes the real-time spacing between clicks automatically while preserving alignment with the source waveform. Every fourth beat is accented; editable time signatures are a later roadmap item.
+The detailed waveform draws the detected timestamps only once the view reaches
+`1.5×` zoom and keeps the full-song overview clear. An independent UI magnet can
+snap A/B placement to the nearest detected beat. It does not synthesize
+subdivisions or alter playback timing, and `M` remains the metronome shortcut.
+
+The metronome is synthesized directly in the CPAL callback. It performs no allocation, locking, or IPC. The user can choose an electronic sine burst, a woodblock made from short modal resonances, or a metallic sound made from inharmonic partials. Each timbre uses a higher pitch and gain for detected downbeats. Beat phase is derived from the detected beat timeline and current source position, which keeps the click aligned after seeks and A/B loop wraps. Playback speed changes the real-time spacing between clicks automatically while preserving alignment with the source waveform.
 
 ## Loop trainer
 
@@ -148,7 +166,7 @@ A dedicated `sonarcan-spectrum` Rust worker analyzes a 2,048-sample Hann window 
 
 - A complete decoded track is held in memory.
 - Output-device changes require an engine restart.
-- Automatic BPM is an estimate; manual correction and beat-grid alignment are not implemented yet.
+- The displayed BPM is an indicative summary; timing deliberately follows the detected beat sequence instead.
 - The UI polls lightweight atomic status; a versioned event stream will replace polling later.
 
 These limitations are explicit roadmap items and are not hidden behind simulated controls.
