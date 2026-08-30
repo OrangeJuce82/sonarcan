@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 
-const MODE_NAMES: [&str; 4] = ["essential", "fundamentals", "standard", "complete"];
+const MODE_NAMES: [&str; 3] = ["essential", "standard", "complete"];
 const MAX_SEGMENTS_PER_MODE: usize = 8_192;
 const MAX_DURATION_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 
@@ -48,7 +48,7 @@ impl WorkerAnalysis {
                 .iter()
                 .any(|name| !self.modes.contains_key(*name))
         {
-            return Err(invalid_output("the four LV-Chordia modes are required"));
+            return Err(invalid_output("the three LV-Chordia modes are required"));
         }
         for segments in self.modes.values() {
             validate_segments(segments)?;
@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_exactly_four_bounded_lv_chordia_modes() {
+    fn accepts_exactly_three_bounded_lv_chordia_modes() {
         let modes = MODE_NAMES
             .into_iter()
             .map(|name| (name.into(), vec![segment("Csus2")]))
@@ -120,7 +120,7 @@ mod tests {
         .validate(Uuid::nil(), 9)
         .unwrap();
         assert_eq!(result.modes["standard"][0].label, "Csus2");
-        assert_eq!(result.modes["fundamentals"][0].label, "Csus2");
+        assert_eq!(result.modes["essential"][0].label, "Csus2");
     }
 
     #[test]

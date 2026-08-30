@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { chordColor, chordDisplayLabel, chordRepertoire, visibleChords } from "./chordViews.ts";
+import { chordColor, chordDisplayLabel, chordRepertoire, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
@@ -15,10 +15,21 @@ test("the score filter is dynamic and does not relabel results", () => {
 
 test("no-chord is displayed as a neutral dash", () => {
   assert.equal(chordDisplayLabel("N"), "-");
-  assert.equal(chordColor("N", 1, "score"), "#7b898f");
+  assert.equal(chordColor("N", 1, "score"), "var(--muted)");
 });
 
 test("root colors ignore chord quality", () => {
   assert.equal(chordColor("C", 1, "root"), chordColor("Cm", 0.2, "root"));
   assert.notEqual(chordColor("C", 1, "root"), chordColor("D", 1, "root"));
+});
+
+test("all model modes share the selected accidental spelling", () => {
+  assert.equal(presentChordLabel("C#min7/G#", 0, "flat"), "Dbmin7/Ab");
+  assert.equal(presentChordLabel("Dbmin7/Ab", 0, "sharp"), "C#min7/G#");
+  assert.equal(presentChordLabel("N", 4, "flat"), "N");
+});
+
+test("presented chords follow the playback pitch without changing timing or confidence", () => {
+  assert.deepEqual(presentChordSequence([chord("Bb", 0.8)], 2, "sharp"), [chord("C", 0.8)]);
+  assert.equal(presentChordLabel("D7/F#", -2, "flat"), "C7/E");
 });

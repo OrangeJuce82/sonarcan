@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import native_triad_frames, segment_frames, sonarcan_label
+from .core import sonarcan_label
 from .engine import DICTIONARIES, FACTOR_NAMES, SOURCE_REVISION, dictionary_decode, verify_checkpoints
 
 
@@ -36,12 +36,7 @@ def analyze(audio_path: Path, requested_device: str = "auto") -> dict:
     entry.append_extractor(CQTV2, "cqt")
     members = [network.inference(entry.cqt) for network in ensemble]
     probabilities = [np.mean([member[index] for member in members], axis=0) for index in range(len(FACTOR_NAMES))]
-    frame_seconds = DEFAULT_HOP_LENGTH / DEFAULT_SR
-    fundamentals = segment_frames(native_triad_frames(probabilities[0]), frame_seconds)
-
-    modes: dict[str, list[dict]] = {
-        "fundamentals": [_timed(segment, segment["label"]) for segment in fundamentals],
-    }
+    modes: dict[str, list[dict]] = {}
     for mode, dictionary in DICTIONARIES.items():
         segments = dictionary_decode(entry, probabilities, dictionary)
         modes[mode] = [_timed(segment, sonarcan_label(segment["rawLabel"])) for segment in segments]

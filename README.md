@@ -33,7 +33,7 @@ SonArcan helps musicians work through a band playlist without the complexity of 
 - Structured diagnostics and project-format tests
 
 Editable time signatures and grid gestures are tracked in the [development roadmap](docs/ROADMAP.md).
-The chord engine's runtime architecture, trust boundary, and four user modes
+The chord engine's runtime architecture, trust boundary, and three user modes
 are documented in [Chord analysis](docs/CHORD_ANALYSIS.md).
 
 ## Development

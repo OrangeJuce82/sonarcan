@@ -13,7 +13,9 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(not(debug_assertions))]
+use tauri::Manager;
 use uuid::Uuid;
 
 use crate::{
@@ -194,44 +196,52 @@ fn ensure_current(active: &AtomicU64, generation: u64) -> Result<(), AppError> {
 }
 
 fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
-    if let Ok(resources) = app.path().resource_dir() {
-        for relative in [
-            "chord-runtime/runtime/bin/python3.12",
-            "chord-runtime/runtime/bin/python3",
-            "chord-runtime/runtime/python.exe",
-        ] {
-            let executable = resources.join(relative);
-            if executable.is_file() {
-                return Ok(WorkerCommand {
-                    executable,
-                    prefix_arguments: vec!["-m".into(), "sonarcan_chord_worker.worker".into()],
-                });
-            }
-        }
-    }
     #[cfg(debug_assertions)]
     {
-        let project = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
-            .join("tools/sonarcan-chord-worker");
-        Ok(WorkerCommand {
-            executable: PathBuf::from("uv"),
-            prefix_arguments: vec![
-                "run".into(),
-                "--project".into(),
-                project.to_string_lossy().into_owned(),
-                "--locked".into(),
-                "python".into(),
-                "-m".into(),
-                "sonarcan_chord_worker.worker".into(),
-            ],
-        })
+        let _ = app;
+        Ok(development_worker())
     }
     #[cfg(not(debug_assertions))]
-    Err(AppError::ChordAnalysis(
-        "the bundled LV-Chordia runtime is unavailable".into(),
-    ))
+    {
+        if let Ok(resources) = app.path().resource_dir() {
+            for relative in [
+                "chord-runtime/runtime/bin/python3.12",
+                "chord-runtime/runtime/bin/python3",
+                "chord-runtime/runtime/python.exe",
+            ] {
+                let executable = resources.join(relative);
+                if executable.is_file() {
+                    return Ok(WorkerCommand {
+                        executable,
+                        prefix_arguments: vec!["-m".into(), "sonarcan_chord_worker.worker".into()],
+                    });
+                }
+            }
+        }
+        Err(AppError::ChordAnalysis(
+            "the bundled LV-Chordia runtime is unavailable".into(),
+        ))
+    }
+}
+
+#[cfg(debug_assertions)]
+fn development_worker() -> WorkerCommand {
+    let project = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+        .join("tools/sonarcan-chord-worker");
+    WorkerCommand {
+        executable: PathBuf::from("uv"),
+        prefix_arguments: vec![
+            "run".into(),
+            "--project".into(),
+            project.to_string_lossy().into_owned(),
+            "--locked".into(),
+            "python".into(),
+            "-m".into(),
+            "sonarcan_chord_worker.worker".into(),
+        ],
+    }
 }
 
 fn source_identity(path: &Path) -> Result<(u64, u128), AppError> {
@@ -365,6 +375,17 @@ mod tests {
             load_cached(temporary.path(), track_id, (13, 34)).unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn development_uses_the_current_source_worker() {
+        let worker = development_worker();
+        assert_eq!(worker.executable, PathBuf::from("uv"));
+        assert!(worker
+            .prefix_arguments
+            .windows(2)
+            .any(|arguments| arguments[0] == "--project"
+                && arguments[1].ends_with("tools/sonarcan-chord-worker")));
     }
 
     #[cfg(unix)]

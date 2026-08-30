@@ -41,19 +41,22 @@ Raw audio buffers and full-resolution waveform data must not cross the JSON IPC 
 
 Timed chord analysis follows the same boundary through a pinned LV-Chordia
 Python worker. The worker reads the canonical original media, runs the learned
-five-model ensemble, and emits four bounded timed-label sequences: the official
-`ismir2017`, `submission`, and `full` dictionary decodes plus direct native
-triad-head output. It does not use stems, tonal rules, the beat grid, or a
+five-model ensemble, and emits three bounded timed-label sequences using the
+official `ismir2017`, `submission`, and `full` dictionary decodes. It does not
+use stems, tonal rules, the beat grid, or a
 SonArcan decoder. Rust validates the four sequences, supervises cancellation,
 rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
-The chord panel wraps segments into a vertically scrollable grid. Playback can
-follow the active segment automatically. Standard (`submission`) is the default;
-Essentiel, Fondamentaux, and Complet expose the other native model views. The
+The analysis workspace places the six-stem mixer beside a right-hand column
+containing the spectrum and stereo meter. Beneath it, the chord grid and an
+always-visible two-octave keyboard use a 40/60 split. The chord panel wraps segments into a vertically
+scrollable grid. Playback can follow the active segment automatically. Standard (`submission`) is the default;
+Essentiel and Complet expose the other native model views. The
 panel can filter the uncalibrated model score, color by score or root, show a
-full-width keyboard, and switch to an alphabetical repertoire of unique chords.
+consistent sharp or flat spelling, follow the playback pitch transposition, and
+switch to an alphabetical repertoire of unique chords.
 `N` is retained in data and rendered as `-`.
 
 The webview is strictly a control surface. It never decodes audio or owns playback timing, looping, gain, time-stretching, or pitch-shifting. Those operations always run in Rust; TypeScript only sends control parameters and displays snapshots of engine state.

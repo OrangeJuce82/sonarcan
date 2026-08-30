@@ -13,7 +13,7 @@
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { shouldHandleGlobalShortcut } from "./lib/globalShortcuts";
-  import { chordColor, chordDisplayLabel, chordRepertoire, chordsForMode, visibleChords, type ChordColorMode } from "./lib/chordViews";
+  import { chordColor, chordDisplayLabel, chordRepertoire, chordsForMode, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
   import Icon from "./lib/Icon.svelte";
   import ChordKeyboard from "./lib/ChordKeyboard.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
@@ -67,9 +67,10 @@
   let chordMode: ChordMode = "standard";
   let chordMinimumStrength = 0;
   let chordColorMode: ChordColorMode = "root";
+  let chordAccidentalMode: ChordAccidentalMode = "flat";
   let chordView: "timeline" | "repertoire" = "timeline";
   let repertoireKeyboardLabel: string | null = null;
-  let chordKeyboardVisible = true;
+  let lastRepertoirePlaybackLabel: string | null = null;
   let chordList: HTMLElement | undefined;
   let lastFollowedChordIndex = -1;
   let gridBpm: number | null = null;
@@ -214,11 +215,15 @@
   $: consoleOrigins = logOrigins(appLogs);
   $: filteredAppLogs = filterLogs(appLogs, consoleMinimumLevel, consoleOrigin);
   $: decodedChords = chordsForMode(chordAnalysis, chordMode);
-  $: displayedChords = visibleChords(decodedChords, chordMinimumStrength);
+  $: displayedChords = visibleChords(presentChordSequence(decodedChords, pitchSemitones, chordAccidentalMode), chordMinimumStrength);
   $: repertoireLabels = chordRepertoire(displayedChords);
   $: activeChordIndex = displayedChords.findIndex((chord) => currentSeconds >= chord.startSeconds && currentSeconds < chord.endSeconds);
   $: activeChord = activeChordIndex >= 0 ? displayedChords[activeChordIndex] ?? null : null;
   $: activeChordLabel = repertoireKeyboardLabel ?? activeChord?.label ?? "N";
+  $: if (chordView === "repertoire" && (activeChord?.label ?? null) !== lastRepertoirePlaybackLabel) {
+    lastRepertoirePlaybackLabel = activeChord?.label ?? null;
+    repertoireKeyboardLabel = null;
+  }
   $: if (chordView === "timeline" && chordAutoScroll && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
     lastFollowedChordIndex = activeChordIndex;
     followChord(activeChordIndex);
@@ -1692,6 +1697,7 @@
 
   function setPitch(value: number): void {
     pitchSemitones = Math.round(Math.max(-12, Math.min(12, value)) * 100) / 100;
+    repertoireKeyboardLabel = null;
     const target = pitchSemitones;
     window.clearTimeout(pitchTimer);
     pitchTimer = window.setTimeout(() => {
@@ -2253,24 +2259,7 @@
         <div class="transport-trainer-progress"><i style={`width:${Math.max(0, Math.min(100, trainerLoopCount / trainerRepetitions * 100))}%`}></i></div>
       </div>
 
-      <div class="visualization-row">
-        <div class="spectrum panel">
-          <div class="panel-title"><h2>{t("spectrum")}</h2><span>30 Hz — 20 kHz · FFT 2048</span></div>
-          <div class="spectrum-bars" aria-label={t("spectrum")}>
-            {#each spectrumBands as magnitude, index}<i style={`height:${Math.max(1, magnitude * 100)}%;--band:${index}`}></i>{/each}
-          </div>
-          <div class="spectrum-scale"><span>30</span><span>100</span><span>1k</span><span>10k</span><span>20k Hz</span></div>
-        </div>
-        <div class="stereo-meter panel">
-          <div class="panel-title"><h2>{t("stereoMeter")}</h2></div>
-          <div class="stereo-meter-channels">
-            <div class="stereo-channel"><span>L</span><div class="stereo-track" role="meter" aria-label={`${t("leftChannel")} ${Math.round(masterPeakLeft * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakLeft * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakLeft * 100))}%`}></i></div><output>{Math.round(masterPeakLeft * 100)}%</output></div>
-            <div class="stereo-channel"><span>R</span><div class="stereo-track" role="meter" aria-label={`${t("rightChannel")} ${Math.round(masterPeakRight * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakRight * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakRight * 100))}%`}></i></div><output>{Math.round(masterPeakRight * 100)}%</output></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="lower-grid">
+      <div class="analysis-grid">
         <div class="panel stem-panel" class:stem-bypassed={stems.state === "ready" && !stems.enabled}>
           <div class="panel-title stem-panel-title">
             <label class="stem-switch" data-tooltip={t("stemSwitchHelp")}>
@@ -2319,14 +2308,42 @@
             </div>
           {/if}
         </div>
+        <div class="analysis-visuals">
+          <div class="spectrum panel">
+            <div class="panel-title"><h2>{t("spectrum")}</h2><span>30 Hz — 20 kHz · FFT 2048</span></div>
+            <div class="spectrum-bars" aria-label={t("spectrum")}>
+              {#each spectrumBands as magnitude, index}<i style={`height:${Math.max(1, magnitude * 100)}%;--band:${index}`}></i>{/each}
+            </div>
+            <div class="spectrum-scale"><span>30</span><span>100</span><span>1k</span><span>10k</span><span>20k Hz</span></div>
+          </div>
+          <div class="stereo-meter panel">
+            <div class="panel-title"><h2>{t("stereoMeter")}</h2></div>
+            <div class="stereo-meter-channels">
+              <div class="stereo-channel"><span>L</span><div class="stereo-track" role="meter" aria-label={`${t("leftChannel")} ${Math.round(masterPeakLeft * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakLeft * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakLeft * 100))}%`}></i></div><output>{Math.round(masterPeakLeft * 100)}%</output></div>
+              <div class="stereo-channel"><span>R</span><div class="stereo-track" role="meter" aria-label={`${t("rightChannel")} ${Math.round(masterPeakRight * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakRight * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakRight * 100))}%`}></i></div><output>{Math.round(masterPeakRight * 100)}%</output></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="harmony-grid">
         <div class="panel chord-panel">
-          <div class="panel-title">
-            <h2>{t("chords")}</h2>
-            <div class="chord-panel-actions">
-              {#if chordsLoading}<span><i class="mini-spinner"></i>{t("analyzingChords")}</span>{/if}
+          <div class="panel-title chord-panel-title">
+            <div class="chord-title-row">
+              <div class="chord-title-label">
+                <h2>{t("chords")}</h2>
+                {#if chordsLoading}<span class="chord-title-loader" aria-label={t("analyzingChords")} data-tooltip={t("analyzingChords")}><i class="mini-spinner"></i></span>{/if}
+              </div>
+              <div class="chord-panel-actions">
+                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; }}><Icon name="book-open" size="13px" /></button>
+                <button aria-label={t("chordColors")} data-tooltip={t("chordColorsHelp")} onclick={() => chordColorMode = chordColorMode === "root" ? "score" : "root"}>{chordColorMode === "root" ? "12" : "%"}</button>
+                <button class="chord-accidental-toggle" aria-label={t("chordAccidentals")} data-tooltip={t("chordAccidentalsHelp")} onclick={() => chordAccidentalMode = chordAccidentalMode === "sharp" ? "flat" : "sharp"}>{chordAccidentalMode === "sharp" ? "♯" : "♭"}</button>
+                <button disabled={chordView !== "timeline"} class:active={chordView === "timeline" && chordAutoScroll} aria-pressed={chordView === "timeline" && chordAutoScroll} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="12px" /></button>
+              </div>
+            </div>
+            <div class="chord-filter-row">
               <select aria-label={t("chordMode")} data-tooltip={t("chordModeHelp")} bind:value={chordMode} onchange={() => { repertoireKeyboardLabel = null; lastFollowedChordIndex = -1; }}>
                 <option value="essential">{t("chordEssential")}</option>
-                <option value="fundamentals">{t("chordFundamentals")}</option>
                 <option value="standard">{t("chordStandard")}</option>
                 <option value="complete">{t("chordComplete")}</option>
               </select>
@@ -2334,10 +2351,6 @@
                 <option value={0}>{t("chordConfidenceAll")}</option>
                 <option value={0.25}>≥ 25%</option><option value={0.5}>≥ 50%</option><option value={0.7}>≥ 70%</option><option value={0.85}>≥ 85%</option>
               </select>
-              <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; }}><Icon name="music" size="12px" /></button>
-              <button aria-label={t("chordColors")} data-tooltip={t("chordColorsHelp")} onclick={() => chordColorMode = chordColorMode === "root" ? "score" : "root"}>{chordColorMode === "root" ? "12" : "%"}</button>
-              <button class:active={chordKeyboardVisible} aria-pressed={chordKeyboardVisible} aria-label={t("toggleChordKeyboard")} data-tooltip={t("toggleChordKeyboardHelp")} onclick={() => chordKeyboardVisible = !chordKeyboardVisible}><Icon name="keyboard" size="13px" /></button>
-              {#if chordView === "timeline"}<button class:active={chordAutoScroll} aria-pressed={chordAutoScroll} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="12px" /></button>{/if}
             </div>
           </div>
           {#if chordAnalysisError}
@@ -2363,7 +2376,9 @@
               <div class="chords chord-repertoire" aria-label={t("chordRepertoire")}>
                 {#each repertoireLabels as label}
                   <button
-                    class:active={repertoireKeyboardLabel === label}
+                    class:active={activeChord?.label === label}
+                    class:selected={repertoireKeyboardLabel === label && activeChord?.label !== label}
+                    aria-current={activeChord?.label === label ? "true" : undefined}
                     style={`--chord-color:${chordColor(label, Math.max(...displayedChords.filter((chord) => chord.label === label).map((chord) => chord.strength)), chordColorMode)}`}
                     aria-label={`${label}, ${t("showChordOnKeyboard")}`}
                     data-tooltip={t("showChordOnKeyboard")}
@@ -2372,8 +2387,11 @@
                 {/each}
               </div>
             {/if}
-            {#if chordKeyboardVisible}<ChordKeyboard label={activeChordLabel} accessibleLabel={t("chordKeyboard")} />{/if}
           {/if}
+        </div>
+        <div class="panel keyboard-panel">
+          <div class="panel-title"><h2>{t("chordKeyboard")}</h2><strong class="keyboard-current-chord" style={`--chord-color:${chordColor(activeChordLabel, activeChord?.strength ?? 1, chordColorMode)}`}>{chordDisplayLabel(activeChordLabel)}</strong></div>
+          <ChordKeyboard label={activeChordLabel} accessibleLabel={t("chordKeyboard")} accidentals={chordAccidentalMode} />
         </div>
       </div>
       {:else}

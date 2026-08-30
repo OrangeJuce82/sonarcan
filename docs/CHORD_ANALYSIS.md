@@ -10,7 +10,7 @@ beat/downbeat constraint, or SonArcan harmonic decoder in the production path.
 original audio
   -> LV-Chordia CQT and five-model learned ensemble
   -> native factor probabilities
-  -> official LV-Chordia dictionary or native triad head
+  -> official LV-Chordia dictionary decode
   -> bounded timed-chord JSON
   -> Rust validation, cancellation, and versioned cache
   -> interface
@@ -24,8 +24,6 @@ PCM through JSON IPC.
 ## User modes
 
 - **Essentiel**: official `ismir2017` dictionary.
-- **Fondamentaux**: direct argmax of the native 73-class triad head: `N` plus
-  12 roots for Major, Minor, Diminished, Augmented, Sus2, and Sus4.
 - **Standard**: official `submission` dictionary and application default.
 - **Complet**: official `full` dictionary; exposed as experimental because the
   original research repository calls it untested and not recommended.

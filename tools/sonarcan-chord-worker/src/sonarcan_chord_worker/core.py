@@ -7,13 +7,8 @@ stem fusion, or family-specific threshold in this module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
-
-import numpy as np
-
 PITCH_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 FLAT_PITCH_NAMES = ("C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B")
-TRIAD_QUALITIES = ("Major", "Minor", "Sus4", "Sus2", "Diminished", "Augmented")
 QUALITY_SUFFIX = {
     "Major": "",
     "Minor": "m",
@@ -30,19 +25,6 @@ class FrameLabel:
     label: str
     family: str
     root: str | None
-    score: float
-
-
-def decode_triad_class(class_id: int, score: float) -> FrameLabel:
-    """Decode the native 73-class ChordNet triad head (N + 6×12)."""
-    if class_id == 0:
-        return FrameLabel("N", "N", None, score)
-    if not 1 <= class_id <= 72:
-        raise ValueError(f"triad class outside 0..72: {class_id}")
-    zero_based = class_id - 1
-    family = TRIAD_QUALITIES[zero_based // 12]
-    root = PITCH_NAMES[zero_based % 12]
-    return FrameLabel(f"{root}{QUALITY_SUFFIX[family]}", family, root, score)
 
 
 def pitch_class(note: str) -> int:
@@ -54,40 +36,10 @@ def pitch_class(note: str) -> int:
         raise ValueError(f"invalid chord root: {note}") from error
 
 
-def native_triad_frames(probabilities: np.ndarray) -> list[FrameLabel]:
-    if probabilities.ndim != 2 or probabilities.shape[1] != 73:
-        raise ValueError(f"expected [frames, 73] triad probabilities, got {probabilities.shape}")
-    class_ids = np.argmax(probabilities, axis=1)
-    return [decode_triad_class(int(class_id), float(probabilities[index, class_id])) for index, class_id in enumerate(class_ids)]
-
-
-def segment_frames(frames: Iterable[FrameLabel], frame_seconds: float) -> list[dict]:
-    labels = list(frames)
-    if not labels:
-        return []
-    result: list[dict] = []
-    start = 0
-    for index in range(1, len(labels) + 1):
-        if index < len(labels) and labels[index].label == labels[start].label:
-            continue
-        run = labels[start:index]
-        result.append({
-            "label": run[0].label,
-            "displayLabel": "-" if run[0].label == "N" else run[0].label,
-            "family": run[0].family,
-            "root": run[0].root,
-            "startSeconds": round(start * frame_seconds, 6),
-            "endSeconds": round(index * frame_seconds, 6),
-            "strength": float(np.mean([frame.score for frame in run])),
-        })
-        start = index
-    return result
-
-
 def reduced_label(raw_label: str) -> FrameLabel:
     """Drop extensions from a dictionary label without changing root/triad."""
     if raw_label in {"N", "X"}:
-        return FrameLabel("N", "N", None, 0.0)
+        return FrameLabel("N", "N", None)
     root, separator, suffix = raw_label.partition(":")
     if not separator:
         raise ValueError(f"invalid LV-Chordia label: {raw_label}")
@@ -104,7 +56,7 @@ def reduced_label(raw_label: str) -> FrameLabel:
         family = "Sus4"
     else:
         family = "Major"
-    return FrameLabel(f"{root}{QUALITY_SUFFIX[family]}", family, root, 0.0)
+    return FrameLabel(f"{root}{QUALITY_SUFFIX[family]}", family, root)
 
 
 def sonarcan_label(raw_label: str) -> str:

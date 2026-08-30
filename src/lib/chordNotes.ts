@@ -1,4 +1,5 @@
 const PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
+const FLAT_PITCH_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const;
 
 const FLAT_PITCHES: Record<string, number> = {
   Cb: 11, Db: 1, Eb: 3, Fb: 4, Gb: 6, Ab: 8, Bb: 10,
@@ -59,4 +60,13 @@ export function parseChordLabel(label: string): ParsedChord | null {
   };
 }
 
+export function keyboardPosition(pitch: number, root: number): number {
+  return pitch < root ? pitch + 12 : pitch;
+}
+
+export function chordKeyboardPositions(chord: ParsedChord): number[] {
+  return chord.pitches.map((pitch) => keyboardPosition(pitch, chord.root));
+}
+
 export const keyboardPitchNames = PITCH_NAMES;
+export const keyboardFlatPitchNames = FLAT_PITCH_NAMES;

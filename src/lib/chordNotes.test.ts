@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseChordLabel } from "./chordNotes.ts";
+import { chordKeyboardPositions, parseChordLabel } from "./chordNotes.ts";
 
 test("the keyboard spells the supported triads and extensions", () => {
   assert.deepEqual(parseChordLabel("Dm")?.pitchNames, ["D", "F", "A"]);
@@ -21,4 +21,11 @@ test("the keyboard accepts flats and rejects unknown or absent chords", () => {
   assert.deepEqual(parseChordLabel("Bbmaj7")?.pitchNames, ["A#", "D", "F", "A"]);
   assert.equal(parseChordLabel("N"), null);
   assert.equal(parseChordLabel("Cadd13"), null);
+});
+
+test("the two-octave keyboard displays every chord tone only once", () => {
+  const c = parseChordLabel("C");
+  const bDiminished = parseChordLabel("Bdim");
+  assert.deepEqual(c && chordKeyboardPositions(c), [0, 4, 7]);
+  assert.deepEqual(bDiminished && chordKeyboardPositions(bDiminished), [11, 14, 17]);
 });

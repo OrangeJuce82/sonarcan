@@ -113,7 +113,7 @@ export interface TimedChord {
   strength: number;
 }
 
-export type ChordMode = "essential" | "fundamentals" | "standard" | "complete";
+export type ChordMode = "essential" | "standard" | "complete";
 
 export interface ChordAnalysis {
   cacheVersion: number;
