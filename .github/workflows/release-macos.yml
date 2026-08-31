@@ -38,6 +38,8 @@ jobs:
           cache-dependency-glob: |
             tools/sonarcan-mlx-worker/uv.lock
             tools/sonarcan-chord-worker/uv.lock
+      - name: Install pinned Python runtime
+        run: uv python install 3.12.12
       - run: npm ci
       - run: npm run verify:release-version
       - name: Restore converted MLX model
