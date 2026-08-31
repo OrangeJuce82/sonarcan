@@ -56,6 +56,8 @@ jobs:
       - name: Assemble pinned release runtime
         run: npm run mlx:runtime
       - run: npm run verify:mlx-release
+      - name: Prepare pinned Beat This! model
+        run: npm run chords:downbeat-model
       - name: Assemble pinned LV-Chordia runtime
         run: npm run chords:runtime
       - run: npm run verify:chord-release
