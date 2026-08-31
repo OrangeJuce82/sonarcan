@@ -61,9 +61,11 @@ struct ProjectSession {
 }
 
 const APPLICATION_EXIT_REQUESTED: &str = "application-exit-requested";
+#[cfg(target_os = "macos")]
 const PROJECT_OPEN_REQUESTED: &str = "project-open-requested";
 
 impl ProjectSession {
+    #[cfg(any(target_os = "macos", test))]
     fn queue_open_project(&self, path: PathBuf) {
         *self
             .pending_open_project
@@ -79,6 +81,7 @@ impl ProjectSession {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn is_sonarcan_project_path(path: &std::path::Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
