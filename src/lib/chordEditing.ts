@@ -11,6 +11,17 @@ const COMMON_CHORD_TEMPLATES = [
 
 const NATURAL_PITCHES: Readonly<Record<string, number>> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
+export type ChordEditKeyboardAction = "acceptSuggestion" | "cancel" | "commit";
+
+export function chordEditKeyboardAction(
+  key: string,
+  suggestionNavigationActive: boolean,
+): ChordEditKeyboardAction | null {
+  if (key === "Enter") return suggestionNavigationActive ? "acceptSuggestion" : "commit";
+  if (key === "Escape") return "cancel";
+  return null;
+}
+
 export function chordEditKey(mode: ChordMode, chord: Pick<TimedChord, "startSeconds" | "endSeconds">): string {
   return `${mode}:${chord.startSeconds}:${chord.endSeconds}`;
 }

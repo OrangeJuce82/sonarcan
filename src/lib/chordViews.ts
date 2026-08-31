@@ -3,6 +3,14 @@ import type { ChordAnalysis, ChordMode, TimedChord } from "./types.ts";
 export type ChordColorMode = "score" | "root";
 export type ChordAccidentalMode = "flat" | "sharp";
 
+export interface ChordGridItem {
+  index: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 const ROOT_COLORS = Array.from({ length: 12 }, (_, pitch) => `var(--chord-tone-${pitch})`);
 const SHARP_PITCHES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 const FLAT_PITCHES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const;
@@ -64,23 +72,67 @@ export function adjacentChordPosition(
   direction: -1 | 1,
 ): number {
   if (!chords.length || !Number.isFinite(positionSeconds)) return positionSeconds;
+  const navigationToleranceSeconds = 0.01;
   const starts = chords.map((chord) => chord.startSeconds);
   let low = 0;
   let high = starts.length;
   if (direction < 0) {
     while (low < high) {
       const middle = (low + high) >>> 1;
-      if ((starts[middle] ?? 0) < positionSeconds) low = middle + 1;
+      if ((starts[middle] ?? 0) < positionSeconds - navigationToleranceSeconds) low = middle + 1;
       else high = middle;
     }
     return starts[low - 1] ?? positionSeconds;
   }
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((starts[middle] ?? 0) <= positionSeconds) low = middle + 1;
+    if ((starts[middle] ?? 0) <= positionSeconds + navigationToleranceSeconds) low = middle + 1;
     else high = middle;
   }
   return starts[low] ?? positionSeconds;
+}
+
+export function adjacentChordTransportPosition(
+  chords: readonly TimedChord[],
+  positionSeconds: number,
+  direction: -1 | 1,
+): number {
+  if (!chords.length || !Number.isFinite(positionSeconds)) return positionSeconds;
+  const activeIndex = chords.findIndex((chord) => (
+    positionSeconds >= chord.startSeconds - 0.01
+      && positionSeconds < chord.endSeconds
+  ));
+  if (activeIndex >= 0) {
+    const targetIndex = Math.max(0, Math.min(chords.length - 1, activeIndex + direction));
+    return chords[targetIndex]?.startSeconds ?? positionSeconds;
+  }
+  return adjacentChordPosition(chords, positionSeconds, direction);
+}
+
+export function adjacentChordGridIndex(
+  items: readonly ChordGridItem[],
+  currentIndex: number,
+  direction: -1 | 1,
+): number {
+  const current = items.find((item) => item.index === currentIndex);
+  if (!current) return currentIndex;
+  const currentX = current.left + current.width / 2;
+  const currentY = current.top + current.height / 2;
+  const candidates = items.flatMap((item) => {
+    if (item.index === currentIndex) return [];
+    const centerY = item.top + item.height / 2;
+    const verticalDistance = direction < 0 ? currentY - centerY : centerY - currentY;
+    return verticalDistance > 1 ? [{ item, verticalDistance }] : [];
+  });
+  if (!candidates.length) return currentIndex;
+  const nearestRowDistance = Math.min(...candidates.map(({ verticalDistance }) => verticalDistance));
+  return candidates
+    .filter(({ verticalDistance }) => Math.abs(verticalDistance - nearestRowDistance) <= 2)
+    .sort((left, right) => {
+      const leftDistance = Math.abs(left.item.left + left.item.width / 2 - currentX);
+      const rightDistance = Math.abs(right.item.left + right.item.width / 2 - currentX);
+      return leftDistance - rightDistance || left.item.index - right.item.index;
+    })[0]?.item.index ?? currentIndex;
 }
 
 export function nearestChordPosition(

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeChordIndexAt, adjacentChordPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
@@ -56,8 +56,37 @@ test("chord navigation follows the previous and next displayed segment starts", 
   assert.equal(adjacentChordPosition(chords, 4, -1), 0);
   assert.equal(adjacentChordPosition(chords, 5, 1), 8);
   assert.equal(adjacentChordPosition(chords, 4, 1), 8);
+  assert.equal(adjacentChordPosition(chords, 4 - 1 / 48_000, 1), 8);
+  assert.equal(adjacentChordPosition(chords, 4 + 1 / 48_000, -1), 0);
   assert.equal(adjacentChordPosition(chords, 12, 1), 12);
   assert.equal(adjacentChordPosition([], 5, -1), 5);
+});
+
+test("vertical chord navigation follows the actual responsive grid rows", () => {
+  const grid = (columns: number) => Array.from({ length: 8 }, (_, index) => ({
+    index,
+    left: (index % columns) * 100,
+    top: Math.floor(index / columns) * 50,
+    width: 80,
+    height: 32,
+  }));
+  assert.equal(adjacentChordGridIndex(grid(3), 4, -1), 1);
+  assert.equal(adjacentChordGridIndex(grid(3), 4, 1), 7);
+  assert.equal(adjacentChordGridIndex(grid(2), 4, -1), 2);
+  assert.equal(adjacentChordGridIndex(grid(2), 4, 1), 6);
+  assert.equal(adjacentChordGridIndex(grid(3), 7, 1), 7);
+});
+
+test("chord transport moves strictly between segments while playback advances", () => {
+  const chords = [
+    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 4 },
+    { ...chord("Dm", 0.8), startSeconds: 4, endSeconds: 8 },
+    { ...chord("G", 0.8), startSeconds: 8, endSeconds: 12 },
+  ];
+  assert.equal(adjacentChordTransportPosition(chords, 4.25, -1), 0);
+  assert.equal(adjacentChordTransportPosition(chords, 4.25, 1), 8);
+  assert.equal(adjacentChordTransportPosition(chords, 8.03, -1), 4);
+  assert.equal(adjacentChordTransportPosition(chords, 8.03, 1), 8);
 });
 
 test("Option waveform seeking chooses the closest displayed chord start", () => {

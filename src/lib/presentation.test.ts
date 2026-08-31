@@ -15,12 +15,14 @@ import {
   panWaveformViewportFromWheel,
   resizeWaveformViewport,
   shouldApplyAudioStatus,
+  shouldApplyAudioStatusPosition,
   trackLoadPosition,
   transportJumpPosition,
   visiblePeaks,
   waveformViewportForWindow,
   waveformWheelAxis,
   waveformSeekPosition,
+  waveformShowsDetail,
   zoomWaveformViewport,
 } from "./presentation.ts";
 
@@ -28,6 +30,13 @@ test("audio status from the previous track cannot overwrite the selected track",
   assert.equal(shouldApplyAudioStatus(false, 4, 4, "track-b", "track-b"), true);
   assert.equal(shouldApplyAudioStatus(true, 4, 4, "track-b", "track-b"), false);
   assert.equal(shouldApplyAudioStatus(false, 3, 4, "track-a", "track-b"), false);
+});
+
+test("audio status captured across a seek cannot restore a stale position", () => {
+  assert.equal(shouldApplyAudioStatusPosition(4, 4, false, false), true);
+  assert.equal(shouldApplyAudioStatusPosition(3, 4, false, false), false);
+  assert.equal(shouldApplyAudioStatusPosition(4, 4, true, false), false);
+  assert.equal(shouldApplyAudioStatusPosition(4, 4, false, true), false);
 });
 
 test("buildProjectPath preserves absolute and Windows path navigation", () => {
@@ -91,19 +100,27 @@ test("visiblePeaks keeps extrema while reducing the sample count", () => {
 test("detected beat lines preserve irregular timing and downbeat accents", () => {
   const beats = [0.4, 0.91, 1.43, 1.96, 2.5];
   const downbeats = [0.4, 2.5];
-  assert.deepEqual(calculateDetectedBeatLines(beats, downbeats, 6, true, 1, 0), []);
-  assert.deepEqual(calculateDetectedBeatLines(beats, downbeats, 6, false, 8, 0), []);
+  assert.deepEqual(calculateDetectedBeatLines(beats, downbeats, 120, true, 1, 0), []);
+  assert.deepEqual(calculateDetectedBeatLines(beats, downbeats, 120, false, 8, 0), []);
 
-  const mediumZoomLines = calculateDetectedBeatLines(beats, downbeats, 6, true, 2, 0);
+  const mediumZoomLines = calculateDetectedBeatLines(beats, downbeats, 120, true, 2, 0);
   assert.deepEqual(mediumZoomLines.map(({ accent }) => accent), [true, true]);
-  assert.equal(mediumZoomLines[1]?.percent, 2.5 / 6 * 2 * 100);
+  assert.equal(mediumZoomLines[1]?.percent, 2.5 / 120 * 2 * 100);
 
-  const closeZoomLines = calculateDetectedBeatLines(beats, downbeats, 20, true, 5, 0);
+  const closeZoomLines = calculateDetectedBeatLines(beats, downbeats, 120, true, 4, 0);
   assert.deepEqual(closeZoomLines.map(({ accent }) => accent), [true, false, false, false, true]);
-  assert.equal(closeZoomLines[1]?.percent, 0.91 / 20 * 5 * 100);
+  assert.equal(closeZoomLines[1]?.percent, 0.91 / 120 * 4 * 100);
+  assert.equal(calculateDetectedBeatLines(beats, downbeats, 20, true, 1, 0).length, beats.length);
   assert.equal(isDetectedBeatActive(0.42, beats, 1), true);
   assert.equal(isDetectedBeatActive(0.7, beats, 1), false);
   assert.equal(isDetectedBeatActive(0.95, beats, 0.5), true);
+});
+
+test("waveform details appear whenever the visible window fits thirty seconds", () => {
+  assert.equal(waveformShowsDetail(120, 4), true);
+  assert.equal(waveformShowsDetail(90, 3), true);
+  assert.equal(waveformShowsDetail(20, 1), true);
+  assert.equal(waveformShowsDetail(120, 3.9), false);
 });
 
 test("loop boundaries snap to the nearest detected Beat This! beat", () => {

@@ -12,9 +12,9 @@
   import { ImportSearchCache } from "./lib/importSearchCache";
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
-  import { parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
-  import { activeChordIndexAt, adjacentChordPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
-  import { applyChordEdits, chordEditKey, chordSuggestions, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
+  import { parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
+  import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
+  import { applyChordEdits, chordEditKey, chordEditKeyboardAction, chordSuggestions, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
   import Icon from "./lib/Icon.svelte";
   import ChordKeyboard from "./lib/ChordKeyboard.svelte";
   import FretboardChord from "./lib/FretboardChord.svelte";
@@ -23,7 +23,7 @@
   import Modal from "./lib/Modal.svelte";
   import Toaster from "./lib/Toaster.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
-  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, nearestDetectedBeat, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, trackLoadPosition, transportJumpPosition, visiblePeaks, waveformSeekPosition, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, WAVEFORM_DETAIL_ZOOM, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, nearestDetectedBeat, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, transportJumpPosition, visiblePeaks, waveformSeekPosition, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, MetronomeSound, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
@@ -69,6 +69,8 @@
   let chordAnalysisError = "";
   let chordScrollSuspended = false;
   let chordPointerInside = false;
+  let chordFocusWithin = false;
+  let chordFocusRestorePending = false;
   let chordProgrammaticScroll = false;
   let chordMode: ChordMode = "standard";
   let chordMinimumStrength = 0;
@@ -80,6 +82,7 @@
   let editingChordKey: string | null = null;
   let chordEditValue = "";
   let chordEditInvalid = false;
+  let chordSuggestionNavigationActive = false;
   let harmonyView: "piano" | "guitar" | "ukulele" = "piano";
   let pianoInversion = 0;
   let pianoVoicing: "close" | "open" = "close";
@@ -172,6 +175,7 @@
   let seekAnimationFrame: number | undefined;
   let pendingSeekPosition: number | null = null;
   let seekRequestActive = false;
+  let seekGeneration = 0;
   let activeWaveformWheelAxis: WaveformWheelAxis | null = null;
   let waveformWheelAxisTimer: number | undefined;
   let statusRequestActive = false;
@@ -284,7 +288,7 @@
   $: effectiveChords = applyChordEdits(decodedChords, chordEdits, chordMode);
   $: displayedChords = visibleChords(presentChordSequence(effectiveChords, pitchSemitones, chordAccidentalMode), chordMinimumStrength);
   $: timelineChords = chordTimeline(displayedChords);
-  $: waveformChordBlocks = waveformZoom >= WAVEFORM_DETAIL_ZOOM
+  $: waveformChordBlocks = waveformShowsDetail(durationSeconds, waveformZoom)
     ? chordViewportBlocks(timelineChords, durationSeconds, waveformZoom, waveformStart)
     : [];
   $: repertoireLabels = chordRepertoire(displayedChords);
@@ -341,6 +345,7 @@
   function resumeChordFollow(): void {
     chordPointerInside = false;
     chordProgrammaticScroll = false;
+    if (chordFocusWithin) return;
     if (!chordScrollSuspended) return;
     chordScrollSuspended = false;
     if (activeChordIndex < 0) return;
@@ -351,27 +356,56 @@
   function selectChord(chord: TimedChord): void {
     selectedChordKey = chordEditKey(chordMode, chord);
     repertoireKeyboardLabel = null;
-    seek(chord.startSeconds);
+  }
+
+  function selectChordFromButton(event: MouseEvent, chord: TimedChord): void {
+    (event.currentTarget as HTMLButtonElement).focus({ preventScroll: true });
+    selectChord(chord);
   }
 
   function beginChordEdit(chord: TimedChord): void {
     selectChord(chord);
+    chordView = "timeline";
     editingChordKey = chordEditKey(chordMode, chord);
     chordEditValue = chord.label;
     chordEditInvalid = false;
+    chordSuggestionNavigationActive = false;
     chordScrollSuspended = true;
   }
 
-  function cancelChordEdit(): void {
-    editingChordKey = null;
-    chordEditInvalid = false;
+  function beginChordEditFromButton(event: MouseEvent, chord: TimedChord): void {
+    (event.currentTarget as HTMLButtonElement).focus({ preventScroll: true });
+    beginChordEdit(chord);
   }
 
-  function commitChordEdit(replaceAllSimilar: boolean, cancelInvalid = false): void {
+  function restoreSelectedChordFocus(key: string): void {
+    chordFocusRestorePending = true;
+    queueMicrotask(() => {
+      if (!chordList || selectedChordKey !== key) {
+        chordFocusRestorePending = false;
+        return;
+      }
+      const index = timelineChords.findIndex((chord) => chordEditKey(chordMode, chord) === key);
+      const target = chordList.querySelector<HTMLButtonElement>(`button[data-chord-index="${index}"]`);
+      chordFocusRestorePending = false;
+      target?.focus({ preventScroll: true });
+    });
+  }
+
+  function cancelChordEdit(restoreFocus = false): void {
+    const editedKey = editingChordKey;
+    editingChordKey = null;
+    chordEditInvalid = false;
+    chordSuggestionNavigationActive = false;
+    if (restoreFocus && editedKey) restoreSelectedChordFocus(editedKey);
+  }
+
+  function commitChordEdit(replaceAllSimilar: boolean, cancelInvalid = false, restoreFocus = false): void {
     if (!editingChordKey) return;
+    const editedKey = editingChordKey;
     const displayLabel = validateChordEntry(chordEditValue, chordAccidentalMode);
     if (!displayLabel) {
-      if (cancelInvalid) cancelChordEdit();
+      if (cancelInvalid) cancelChordEdit(restoreFocus);
       else chordEditInvalid = true;
       return;
     }
@@ -379,18 +413,31 @@
     chordEdits = updateChordEdits(decodedChords, chordEdits, chordMode, editingChordKey, baseLabel, replaceAllSimilar);
     editingChordKey = null;
     chordEditInvalid = false;
+    chordSuggestionNavigationActive = false;
     schedulePracticeSave(0);
+    if (restoreFocus) restoreSelectedChordFocus(editedKey);
   }
 
   function handleChordEditKeydown(event: KeyboardEvent): void {
-    if (event.key === "Enter") {
+    if (event.key.length === 1 || event.key === "Backspace" || event.key === "Delete") {
+      chordSuggestionNavigationActive = false;
+    }
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && chordSuggestions(chordEditValue).length) {
+      chordSuggestionNavigationActive = true;
+      return;
+    }
+    const action = chordEditKeyboardAction(event.key, chordSuggestionNavigationActive);
+    if (action === "acceptSuggestion") {
+      event.stopPropagation();
+      chordSuggestionNavigationActive = false;
+    } else if (action === "commit") {
       event.preventDefault();
       event.stopPropagation();
-      commitChordEdit(event.shiftKey);
-    } else if (event.key === "Escape") {
+      commitChordEdit(event.shiftKey, false, true);
+    } else if (action === "cancel") {
       event.preventDefault();
       event.stopPropagation();
-      cancelChordEdit();
+      cancelChordEdit(true);
     }
   }
 
@@ -399,6 +446,71 @@
     event.preventDefault();
     event.stopPropagation();
     beginChordEdit(chord);
+  }
+
+  function selectedChordIndex(): number {
+    if (!selectedChordKey) return -1;
+    return timelineChords.findIndex((chord) => chordEditKey(chordMode, chord) === selectedChordKey);
+  }
+
+  function focusChordAtIndex(targetIndex: number): void {
+    if (chordView !== "timeline" || !chordList || !timelineChords.length) return;
+    const buttons = [...chordList.querySelectorAll<HTMLButtonElement>("button[data-chord-index]")];
+    const target = buttons.find((button) => Number(button.dataset.chordIndex) === targetIndex);
+    const chord = timelineChords[targetIndex];
+    if (!target || !chord) return;
+
+    target.focus({ preventScroll: true });
+    selectChord(chord);
+
+    const viewport = chordList.getBoundingClientRect();
+    const bounds = target.getBoundingClientRect();
+    const topOverflow = bounds.top - viewport.top;
+    const bottomOverflow = bounds.bottom - viewport.bottom;
+    const scrollDelta = topOverflow < 0 ? topOverflow : bottomOverflow > 0 ? bottomOverflow : 0;
+    if (scrollDelta === 0) return;
+    chordProgrammaticScroll = true;
+    chordList.scrollTop += scrollDelta;
+    window.requestAnimationFrame(() => chordProgrammaticScroll = false);
+  }
+
+  function moveChordTimelineSelection(direction: -1 | 1): void {
+    if (chordView !== "timeline" || !timelineChords.length) return;
+    const selectedIndex = selectedChordIndex();
+    const anchorIndex = selectedIndex >= 0 ? selectedIndex : activeChordIndex;
+    const targetIndex = anchorIndex < 0
+      ? (direction > 0 ? 0 : timelineChords.length - 1)
+      : Math.max(0, Math.min(timelineChords.length - 1, anchorIndex + direction));
+    focusChordAtIndex(targetIndex);
+  }
+
+  function moveChordGridSelection(direction: -1 | 1): void {
+    if (chordView !== "timeline" || !chordList || !timelineChords.length) return;
+    const buttons = [...chordList.querySelectorAll<HTMLButtonElement>("button[data-chord-index]")];
+    const selectedIndex = selectedChordIndex();
+    const currentIndex = selectedIndex >= 0 ? selectedIndex : Math.max(0, activeChordIndex);
+    const targetIndex = adjacentChordGridIndex(
+      buttons.map((button) => {
+        const bounds = button.getBoundingClientRect();
+        return {
+          index: Number(button.dataset.chordIndex),
+          left: bounds.left,
+          top: bounds.top,
+          width: bounds.width,
+          height: bounds.height,
+        };
+      }),
+      currentIndex,
+      direction,
+    );
+    focusChordAtIndex(targetIndex);
+  }
+
+  function leaveChordGridFocus(event: FocusEvent): void {
+    if (chordList?.contains(event.relatedTarget as Node | null)) return;
+    if (chordFocusRestorePending) return;
+    chordFocusWithin = false;
+    if (!chordPointerInside) resumeChordFollow();
   }
 
   function changeChordMode(mode: ChordMode): void {
@@ -417,6 +529,7 @@
     let unlistenProjectOpen: UnlistenFn | undefined;
     const appWindow = getCurrentWindow();
     let activeParameterShortcut: ParameterShortcut | null = null;
+    let parameterShortcutActionUsed = false;
     void listen<string>("native-menu", (event) => handleNativeMenu(event.payload)).then((stop) => unlisten = stop);
     void listen<void>("application-exit-requested", () => closePromptVisible = true).then((stop) => unlistenExit = stop);
     void listen<void>("project-open-requested", () => void openRequestedProject()).then((stop) => {
@@ -428,7 +541,13 @@
       if (shouldHandleChordNavigationShortcut(event) && project && timelineChords.length) {
         event.preventDefault();
         event.stopPropagation();
-        seek(adjacentChordPosition(timelineChords, currentSeconds, event.key === "ArrowLeft" ? -1 : 1));
+        if (event.shiftKey) {
+          seek(adjacentChordTransportPosition(timelineChords, currentSeconds, event.key === "ArrowLeft" ? -1 : 1));
+        } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+          moveChordGridSelection(event.key === "ArrowUp" ? -1 : 1);
+        } else {
+          moveChordTimelineSelection(event.key === "ArrowLeft" ? -1 : 1);
+        }
         return;
       }
       if (!shouldHandleGlobalShortcut(event)) return;
@@ -437,11 +556,15 @@
       const parameter = parameterShortcutForKey(event.key);
       if (parameter) {
         event.preventDefault();
-        activeParameterShortcut = parameter;
+        if (!event.repeat) {
+          activeParameterShortcut = parameter;
+          parameterShortcutActionUsed = false;
+        }
       }
       else if (activeParameterShortcut && parameterShortcutAction(event.key)) {
         event.preventDefault();
         event.stopPropagation();
+        parameterShortcutActionUsed = true;
         applyParameterShortcut(activeParameterShortcut, parameterShortcutAction(event.key)!);
       }
       else if (key === "c") {
@@ -466,9 +589,20 @@
       else if (event.key === "ArrowRight") { event.preventDefault(); jump(5, event.shiftKey); }
     };
     const handleKeyup = (event: KeyboardEvent): void => {
-      if (parameterShortcutForKey(event.key) === activeParameterShortcut) activeParameterShortcut = null;
+      if (parameterShortcutForKey(event.key) !== activeParameterShortcut) return;
+      if (!document.querySelector("dialog[open]")
+        && shouldToggleMetronomeOnRelease(event, activeParameterShortcut, parameterShortcutActionUsed)) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleMetronome();
+      }
+      activeParameterShortcut = null;
+      parameterShortcutActionUsed = false;
     };
-    const clearParameterShortcut = (): void => { activeParameterShortcut = null; };
+    const clearParameterShortcut = (): void => {
+      activeParameterShortcut = null;
+      parameterShortcutActionUsed = false;
+    };
     window.addEventListener("keydown", handleKeydown, { capture: true });
     window.addEventListener("keyup", handleKeyup, { capture: true });
     window.addEventListener("blur", clearParameterShortcut);
@@ -764,6 +898,8 @@
     lastFollowedChordIndex = -1;
     chordScrollSuspended = false;
     chordPointerInside = false;
+    chordFocusWithin = false;
+    chordFocusRestorePending = false;
     chordProgrammaticScroll = false;
     currentSeconds = 0;
     durationSeconds = 0;
@@ -1381,6 +1517,8 @@
     lastFollowedChordIndex = -1;
     chordScrollSuspended = false;
     chordPointerInside = false;
+    chordFocusWithin = false;
+    chordFocusRestorePending = false;
     chordProgrammaticScroll = false;
     void loadTrackWaveform(track, packagePath, selectionGeneration);
     void loadSelectedAudio(track, packagePath, selectionGeneration, autoplay);
@@ -1652,6 +1790,7 @@
 
   function seek(position: number): void {
     if (!Number.isFinite(position)) return;
+    seekGeneration += 1;
     currentSeconds = Math.max(0, Math.min(position, durationSeconds));
     disableLoopBeyondB(currentSeconds);
     pendingSeekPosition = currentSeconds;
@@ -1664,6 +1803,7 @@
 
   function scrub(position: number): void {
     if (!Number.isFinite(position)) return;
+    seekGeneration += 1;
     currentSeconds = Math.max(0, Math.min(position, durationSeconds));
     disableLoopBeyondB(currentSeconds);
     pendingSeekPosition = currentSeconds;
@@ -2032,6 +2172,8 @@
     if (!currentTrack || statusRequestActive) return;
     const trackId = currentTrack.id;
     const selectionGeneration = trackSelectionGeneration;
+    const requestSeekGeneration = seekGeneration;
+    const seekPendingAtRequest = seekRequestActive || pendingSeekPosition !== null || seekAnimationFrame !== undefined;
     statusRequestActive = true;
     try {
       const status = await audioStatus();
@@ -2042,7 +2184,12 @@
         trackId,
         currentTrack?.id,
       )) return;
-      if (!seekRequestActive && pendingSeekPosition === null && seekAnimationFrame === undefined) {
+      if (shouldApplyAudioStatusPosition(
+        requestSeekGeneration,
+        seekGeneration,
+        seekPendingAtRequest,
+        seekRequestActive || pendingSeekPosition !== null || seekAnimationFrame !== undefined,
+      )) {
         currentSeconds = status.positionSeconds;
       }
       durationSeconds = status.durationSeconds || durationSeconds;
@@ -2488,7 +2635,7 @@
                 aria-label={`${chordDisplayLabel(block.chord.label)}, ${displayTime(block.chord.startSeconds)}, ${t("chordSeekHelp")}`}
                 aria-current={block.index === activeChordIndex ? "true" : undefined}
                 title={`${chordDisplayLabel(block.chord.label)} · ${displayTime(block.chord.startSeconds)}–${displayTime(block.chord.endSeconds)}`}
-                onclick={() => selectChord(block.chord)}
+                onclick={() => seek(block.chord.startSeconds)}
               >{chordDisplayLabel(block.chord.label)}</button>
             {/each}
           </div>
@@ -2710,7 +2857,7 @@
                 {#if chordsLoading}<span class="chord-title-loader" aria-label={t("analyzingChords")} data-tooltip={t("analyzingChords")}><i class="mini-spinner"></i></span>{/if}
               </div>
               <div class="chord-panel-actions">
-                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; chordScrollSuspended = false; chordPointerInside = false; chordProgrammaticScroll = false; lastFollowedChordIndex = -1; }}><Icon name="book-open" size="13px" /></button>
+                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; chordScrollSuspended = false; chordPointerInside = false; chordFocusWithin = false; chordProgrammaticScroll = false; lastFollowedChordIndex = -1; }}><Icon name="book-open" size="13px" /></button>
                 <button aria-label={t("chordColors")} data-tooltip={t("chordColorsHelp")} onclick={() => chordColorMode = chordColorMode === "root" ? "score" : "root"}>{chordColorMode === "root" ? "12" : "%"}</button>
                 <button class="chord-accidental-toggle" aria-label={t("chordAccidentals")} data-tooltip={t("chordAccidentalsHelp")} onclick={() => chordAccidentalMode = chordAccidentalMode === "sharp" ? "flat" : "sharp"}>{chordAccidentalMode === "sharp" ? "♯" : "♭"}</button>
               </div>
@@ -2744,6 +2891,8 @@
                 onwheel={suspendChordFollow}
                 onscroll={handleChordScroll}
                 onscrollend={() => chordProgrammaticScroll = false}
+                onfocusin={() => { chordFocusWithin = true; chordScrollSuspended = true; }}
+                onfocusout={leaveChordGridFocus}
               >
                 {#each timelineChords as chord, chordIndex}
                   {@const editKey = chordEditKey(chordMode, chord)}
@@ -2783,12 +2932,12 @@
                       data-chord-index={chordIndex}
                       aria-pressed={selectedChordKey === editKey}
                       aria-keyshortcuts="Enter"
-                      aria-label={`${chordDisplayLabel(chord.label)}, ${displayTime(chord.startSeconds)}, ${t("chordSeekHelp")}`}
-                      data-tooltip={t("chordSeekHelp")}
+                      aria-label={`${chordDisplayLabel(chord.label)}, ${displayTime(chord.startSeconds)}, ${t("showChordOnKeyboard")}`}
+                      data-tooltip={t("showChordOnKeyboard")}
                       title={`${displayTime(chord.startSeconds)}–${displayTime(chord.endSeconds)} · ${Math.round(chord.strength * 100)}%`}
-                      onclick={() => selectChord(chord)}
+                      onclick={(event) => selectChordFromButton(event, chord)}
                       onkeydown={(event) => handleChordKeydown(event, chord)}
-                      oncontextmenu={(event) => { event.preventDefault(); beginChordEdit(chord); }}
+                      oncontextmenu={(event) => { event.preventDefault(); beginChordEditFromButton(event, chord); }}
                     ><b>{chordDisplayLabel(chord.label)}</b><small>{displayTime(chord.startSeconds)}</small></button>
                   {/if}
                 {/each}
@@ -2946,6 +3095,10 @@
         <dt>{t("jump")} · beat →</dt><dd><kbd>{shortcutKeys.shift}</kbd><span>+</span><kbd>→</kbd></dd>
         <dt>{t("chords")} ←</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>←</kbd></dd>
         <dt>{t("chords")} →</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>→</kbd></dd>
+        <dt>{t("chords")} ↑</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>↑</kbd></dd>
+        <dt>{t("chords")} ↓</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>↓</kbd></dd>
+        <dt>{t("jump")} · {t("chords")} ←</dt><dd><kbd>{shortcutKeys.shift}</kbd><span>+</span><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>←</kbd></dd>
+        <dt>{t("jump")} · {t("chords")} →</dt><dd><kbd>{shortcutKeys.shift}</kbd><span>+</span><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>→</kbd></dd>
         <dt>{t("moveA")}</dt><dd><kbd>A</kbd></dd>
         <dt>{t("moveB")}</dt><dd><kbd>B</kbd></dd>
         <dt>{t("toggleLoop")}</dt><dd><kbd>L</kbd></dd>
@@ -2959,6 +3112,7 @@
         <dt>{t("zoom")} +</dt><dd><kbd>Z</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
         <dt>{t("zoom")} −</dt><dd><kbd>Z</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
         <dt>{t("fitThirtySeconds")}</dt><dd><kbd>Z</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
+        <dt>{t("metronome")}</dt><dd><kbd>M</kbd></dd>
         <dt>{t("metronomeVolume")} +</dt><dd><kbd>M</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
         <dt>{t("metronomeVolume")} −</dt><dd><kbd>M</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
         <dt>{t("metronomeVolume")} · 55%</dt><dd><kbd>M</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>

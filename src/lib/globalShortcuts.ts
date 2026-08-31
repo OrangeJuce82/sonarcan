@@ -60,13 +60,25 @@ export function shouldHandleGlobalShortcut(event: ShortcutKeyboardEvent): boolea
     && !isTextEditingTarget(event.target);
 }
 
+export function shouldToggleMetronomeOnRelease(
+  event: ShortcutKeyboardEvent,
+  activeParameterShortcut: ParameterShortcut | null,
+  parameterActionUsed: boolean,
+): boolean {
+  return activeParameterShortcut === "metronomeVolume"
+    && parameterShortcutForKey(event.key) === "metronomeVolume"
+    && !parameterActionUsed
+    && shouldHandleGlobalShortcut(event);
+}
+
 export function shouldHandleChordNavigationShortcut(event: ShortcutKeyboardEvent): boolean {
+  const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
   return !event.isComposing
     && event.altKey
     && !event.ctrlKey
     && !event.metaKey
-    && !event.shiftKey
-    && (event.key === "ArrowLeft" || event.key === "ArrowRight")
+    && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+    && (!event.shiftKey || horizontal)
     && !isTextEditingTarget(event.target);
 }
 

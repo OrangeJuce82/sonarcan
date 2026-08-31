@@ -45,10 +45,32 @@ export function shouldApplyAudioStatus(
     && requestedTrackId === currentTrackId;
 }
 
+export function shouldApplyAudioStatusPosition(
+  requestSeekGeneration: number,
+  currentSeekGeneration: number,
+  seekPendingAtRequest: boolean,
+  seekPendingNow: boolean,
+): boolean {
+  return requestSeekGeneration === currentSeekGeneration
+    && !seekPendingAtRequest
+    && !seekPendingNow;
+}
+
 export const WAVEFORM_MAX_ZOOM = 128;
 export const DEFAULT_WAVEFORM_WINDOW_SECONDS = 30;
-export const WAVEFORM_DETAIL_ZOOM = 4;
 const WAVEFORM_DOWNBEAT_ZOOM = 1.5;
+
+export function waveformShowsDetail(
+  durationSeconds: number,
+  zoom: number,
+  maximumVisibleSeconds = DEFAULT_WAVEFORM_WINDOW_SECONDS,
+): boolean {
+  return Number.isFinite(durationSeconds)
+    && durationSeconds > 0
+    && Number.isFinite(zoom)
+    && zoom > 0
+    && durationSeconds / zoom <= maximumVisibleSeconds + 0.000_001;
+}
 
 export function defaultLoopBounds(
   savedA: number | null,
@@ -269,12 +291,16 @@ export function calculateDetectedBeatLines(
   zoom: number,
   start: number,
 ): BeatLine[] {
-  // Keep the full-track view clean, introduce downbeats at medium zoom, then
-  // reveal every detected beat once individual beats have enough room.
-  if (durationSeconds <= 0 || !beats.length || !detailed || zoom < WAVEFORM_DOWNBEAT_ZOOM) return [];
+  // Keep long full-track views clean, introduce downbeats at medium zoom, then
+  // reveal every beat once the viewport contains at most thirty seconds.
+  const showEveryBeat = waveformShowsDetail(durationSeconds, zoom);
+  if (durationSeconds <= 0
+    || !beats.length
+    || !detailed
+    || (!showEveryBeat && zoom < WAVEFORM_DOWNBEAT_ZOOM)) return [];
   const visibleStart = detailed ? start * durationSeconds : 0;
   const visibleEnd = detailed ? (start + 1 / zoom) * durationSeconds : durationSeconds;
-  const candidates = zoom < WAVEFORM_DETAIL_ZOOM ? downbeats : beats;
+  const candidates = showEveryBeat ? beats : downbeats;
   const visible = candidates.filter((seconds) => seconds >= visibleStart && seconds <= visibleEnd);
   const stride = Math.max(1, Math.ceil(visible.length / 500));
   return visible.filter((_, index) => index % stride === 0).map((seconds) => ({

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isTextEditingTarget, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut } from "./globalShortcuts.ts";
+import { isTextEditingTarget, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
 
 function shortcutEvent(overrides: Partial<Parameters<typeof shouldHandleGlobalShortcut>[0]> = {}): Parameters<typeof shouldHandleGlobalShortcut>[0] {
   return {
@@ -25,9 +25,11 @@ test("global shortcuts never intercept text editing", () => {
 test("Option plus an arrow navigates chords outside editing controls", () => {
   assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowLeft" })), true);
   assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowRight" })), true);
+  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowUp" })), true);
+  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowDown" })), true);
   assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: false, key: "ArrowRight" })), false);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowUp" })), false);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowLeft", shiftKey: true })), false);
+  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowLeft", shiftKey: true })), true);
+  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowUp", shiftKey: true })), false);
   const input = Object.assign(new EventTarget(), { closest: () => ({}) });
   assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowLeft", target: input })), false);
 });
@@ -55,6 +57,16 @@ test("parameter shortcuts pair T, P, Z, and M with arrows, signs, and reset", ()
   assert.equal(parameterShortcutAction("Delete"), "reset");
   assert.equal(parameterShortcutAction("Backspace"), "reset");
   assert.equal(parameterShortcutAction("Enter"), null);
+});
+
+test("M toggles the metronome on release only when no volume action was used", () => {
+  const releaseM = shortcutEvent({ key: "m" });
+  assert.equal(shouldToggleMetronomeOnRelease(releaseM, "metronomeVolume", false), true);
+  assert.equal(shouldToggleMetronomeOnRelease(releaseM, "metronomeVolume", true), false);
+  assert.equal(shouldToggleMetronomeOnRelease(releaseM, "tempo", false), false);
+  assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "t" }), "metronomeVolume", false), false);
+  const input = Object.assign(new EventTarget(), { closest: () => ({}) });
+  assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "m", target: input }), "metronomeVolume", false), false);
 });
 
 test("shortcut labels follow macOS, Windows, and Linux keyboards", () => {

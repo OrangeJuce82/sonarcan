@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyChordEdits, chordEditKey, chordSuggestions, updateChordEdits, validateChordEntry } from "./chordEditing.ts";
+import { applyChordEdits, chordEditKey, chordEditKeyboardAction, chordSuggestions, updateChordEdits, validateChordEntry } from "./chordEditing.ts";
 import type { TimedChord } from "./types.ts";
 
 const chords: TimedChord[] = [
@@ -15,6 +15,13 @@ test("chord suggestions wait for a valid root and use the common Standard corpus
   assert.deepEqual(chordSuggestions("H"), []);
   assert.ok(chordSuggestions("G#").includes("G#m7"));
   assert.ok(chordSuggestions("Bbmaj").includes("Bbmaj7"));
+});
+
+test("Enter accepts a keyboard suggestion before it validates the chord", () => {
+  assert.equal(chordEditKeyboardAction("Enter", true), "acceptSuggestion");
+  assert.equal(chordEditKeyboardAction("Enter", false), "commit");
+  assert.equal(chordEditKeyboardAction("Escape", false), "cancel");
+  assert.equal(chordEditKeyboardAction("ArrowDown", false), null);
 });
 
 test("validated chord entries follow the selected accidental spelling", () => {

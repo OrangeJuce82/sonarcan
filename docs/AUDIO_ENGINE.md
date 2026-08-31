@@ -148,8 +148,9 @@ prevents a wrong scalar BPM from shifting the grid. The metronome stays silent
 before the first detected beat. Its enabled state remains part of track practice
 state; volume and timbre are global preferences.
 
-The detailed waveform draws the detected timestamps only once the view reaches
-`1.5×` zoom and keeps the full-song overview clear. An independent UI magnet can
+The detailed waveform introduces downbeats at `1.5×` zoom and draws every beat
+and chord block once its viewport contains at most 30 seconds. Shorter tracks
+show those details while fitted in full. An independent UI magnet can
 snap A/B placement to the nearest detected beat. It does not synthesize
 subdivisions or alter playback timing, and `M` remains the metronome shortcut.
 
