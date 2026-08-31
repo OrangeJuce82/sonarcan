@@ -16,6 +16,10 @@ jobs:
   release:
     runs-on: macos-15
     timeout-minutes: 90
+    env:
+      # Apple Silicon requires signed executable code. The ad-hoc identity keeps
+      # the bundle internally consistent without claiming Apple verification.
+      APPLE_SIGNING_IDENTITY: "-"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,34 +70,12 @@ jobs:
         run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
       - run: npm run quality
-      - name: Import Developer ID certificate
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          keychain_password="$(uuidgen)"
-          echo "::add-mask::$keychain_password"
-          keychain_path="$RUNNER_TEMP/sonarcan-signing.keychain-db"
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
-          security create-keychain -p "$keychain_password" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$keychain_password" "$keychain_path"
-          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain_path" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
-          security list-keychains -d user -s "$keychain_path"
-          signing_identity="$(security find-identity -v -p codesigning "$keychain_path" | awk -F'"' '/Developer ID Application/{print $2; exit}')"
-          test -n "$signing_identity"
-          echo "APPLE_SIGNING_IDENTITY=$signing_identity" >> "$GITHUB_ENV"
-      - name: Sign embedded release binaries
+      - name: Ad-hoc sign embedded release binaries
         run: npm run sign:release-resources
-      - name: Build, sign, notarize and create draft release
+      - name: Build ad-hoc signed app and create draft release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: SonArcan ${{ github.ref_name }}
@@ -104,6 +86,8 @@ jobs:
       - name: Verify bundled macOS resources
         run: |
           app_bundle="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SonArcan.app"
+          codesign --verify --deep --strict --verbose=2 "$app_bundle"
+          codesign --display --verbose=4 "$app_bundle" 2>&1 | grep -F "Signature=adhoc"
           icon_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app_bundle/Contents/Info.plist")"
           test -n "$icon_name"
           test -s "$app_bundle/Contents/Resources/$icon_name"
@@ -117,3 +101,18 @@ jobs:
           "$app_bundle/Contents/Resources/audio-tools/bin/ffprobe" -hide_banner -version
           "$app_bundle/Contents/Resources/chord-runtime/runtime/bin/python3.12" -m sonarcan_chord_worker.worker --self-test
           "$app_bundle/Contents/Resources/chord-runtime/runtime/bin/python3.12" "$app_bundle/Contents/Resources/ytdlp-search/yt-dlp" --version
+      - name: Generate DMG checksum
+        run: |
+          dmg_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
+          dmg_path="$(find "$dmg_dir" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$dmg_path"
+          cd "$dmg_dir"
+          shasum -a 256 "$(basename "$dmg_path")" > SHA256SUMS.txt
+          shasum -a 256 --check SHA256SUMS.txt
+      - name: Upload DMG checksum
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt \
+            --clobber

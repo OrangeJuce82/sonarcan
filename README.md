@@ -99,7 +99,7 @@ npm run quality
 npm run build:macos:dmg
 ```
 
-The resulting Apple Silicon DMG is written under `src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/`. Public builds must be signed with Developer ID and notarized by Apple; the complete workflow is documented in the [release guide](docs/RELEASING.md).
+The resulting Apple Silicon DMG is written under `src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/`. GitHub release builds are ad-hoc signed so every embedded executable has a consistent code signature, but they are not notarized or identified by Apple. On first launch, users must explicitly allow SonArcan under **System Settings → Privacy & Security → Open Anyway**. The complete workflow and trust model are documented in the [release guide](docs/RELEASING.md).
 
 ## 🎼 Portable projects
 
