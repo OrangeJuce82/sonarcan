@@ -54,4 +54,8 @@ if ! grep -Fq 'npm run chords:downbeat-model' "$release_workflow"; then
   echo "The macOS release workflow must download and verify the pinned Beat This! model." >&2
   exit 1
 fi
+if ! grep -Fq -- '--self-test --downbeat-model "$app_bundle/Contents/Resources/models/beat-this/final0.ckpt"' "$release_workflow"; then
+  echo "The bundled chord-runtime self-test must receive the bundled Beat This! model." >&2
+  exit 1
+fi
 echo "Release version $package_version is consistent."
