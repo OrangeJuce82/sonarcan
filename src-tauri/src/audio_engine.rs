@@ -443,11 +443,19 @@ impl AudioEngine {
         self.shared.playing.store(false, Ordering::Release);
     }
 
-    pub fn seek(&self, seconds: f64) {
+    pub fn seek(&self, seconds: f64) -> bool {
         let Some(audio) = self.shared.audio.load_full() else {
-            return;
+            return false;
         };
         let frame = (seconds.max(0.0) * audio.sample_rate as f64).min(audio.frames as f64);
+        let loop_a = self.shared.loop_a.load(Ordering::Acquire);
+        let loop_b = self.shared.loop_b.load(Ordering::Acquire);
+        let loop_disabled = loop_a != NO_LOOP && loop_b > loop_a && frame >= loop_b as f64;
+        if loop_disabled {
+            self.clear_loop();
+            self.shared.trainer_enabled.store(false, Ordering::Release);
+            self.shared.trainer_loop_count.store(0, Ordering::Release);
+        }
         self.shared
             .position_generation
             .fetch_add(1, Ordering::AcqRel);
@@ -455,6 +463,7 @@ impl AudioEngine {
             .position_bits
             .store(frame.to_bits(), Ordering::Release);
         set_loop_cycle_state_for_position(&self.shared, frame);
+        loop_disabled
     }
 
     pub fn set_loop(&self, a_seconds: Option<f64>, b_seconds: Option<f64>) {
@@ -2162,7 +2171,7 @@ mod tests {
     }
 
     #[test]
-    fn play_respects_loop_bounds_and_training_activation_configures_a_full_loop() {
+    fn loop_transport_respects_bounds_and_training_activation_configures_a_full_loop() {
         let shared = Arc::new(SharedState {
             audio: ArcSwapOption::from(Some(Arc::new(DecodedAudio {
                 samples: vec![0.0; 100],
@@ -2244,7 +2253,20 @@ mod tests {
             15.0
         );
 
-        engine.clear_loop();
+        assert!(!engine.seek(0.015));
+        assert_eq!(engine.shared.loop_a.load(Ordering::Acquire), 10);
+        assert_eq!(engine.shared.loop_b.load(Ordering::Acquire), 20);
+
+        engine.shared.trainer_enabled.store(true, Ordering::Release);
+        assert!(engine.seek(0.02));
+        assert_eq!(engine.shared.loop_a.load(Ordering::Acquire), NO_LOOP);
+        assert_eq!(engine.shared.loop_b.load(Ordering::Acquire), NO_LOOP);
+        assert!(!engine.shared.trainer_enabled.load(Ordering::Acquire));
+        assert_eq!(
+            f64::from_bits(engine.shared.position_bits.load(Ordering::Acquire)),
+            20.0
+        );
+
         engine.set_loop_trainer(LoopTrainerSettings {
             enabled: true,
             start_rate: 0.5,

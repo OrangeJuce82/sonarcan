@@ -69,10 +69,11 @@ Python, uv, worker dependencies, and the model revision are pinned in the worker
 
 `demucs-mlx 1.4.6` rejects a numeric key found only in the official checkpoint's unused `training_args` metadata. The release model builder strips that one optional metadata field before invoking the package's restricted loader and converter. Constructor data, tensor state, official signature, source checksum, and generated safetensors checksum continue through the upstream validation path. Remove this narrow workaround when the pinned upstream version accepts its official checkpoint unchanged.
 
-When looping is enabled, playback may start anywhere in the track. A position
-before A is preserved as a lead-in, while a position at or after B is moved to A
-when Play is pressed. Once playback reaches B, the Rust callback wraps to A.
-This rule is enforced by the engine rather than simulated by the frontend.
+When looping is enabled, playback may start before A as a lead-in. Seeking to B
+or anywhere after B disables Loop and Training so playback can continue freely
+outside the former loop. Activating Loop or Training seeks to A. Once active
+playback reaches B, the Rust callback wraps to A. The seek and wrap rules are
+enforced by the engine rather than simulated only by the frontend.
 
 ## Ownership
 

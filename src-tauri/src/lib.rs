@@ -481,8 +481,8 @@ fn audio_pause(engine: State<'_, audio_engine::AudioEngine>) {
 }
 
 #[tauri::command]
-fn audio_seek(engine: State<'_, audio_engine::AudioEngine>, seconds: f64) {
-    engine.seek(seconds);
+fn audio_seek(engine: State<'_, audio_engine::AudioEngine>, seconds: f64) -> bool {
+    engine.seek(seconds)
 }
 
 #[tauri::command]
