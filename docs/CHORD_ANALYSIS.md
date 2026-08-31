@@ -32,6 +32,13 @@ Extensions are converted only from Harte notation to compact display notation
 (`C:maj7` to `Cmaj7`, `D:min7` to `Dm7`). This does not reinterpret the signal.
 `N` remains a machine-readable No Chord and is displayed as `-`.
 
+Each timed segment also retains the original LV-Chordia JAMS/Harte label as
+`sourceLabel`. The compact `label` is presentation-only. The shared frontend
+parser accepts both spellings, including explicit interval lists, additions,
+omissions, alterations, and degree-based slash basses from the complete
+dictionary. Piano, guitar, and ukulele views therefore derive from the
+same model identity instead of maintaining independent chord-name tables.
+
 The confidence value is the uncalibrated probability of the associated native
 triad class. The interface can filter it dynamically, but the filter does not
 change cached analysis.
@@ -51,5 +58,15 @@ the Tauri release build. Development uses the same locked `uv` project.
 The interface supports vertical timed cards, automatic playback following, a
 dynamic confidence filter, colors by confidence or by the 12 roots, and an
 alphabetical repertoire of unique chords. Clicking a repertoire chord updates
-the piano without seeking the track. The timeline preserves LV-Chordia's native
+the selected harmony view without seeking the track. The piano exposes real
+close/open inversions over three octaves. Guitar and ukulele positions are
+bounded, generated from their standard tunings, and validated against the
+parsed pitch set and requested bass; unavoidable omissions are labelled as
+adapted rather than silently substituted. The timeline preserves LV-Chordia's native
 regions exactly; Beat This! downbeats never split them into extra cards.
+
+User chord corrections are stored separately in the track's bounded practice
+state and applied as a presentation overlay for one LV-Chordia vocabulary and
+one existing timed region. They never rewrite the disposable analysis cache or
+alter a model result. Shift-validation can create the same override for every
+region whose currently effective label matches the label selected for editing.

@@ -87,6 +87,7 @@
 - [x] Loop Trainer compatibility with A/B loops and complete-track normal playback
 - [x] keyboard shortcuts for playback, jumps, and loop points
 - [x] Beat This! beat/downbeat detection, indicative BPM, synchronized metronome, and waveform grid
+- [x] LV-Chordia-compatible piano inversions and guitar/ukulele positions
 - [ ] time signatures, markers, and sections
 - [x] persisted and synchronized playback state
 

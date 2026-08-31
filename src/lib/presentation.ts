@@ -33,9 +33,22 @@ export interface WaveformViewport {
 export type WaveformViewportEdge = "start" | "end";
 export type WaveformWheelAxis = "horizontal" | "vertical";
 
+export function shouldApplyAudioStatus(
+  audioLoading: boolean,
+  requestGeneration: number,
+  currentGeneration: number,
+  requestedTrackId: string,
+  currentTrackId: string | undefined,
+): boolean {
+  return !audioLoading
+    && requestGeneration === currentGeneration
+    && requestedTrackId === currentTrackId;
+}
+
 export const WAVEFORM_MAX_ZOOM = 128;
+export const DEFAULT_WAVEFORM_WINDOW_SECONDS = 30;
+export const WAVEFORM_DETAIL_ZOOM = 4;
 const WAVEFORM_DOWNBEAT_ZOOM = 1.5;
-const WAVEFORM_ALL_BEATS_ZOOM = 4;
 
 export function defaultLoopBounds(
   savedA: number | null,
@@ -69,6 +82,24 @@ function normalizedViewport(start: number, zoom: number): WaveformViewport {
   return {
     start: clamp(Number.isFinite(start) ? start : 0, 0, 1 - span),
     zoom: safeZoom,
+  };
+}
+
+export function waveformViewportForWindow(
+  durationSeconds: number,
+  windowSeconds = DEFAULT_WAVEFORM_WINDOW_SECONDS,
+  centerSeconds = windowSeconds / 2,
+): WaveformViewport {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return { start: 0, zoom: 1 };
+  const safeWindow = Number.isFinite(windowSeconds) && windowSeconds > 0
+    ? Math.min(durationSeconds, windowSeconds)
+    : durationSeconds;
+  const zoom = Math.min(WAVEFORM_MAX_ZOOM, Math.max(1, durationSeconds / safeWindow));
+  const span = 1 / zoom;
+  const center = clamp(Number.isFinite(centerSeconds) ? centerSeconds / durationSeconds : span / 2, 0, 1);
+  return {
+    start: clamp(center - span / 2, 0, 1 - span),
+    zoom,
   };
 }
 
@@ -243,7 +274,7 @@ export function calculateDetectedBeatLines(
   if (durationSeconds <= 0 || !beats.length || !detailed || zoom < WAVEFORM_DOWNBEAT_ZOOM) return [];
   const visibleStart = detailed ? start * durationSeconds : 0;
   const visibleEnd = detailed ? (start + 1 / zoom) * durationSeconds : durationSeconds;
-  const candidates = zoom < WAVEFORM_ALL_BEATS_ZOOM ? downbeats : beats;
+  const candidates = zoom < WAVEFORM_DETAIL_ZOOM ? downbeats : beats;
   const visible = candidates.filter((seconds) => seconds >= visibleStart && seconds <= visibleEnd);
   const stride = Math.max(1, Math.ceil(visible.length / 500));
   return visible.filter((_, index) => index % stride === 0).map((seconds) => ({
@@ -271,6 +302,45 @@ export function nearestDetectedBeat(
   if (before === undefined) return after ?? positionSeconds;
   if (after === undefined) return before;
   return positionSeconds - before <= after - positionSeconds ? before : after;
+}
+
+export function waveformSeekPosition(
+  positionSeconds: number,
+  beats: readonly number[],
+  preferBeat: boolean,
+): number {
+  return preferBeat && beats.length
+    ? nearestDetectedBeat(positionSeconds, beats)
+    : positionSeconds;
+}
+
+export function transportJumpPosition(
+  positionSeconds: number,
+  seconds: number,
+  beats: readonly number[],
+  preferBeat: boolean,
+): number {
+  if (!preferBeat || !beats.length || !Number.isFinite(positionSeconds)) {
+    return positionSeconds + seconds;
+  }
+
+  let low = 0;
+  let high = beats.length;
+  if (seconds < 0) {
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((beats[middle] ?? 0) < positionSeconds) low = middle + 1;
+      else high = middle;
+    }
+    return beats[low - 1] ?? positionSeconds;
+  }
+
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((beats[middle] ?? 0) <= positionSeconds) low = middle + 1;
+    else high = middle;
+  }
+  return beats[low] ?? positionSeconds;
 }
 
 export function isDetectedBeatActive(

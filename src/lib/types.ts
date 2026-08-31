@@ -32,6 +32,7 @@ export interface PracticeState {
   stemsEnabled: boolean;
   stemMix: StemMix[];
   stemNames: string[];
+  chordEdits: ChordEdit[];
 }
 
 export interface ProjectSummary {
@@ -96,13 +97,21 @@ export interface AudioStatus {
 
 export interface TimedChord {
   label: string;
+  sourceLabel?: string;
   startSeconds: number;
   endSeconds: number;
   bass?: string;
   strength: number;
+  edited?: boolean;
 }
 
 export type ChordMode = "essential" | "standard" | "complete";
+export interface ChordEdit {
+  mode: ChordMode;
+  startSeconds: number;
+  endSeconds: number;
+  label: string;
+}
 export type MetronomeSound = "electronic" | "woodblock" | "metallic";
 
 export interface ChordAnalysis {

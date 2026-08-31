@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 import { chordKeyboardPositions, parseChordLabel } from "./chordNotes.ts";
 
@@ -28,4 +30,22 @@ test("the two-octave keyboard displays every chord tone only once", () => {
   const bDiminished = parseChordLabel("Bdim");
   assert.deepEqual(c && chordKeyboardPositions(c), [0, 4, 7]);
   assert.deepEqual(bDiminished && chordKeyboardPositions(bDiminished), [11, 14, 17]);
+});
+
+test("every chord template shipped with LV-Chordia is parseable", () => {
+  const directory = resolve("src-tauri/resources/chord-runtime/runtime/lib/python3.12/site-packages/lv_chordia/data");
+  for (const dictionary of ["ismir2017", "submission", "full"]) {
+    const labels = readFileSync(resolve(directory, `${dictionary}_chord_list.txt`), "utf8").trim().split(/\r?\n/);
+    for (const label of labels) {
+      if (["N", "X"].includes(label)) continue;
+      assert.ok(parseChordLabel(label), `${dictionary} label is unsupported: ${label}`);
+    }
+  }
+});
+
+test("explicit LV-Chordia omissions are not silently restored", () => {
+  const rootless = parseChordLabel("C:maj(*1)");
+  assert.ok(rootless);
+  assert.equal(rootless.pitches.includes(rootless.root), false);
+  assert.equal(rootless.bassExplicit, false);
 });

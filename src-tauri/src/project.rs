@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     io::Read,
     path::{Path, PathBuf},
@@ -85,9 +86,28 @@ pub struct PracticeState {
     pub trainer_increment: f64,
     #[serde(default = "default_trainer_target_rate")]
     pub trainer_target_rate: f64,
+    #[serde(default)]
+    pub chord_edits: Vec<ChordEdit>,
     pub stems_enabled: bool,
     pub stem_mix: [StemMixState; STEM_COUNT],
     pub stem_names: [String; STEM_COUNT],
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum ChordEditMode {
+    Essential,
+    Standard,
+    Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChordEdit {
+    pub mode: ChordEditMode,
+    pub start_seconds: f64,
+    pub end_seconds: f64,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -137,6 +157,7 @@ impl Default for PracticeState {
             trainer_repetitions: default_trainer_repetitions(),
             trainer_increment: default_trainer_increment(),
             trainer_target_rate: default_trainer_target_rate(),
+            chord_edits: Vec::new(),
             stems_enabled: false,
             stem_mix: default_stem_mix(),
             stem_names: default_stem_names(),
@@ -813,7 +834,33 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
     .all(f64::is_finite)
         && optional_f64_is_finite(state.loop_a_seconds)
         && optional_f64_is_finite(state.loop_b_seconds);
+    let mut chord_edit_keys = HashSet::with_capacity(state.chord_edits.len());
+    let chord_edits_valid = state.chord_edits.len() <= 4_096
+        && state.chord_edits.iter().all(|edit| {
+            let label = edit.label.trim();
+            let label_valid = !label.is_empty()
+                && label.len() <= 96
+                && matches!(label.as_bytes().first(), Some(b'A'..=b'G'))
+                && label.chars().all(|character| {
+                    character.is_ascii_alphanumeric()
+                        || matches!(
+                            character,
+                            '#' | 'b' | '/' | '(' | ')' | ',' | '*' | '+' | '-' | ':'
+                        )
+                });
+            edit.start_seconds.is_finite()
+                && edit.end_seconds.is_finite()
+                && edit.start_seconds >= 0.0
+                && edit.end_seconds > edit.start_seconds
+                && label_valid
+                && chord_edit_keys.insert((
+                    edit.mode,
+                    edit.start_seconds.to_bits(),
+                    edit.end_seconds.to_bits(),
+                ))
+        });
     if !finite
+        || !chord_edits_valid
         || state.position_seconds < 0.0
         || !(0.5..=2.0).contains(&state.playback_rate)
         || !(-12.0..=12.0).contains(&state.pitch_semitones)
@@ -1194,6 +1241,12 @@ mod tests {
             stems_enabled: true,
             stem_mix: default_stem_mix(),
             stem_names: default_stem_names(),
+            chord_edits: vec![ChordEdit {
+                mode: ChordEditMode::Standard,
+                start_seconds: 0.0,
+                end_seconds: 0.0005,
+                label: "Dbm7".into(),
+            }],
         };
 
         update_practice_state(&project.package_path, track_id, state.clone()).unwrap();
@@ -1206,6 +1259,13 @@ mod tests {
             ..state.clone()
         };
         assert_eq!(reopened.tracks[0].practice, expected);
+
+        let mut invalid_chord_edit = state.clone();
+        invalid_chord_edit.chord_edits[0].label = "<script>".into();
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, invalid_chord_edit),
+            Err(AppError::InvalidPracticeState(_))
+        ));
 
         let invalid = PracticeState {
             playback_rate: 3.0,

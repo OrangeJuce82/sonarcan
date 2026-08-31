@@ -17,6 +17,7 @@ const MAX_DURATION_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 #[serde(rename_all = "camelCase")]
 pub struct TimedChord {
     pub label: String,
+    pub source_label: String,
     pub start_seconds: f64,
     pub end_seconds: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -129,6 +130,11 @@ fn validate_segments(segments: &[TimedChord]) -> Result<(), AppError> {
             && chord.label.chars().all(|character| {
                 character.is_ascii_alphanumeric() || "#b/()+-°,*".contains(character)
             });
+        let source_label_valid = !chord.source_label.is_empty()
+            && chord.source_label.len() <= 96
+            && chord.source_label.chars().all(|character| {
+                character.is_ascii_alphanumeric() || "#:b/()+-°,*".contains(character)
+            });
         let scalar_valid = chord.start_seconds.is_finite()
             && chord.end_seconds.is_finite()
             && chord.strength.is_finite()
@@ -137,7 +143,7 @@ fn validate_segments(segments: &[TimedChord]) -> Result<(), AppError> {
             && chord.end_seconds > chord.start_seconds
             && chord.end_seconds <= MAX_DURATION_SECONDS
             && (0.0..=1.001).contains(&chord.strength);
-        if !label_valid || !scalar_valid || chord.bass.is_some() {
+        if !label_valid || !source_label_valid || !scalar_valid || chord.bass.is_some() {
             return Err(invalid_output("chord segment is outside accepted bounds"));
         }
         previous_end = chord.end_seconds;
@@ -156,6 +162,7 @@ mod tests {
     fn segment(label: &str) -> TimedChord {
         TimedChord {
             label: label.into(),
+            source_label: "C:sus2".into(),
             start_seconds: 0.0,
             end_seconds: 1.0,
             bass: None,

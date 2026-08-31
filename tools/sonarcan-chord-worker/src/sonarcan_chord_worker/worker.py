@@ -73,6 +73,7 @@ def _analyze_chords(audio_path: Path, device) -> dict[str, list[dict]]:
 def _timed(segment: dict, label: str) -> dict:
     return {
         "label": label,
+        "sourceLabel": segment["rawLabel"],
         "startSeconds": segment["startSeconds"],
         "endSeconds": segment["endSeconds"],
         "strength": segment["strength"],

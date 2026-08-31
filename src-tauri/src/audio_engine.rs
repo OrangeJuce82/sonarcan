@@ -816,9 +816,12 @@ struct RealtimeRenderer {
     processed: Vec<f32>,
     preroll: Vec<f32>,
     rate_remainder: f64,
+    input_position: f64,
+    output_position: f64,
     last_generation: u64,
     last_audio: usize,
     last_pitch: f32,
+    last_reset_rate: f64,
     smoothed_rate: f64,
     smoothed_pitch: f32,
     smoothed_volume: f32,
@@ -896,9 +899,12 @@ impl RealtimeRenderer {
             processed,
             preroll: vec![0.0; MAX_DSP_PREROLL_FRAMES * channels],
             rate_remainder: 0.0,
+            input_position: 0.0,
+            output_position: 0.0,
             last_generation: u64::MAX,
             last_audio: 0,
             last_pitch: f32::NAN,
+            last_reset_rate: f64::NAN,
             smoothed_rate: 1.0,
             smoothed_pitch: 0.0,
             smoothed_volume: 0.8,
@@ -915,6 +921,12 @@ impl RealtimeRenderer {
     {
         let target_rate = f64::from_bits(shared.playback_rate_bits.load(Ordering::Acquire));
         let target_pitch = f32::from_bits(shared.pitch_semitones_bits.load(Ordering::Acquire));
+        let audio_pointer = shared
+            .audio
+            .load()
+            .as_ref()
+            .map_or(0, |audio| Arc::as_ptr(audio) as usize);
+        let audio_changed = audio_pointer != 0 && audio_pointer != self.last_audio;
         let frames = output.len() / self.channels;
         let block_seconds = frames as f64 / self.output_rate as f64;
         let blend = 1.0 - (-block_seconds / GAIN_RAMP_SECONDS).exp();
@@ -931,8 +943,19 @@ impl RealtimeRenderer {
                 smooth_gain(&mut current[1], target[1], blend as f32);
             }
         }
-        self.smoothed_rate += (target_rate - self.smoothed_rate) * blend;
-        self.smoothed_pitch += (target_pitch - self.smoothed_pitch) * blend as f32;
+        let target_uses_dsp =
+            (target_rate - 1.0).abs() >= 0.000_001 || target_pitch.abs() >= 0.000_1;
+        if audio_changed || (!self.dsp_active && target_uses_dsp) {
+            // Starting the DSP with the requested settings lets reset_at()
+            // compensate its exact lookahead immediately. A new track must
+            // also start from its own settings instead of ramping from the
+            // previous track. Subsequent live changes retain the short ramp.
+            self.smoothed_rate = target_rate;
+            self.smoothed_pitch = target_pitch;
+        } else {
+            self.smoothed_rate += (target_rate - self.smoothed_rate) * blend;
+            self.smoothed_pitch += (target_pitch - self.smoothed_pitch) * blend as f32;
+        }
         if (target_rate - self.smoothed_rate).abs() < 0.000_05 {
             self.smoothed_rate = target_rate;
         }
@@ -941,6 +964,7 @@ impl RealtimeRenderer {
         }
         if (self.smoothed_rate - 1.0).abs() < 0.000_001 && self.smoothed_pitch.abs() < 0.000_1 {
             self.dsp_active = false;
+            self.last_audio = audio_pointer;
             let smoothed_stem_gains = self.smoothed_stem_gains;
             render_with_gains(
                 output,
@@ -991,7 +1015,7 @@ impl RealtimeRenderer {
         };
         let generation = shared.position_generation.load(Ordering::Acquire);
         let audio_pointer = Arc::as_ptr(&audio) as usize;
-        let mut position = f64::from_bits(shared.position_bits.load(Ordering::Acquire));
+        let requested_position = f64::from_bits(shared.position_bits.load(Ordering::Acquire));
         let source_step = audio.sample_rate as f64 / self.output_rate as f64;
         let loop_a = shared.loop_a.load(Ordering::Acquire);
         let loop_b = shared.loop_b.load(Ordering::Acquire);
@@ -1000,20 +1024,24 @@ impl RealtimeRenderer {
         let restart_at_end = EndBehavior::from_code(shared.end_behavior.load(Ordering::Acquire))
             == EndBehavior::Restart;
         let repeat_full_track = full_track_training || (!valid_loop && restart_at_end);
+        let target_rate = f64::from_bits(shared.playback_rate_bits.load(Ordering::Acquire));
+        let rate_settled = (target_rate - rate).abs() < 0.000_001;
         let needs_reset = !self.dsp_active
             || generation != self.last_generation
-            || audio_pointer != self.last_audio;
+            || audio_pointer != self.last_audio
+            || (rate_settled && (rate - self.last_reset_rate).abs() >= 0.000_1);
         let pitch_changed = (pitch - self.last_pitch).abs() >= 0.000_1;
         if needs_reset {
             self.reset_at(
                 shared,
                 &audio,
-                position,
+                requested_position,
                 source_step,
                 rate,
                 loop_a,
                 loop_b,
                 valid_loop,
+                repeat_full_track,
                 stem_gains,
             );
         }
@@ -1031,30 +1059,35 @@ impl RealtimeRenderer {
         let mut channel_peaks = [0.0_f32; 2];
         let mut stem_peaks = [0.0_f32; STEM_COUNT];
         let beat_timeline = shared.beat_timeline.load_full();
-        for output_chunk in output.chunks_mut(MAX_DSP_OUTPUT_FRAMES * self.channels) {
+        let mut reached_end = false;
+        'chunks: for output_chunk in output.chunks_mut(MAX_DSP_OUTPUT_FRAMES * self.channels) {
             let output_frames = output_chunk.len() / self.channels;
-            let output_start_position = position;
             let exact_input = output_frames as f64 * rate + self.rate_remainder;
             let input_frames = (exact_input.floor() as usize).min(MAX_DSP_INPUT_FRAMES);
             self.rate_remainder = exact_input - input_frames as f64;
             for frame in 0..input_frames {
                 if valid_loop {
-                    process_loop_boundary(shared, &mut position, loop_a, loop_b, audio.sample_rate);
+                    self.input_position = metronome_loop_position(
+                        self.input_position,
+                        audio.sample_rate,
+                        loop_a,
+                        loop_b,
+                        true,
+                    );
                 }
-                if position >= audio.frames as f64 {
+                if self.input_position >= audio.frames as f64 {
                     if repeat_full_track {
-                        if full_track_training {
-                            handle_loop_trainer(shared);
-                        }
-                        position %= audio.frames as f64;
+                        self.input_position %= audio.frames as f64;
                     } else {
-                        signal_advance_at_end(shared);
-                        shared.playing.store(false, Ordering::Release);
-                        return;
+                        for channel in 0..self.channels {
+                            self.input[frame * self.channels + channel] = 0.0;
+                        }
+                        self.input_position += source_step;
+                        continue;
                     }
                 }
                 let crossfade = loop_crossfade_at(
-                    position,
+                    self.input_position,
                     audio.sample_rate,
                     if repeat_full_track { 0 } else { loop_a },
                     if repeat_full_track {
@@ -1071,14 +1104,14 @@ impl RealtimeRenderer {
                     self.input[frame * self.channels + channel] = playback_sample(
                         shared,
                         &audio,
-                        position,
+                        self.input_position,
                         channel,
                         crossfade,
                         stem_gains,
                         Some(&mut stem_peaks),
                     );
                 }
-                position += source_step;
+                self.input_position += source_step;
             }
             let input_samples = input_frames * self.channels;
             let output_samples = output_frames * self.channels;
@@ -1087,14 +1120,30 @@ impl RealtimeRenderer {
                 &mut self.processed[..output_samples],
             );
             for (frame_index, frame) in output_chunk.chunks_mut(self.channels).enumerate() {
+                if valid_loop {
+                    process_loop_boundary(
+                        shared,
+                        &mut self.output_position,
+                        loop_a,
+                        loop_b,
+                        audio.sample_rate,
+                    );
+                }
+                if self.output_position >= audio.frames as f64 {
+                    if repeat_full_track {
+                        if full_track_training {
+                            handle_loop_trainer(shared);
+                        }
+                        self.output_position %= audio.frames as f64;
+                    } else {
+                        signal_advance_at_end(shared);
+                        shared.playing.store(false, Ordering::Release);
+                        reached_end = true;
+                        break 'chunks;
+                    }
+                }
                 let seek_blend = self.seek_transition.begin_frame(generation);
-                let metronome_position = metronome_loop_position(
-                    output_start_position + frame_index as f64 * source_step * rate,
-                    audio.sample_rate,
-                    loop_a,
-                    loop_b,
-                    valid_loop,
-                );
+                let metronome_position = self.output_position;
                 let metronome_crossfade = loop_crossfade_at(
                     metronome_position,
                     audio.sample_rate,
@@ -1126,12 +1175,13 @@ impl RealtimeRenderer {
                     *target = T::from_sample(value);
                 }
                 self.seek_transition.end_frame();
+                self.output_position += source_step * rate;
             }
         }
         if generation == shared.position_generation.load(Ordering::Acquire) {
             shared
                 .position_bits
-                .store(position.to_bits(), Ordering::Release);
+                .store(self.output_position.to_bits(), Ordering::Release);
         }
         publish_output_peaks(
             shared,
@@ -1144,6 +1194,9 @@ impl RealtimeRenderer {
             },
         );
         publish_stem_peaks(shared, stem_peaks);
+        if reached_end {
+            self.dsp_active = false;
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1157,45 +1210,61 @@ impl RealtimeRenderer {
         loop_a: u64,
         loop_b: u64,
         valid_loop: bool,
+        repeat_full_track: bool,
         stem_gains: &StemChannelGains,
     ) {
         self.stretch.reset();
         self.rate_remainder = 0.0;
-        let requested = self.stretch.input_latency()
+        let lookahead = self.stretch.input_latency()
             + (rate * self.stretch.output_latency() as f64).ceil() as usize;
-        let frames = requested.clamp(1, MAX_DSP_PREROLL_FRAMES);
-        let mut preroll_position = position - frames as f64 * source_step;
-        let preroll_can_wrap = valid_loop && position >= loop_a as f64;
+        let frames = lookahead.clamp(1, MAX_DSP_PREROLL_FRAMES);
+        let mut preroll_position = position;
         for frame in 0..frames {
-            if preroll_can_wrap {
-                while preroll_position < loop_a as f64 {
-                    preroll_position += (loop_b - loop_a) as f64;
-                }
-            } else {
-                preroll_position = preroll_position.max(0.0);
-            }
-            let crossfade = loop_crossfade_at(
-                preroll_position,
-                audio.sample_rate,
-                loop_a,
-                loop_b,
-                valid_loop,
-            );
-            for channel in 0..self.channels {
-                self.preroll[frame * self.channels + channel] = playback_sample(
-                    shared,
-                    audio,
+            if valid_loop {
+                preroll_position = metronome_loop_position(
                     preroll_position,
-                    channel,
-                    crossfade,
-                    stem_gains,
-                    None,
+                    audio.sample_rate,
+                    loop_a,
+                    loop_b,
+                    true,
                 );
+            } else if repeat_full_track && preroll_position >= audio.frames as f64 {
+                preroll_position %= audio.frames as f64;
+            }
+            for channel in 0..self.channels {
+                self.preroll[frame * self.channels + channel] =
+                    if preroll_position < audio.frames as f64 {
+                        let crossfade = loop_crossfade_at(
+                            preroll_position,
+                            audio.sample_rate,
+                            if repeat_full_track { 0 } else { loop_a },
+                            if repeat_full_track {
+                                audio.frames as u64
+                            } else {
+                                loop_b
+                            },
+                            valid_loop || repeat_full_track,
+                        );
+                        playback_sample(
+                            shared,
+                            audio,
+                            preroll_position,
+                            channel,
+                            crossfade,
+                            stem_gains,
+                            None,
+                        )
+                    } else {
+                        0.0
+                    };
             }
             preroll_position += source_step;
         }
         self.stretch
             .seek(&self.preroll[..frames * self.channels], rate);
+        self.input_position = preroll_position;
+        self.output_position = position;
+        self.last_reset_rate = rate;
     }
 }
 
@@ -2354,11 +2423,10 @@ mod tests {
     }
 
     #[test]
-    fn stretched_renderer_advances_source_at_the_selected_rate() {
+    fn stretched_renderer_keeps_audible_audio_and_public_clock_aligned() {
         let frames = 48_000;
-        let samples = (0..frames)
-            .map(|frame| ((frame as f32 * 440.0 * std::f32::consts::TAU) / 48_000.0).sin())
-            .collect();
+        let mut samples = vec![0.0; frames];
+        samples[24_000] = 1.0;
         let shared = SharedState {
             audio: ArcSwapOption::from(Some(Arc::new(DecodedAudio {
                 samples,
@@ -2374,15 +2442,15 @@ mod tests {
             stem_soloed: std::array::from_fn(|_| AtomicBool::new(false)),
             stem_peak_bits: std::array::from_fn(|_| AtomicU32::new(0_f32.to_bits())),
             playing: AtomicBool::new(true),
-            position_bits: AtomicU64::new(12_000_f64.to_bits()),
+            position_bits: AtomicU64::new(0_f64.to_bits()),
             position_generation: AtomicU64::new(0),
             loop_a: AtomicU64::new(NO_LOOP),
             loop_b: AtomicU64::new(NO_LOOP),
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
-            playback_rate_bits: AtomicU64::new(0.75_f64.to_bits()),
-            pitch_semitones_bits: AtomicU32::new(3_f32.to_bits()),
+            playback_rate_bits: AtomicU64::new(0.5_f64.to_bits()),
+            pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
             metronome_volume_bits: AtomicU32::new(0.55_f32.to_bits()),
@@ -2401,14 +2469,48 @@ mod tests {
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
         };
         let mut renderer = RealtimeRenderer::new(1, 48_000);
-        let mut output = [0_f32; 512];
+        let mut output = vec![0_f32; 50_000];
 
         renderer.render(&mut output, &shared);
 
         let position = f64::from_bits(shared.position_bits.load(Ordering::Acquire));
-        assert!((12_384.0..12_512.0).contains(&position));
-        assert!((0.75..1.0).contains(&renderer.smoothed_rate));
+        let peak = output
+            .iter()
+            .enumerate()
+            .max_by(|left, right| left.1.abs().total_cmp(&right.1.abs()))
+            .map(|(index, _)| index)
+            .unwrap();
+        assert!(
+            (47_984..=48_016).contains(&peak),
+            "impulse rendered at {peak}"
+        );
+        assert!((position - 25_000.0).abs() < 0.001);
+        assert!((renderer.input_position - position - 4_320.0).abs() < 0.001);
+        assert_eq!(renderer.smoothed_rate, 0.5);
         assert!(output.iter().all(|sample| sample.is_finite()));
+
+        shared.audio.store(Some(Arc::new(DecodedAudio {
+            samples: vec![0.0; frames],
+            channels: 1,
+            sample_rate: 48_000,
+            frames,
+        })));
+        shared
+            .position_bits
+            .store(0_f64.to_bits(), Ordering::Release);
+        shared.position_generation.fetch_add(1, Ordering::AcqRel);
+        shared
+            .playback_rate_bits
+            .store(1.25_f64.to_bits(), Ordering::Release);
+        shared
+            .pitch_semitones_bits
+            .store((-2_f32).to_bits(), Ordering::Release);
+        let mut next_track_output = [0_f32; 512];
+
+        renderer.render(&mut next_track_output, &shared);
+
+        assert_eq!(renderer.smoothed_rate, 1.25);
+        assert_eq!(renderer.smoothed_pitch, -2.0);
     }
 
     #[test]
@@ -2723,6 +2825,49 @@ mod tests {
         assert!((850..=910).contains(&crossings), "measured {crossings} Hz");
 
         stretch.set_transpose_factor_semitones(0.01, None);
+    }
+
+    #[test]
+    fn signalsmith_preroll_compensates_latency_at_practice_rates() {
+        let sample_rate = 48_000_u32;
+        for rate in [1.0_f64, 0.75, 0.5] {
+            let mut stretch = Stretch::preset_default(1, sample_rate);
+            let input_latency = stretch.input_latency();
+            let output_latency = stretch.output_latency();
+            let lookahead = input_latency + (rate * output_latency as f64).ceil() as usize;
+            let impulse_source = 24_000_usize;
+            let preroll: Vec<f32> = (0..lookahead)
+                .map(|frame| if frame == impulse_source { 1.0 } else { 0.0 })
+                .collect();
+            stretch.seek(preroll, rate);
+            let mut source_position = lookahead;
+            let mut rendered = Vec::new();
+            while source_position < 48_000 {
+                let output_frames = 1_024_usize;
+                let input_frames = (output_frames as f64 * rate) as usize;
+                let mut input = vec![0.0_f32; input_frames];
+                if impulse_source >= source_position
+                    && impulse_source < source_position + input_frames
+                {
+                    input[impulse_source - source_position] = 1.0;
+                }
+                let mut output = vec![0.0_f32; output_frames];
+                stretch.process(&input, &mut output);
+                rendered.extend(output);
+                source_position += input_frames;
+            }
+            let peak = rendered
+                .iter()
+                .enumerate()
+                .max_by(|left, right| left.1.abs().total_cmp(&right.1.abs()))
+                .map(|(index, _)| index)
+                .unwrap();
+            let expected = impulse_source as f64 / rate;
+            assert!(
+                (peak as f64 - expected).abs() <= 16.0,
+                "rate {rate}: expected impulse near {expected}, rendered at {peak}"
+            );
+        }
     }
 
     #[test]

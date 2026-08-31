@@ -57,28 +57,27 @@ struct StartupProject {
 struct ProjectSession {
     temporary: AtomicBool,
     exit_allowed: AtomicBool,
-    pending_open_project: Mutex<Option<PathBuf>>,
 }
 
 const APPLICATION_EXIT_REQUESTED: &str = "application-exit-requested";
 #[cfg(target_os = "macos")]
 const PROJECT_OPEN_REQUESTED: &str = "project-open-requested";
+static PENDING_OPEN_PROJECT: Mutex<Option<PathBuf>> = Mutex::new(None);
+#[cfg(target_os = "macos")]
+static PROJECT_RUNTIME_READY: AtomicBool = AtomicBool::new(false);
 
-impl ProjectSession {
-    #[cfg(any(target_os = "macos", test))]
-    fn queue_open_project(&self, path: PathBuf) {
-        *self
-            .pending_open_project
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(path);
-    }
+#[cfg(any(target_os = "macos", test))]
+fn queue_open_project(path: PathBuf) {
+    *PENDING_OPEN_PROJECT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(path);
+}
 
-    fn take_open_project(&self) -> Option<PathBuf> {
-        self.pending_open_project
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-    }
+fn take_open_project() -> Option<PathBuf> {
+    PENDING_OPEN_PROJECT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -104,12 +103,9 @@ fn create_temporary_project(app: AppHandle) -> Result<ProjectSummary, AppError> 
 }
 
 #[tauri::command]
-fn initialize_project(
-    app: AppHandle,
-    session: State<'_, ProjectSession>,
-) -> Result<StartupProject, AppError> {
+fn initialize_project(app: AppHandle) -> Result<StartupProject, AppError> {
     let mut unavailable_project_path = None;
-    if let Some(path) = session.take_open_project() {
+    if let Some(path) = take_open_project() {
         match project::open_project(&path) {
             Ok(project) => {
                 remember_project(&app, &project.package_path)?;
@@ -150,8 +146,8 @@ fn initialize_project(
 }
 
 #[tauri::command]
-fn take_open_project_request(session: State<'_, ProjectSession>) -> Option<PathBuf> {
-    session.take_open_project()
+fn take_open_project_request() -> Option<PathBuf> {
+    take_open_project()
 }
 
 #[tauri::command]
@@ -724,6 +720,8 @@ pub fn run() {
             app.manage(importer::ImportService::default());
             app.manage(youtube_search::YoutubeSearchService::default());
             app.manage(ProjectSession::default());
+            #[cfg(target_os = "macos")]
+            PROJECT_RUNTIME_READY.store(true, Ordering::Release);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -805,11 +803,15 @@ pub fn run() {
                 .find(|path| is_sonarcan_project_path(path))
             {
                 info!(path = %path.display(), "received macOS project open request");
-                app.state::<ProjectSession>().queue_open_project(path);
-                let _ = app.emit(PROJECT_OPEN_REQUESTED, ());
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                queue_open_project(path);
+                // AppKit can deliver a cold-start document before Tauri runs setup.
+                // The frontend consumes the queued path once setup has completed.
+                if PROJECT_RUNTIME_READY.load(Ordering::Acquire) {
+                    let _ = app.emit(PROJECT_OPEN_REQUESTED, ());
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
                 }
             }
         }
@@ -842,9 +844,8 @@ mod tests {
 
     #[test]
     fn queued_project_open_request_is_consumed_once() {
-        let session = ProjectSession::default();
-        session.queue_open_project(PathBuf::from("Band.sac"));
-        assert_eq!(session.take_open_project(), Some(PathBuf::from("Band.sac")));
-        assert_eq!(session.take_open_project(), None);
+        queue_open_project(PathBuf::from("Band.sac"));
+        assert_eq!(take_open_project(), Some(PathBuf::from("Band.sac")));
+        assert_eq!(take_open_project(), None);
     }
 }

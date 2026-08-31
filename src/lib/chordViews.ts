@@ -14,7 +14,7 @@ export function chordsForMode(analysis: ChordAnalysis | null, mode: ChordMode): 
 }
 
 export function visibleChords(chords: readonly TimedChord[], minimumStrength: number): TimedChord[] {
-  return chords.filter((chord) => chord.strength >= minimumStrength);
+  return chords.filter((chord) => chord.edited || chord.strength >= minimumStrength);
 }
 
 export function chordTimeline(chords: readonly TimedChord[]): TimedChord[] {
@@ -56,6 +56,79 @@ export function chordRepertoire(chords: readonly TimedChord[]): string[] {
 export function activeChordIndexAt(chords: readonly TimedChord[], positionSeconds: number, visualLeadSeconds = 0.01): number {
   const displayPosition = positionSeconds + Math.max(0, visualLeadSeconds);
   return chords.findIndex((chord) => displayPosition >= chord.startSeconds && displayPosition < chord.endSeconds);
+}
+
+export function adjacentChordPosition(
+  chords: readonly TimedChord[],
+  positionSeconds: number,
+  direction: -1 | 1,
+): number {
+  if (!chords.length || !Number.isFinite(positionSeconds)) return positionSeconds;
+  const starts = chords.map((chord) => chord.startSeconds);
+  let low = 0;
+  let high = starts.length;
+  if (direction < 0) {
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((starts[middle] ?? 0) < positionSeconds) low = middle + 1;
+      else high = middle;
+    }
+    return starts[low - 1] ?? positionSeconds;
+  }
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((starts[middle] ?? 0) <= positionSeconds) low = middle + 1;
+    else high = middle;
+  }
+  return starts[low] ?? positionSeconds;
+}
+
+export function nearestChordPosition(
+  chords: readonly TimedChord[],
+  positionSeconds: number,
+): number {
+  if (!chords.length || !Number.isFinite(positionSeconds)) return positionSeconds;
+  let low = 0;
+  let high = chords.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((chords[middle]?.startSeconds ?? 0) < positionSeconds) low = middle + 1;
+    else high = middle;
+  }
+  const after = chords[low]?.startSeconds;
+  const before = chords[low - 1]?.startSeconds;
+  if (before === undefined) return after ?? positionSeconds;
+  if (after === undefined) return before;
+  return positionSeconds - before <= after - positionSeconds ? before : after;
+}
+
+export interface ChordViewportBlock {
+  chord: TimedChord;
+  index: number;
+  leftPercent: number;
+  widthPercent: number;
+}
+
+export function chordViewportBlocks(
+  chords: readonly TimedChord[],
+  durationSeconds: number,
+  zoom: number,
+  start: number,
+): ChordViewportBlock[] {
+  if (durationSeconds <= 0 || zoom < 1 || !Number.isFinite(start)) return [];
+  const viewportStart = start * durationSeconds;
+  const viewportEnd = (start + 1 / zoom) * durationSeconds;
+  return chords.flatMap((chord, index) => {
+    const visibleStart = Math.max(viewportStart, chord.startSeconds);
+    const visibleEnd = Math.min(viewportEnd, chord.endSeconds);
+    if (visibleEnd <= visibleStart) return [];
+    return [{
+      chord,
+      index,
+      leftPercent: (visibleStart / durationSeconds - start) * zoom * 100,
+      widthPercent: (visibleEnd - visibleStart) / durationSeconds * zoom * 100,
+    }];
+  });
 }
 
 export function chordDisplayLabel(label: string): string {

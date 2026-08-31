@@ -113,6 +113,23 @@ The callback owns one preconfigured Signalsmith Stretch processor and all of its
 
 Unity speed with zero transposition takes a direct low-overhead path. Other settings stream source frames through the DSP processor. A seek, track change, or loop restart resets and prerolls the processor from the requested source position, avoiding stale buffered audio. Interactive speed and pitch changes retain the streaming state and follow a 40 ms exponential transition, preventing repeated resets and discontinuities while playback continues. Signalsmith restores neutral transposition during transport resets, so the engine deliberately reapplies the selected pitch afterwards. Speed and pitch are persisted in each track's practice state.
 
+Signalsmith's processing window has distinct input and output latency. The
+renderer therefore owns two source positions: an internal lookahead position
+used only to feed the processor, and the audible output position published to
+the UI and used by the metronome. Reset preroll contains the real source audio
+between those positions, including loop wrapping and crossfades. Once a live
+speed ramp settles, a new preroll is applied at that rate so its
+rate-dependent lookahead cannot accumulate as a cursor or metronome offset.
+Device buffering still adds the same platform-dependent delay to the complete
+mixed stream; it does not alter the relative alignment of music and click.
+
+At 48 kHz, the uncompensated processor placed an impulse 5,760 output frames
+(120 ms) late at `1×`, 6,712 frames (about 140 ms) late at `0.75×`, and 8,640
+frames (180 ms) late at `0.5×`. The compensated preroll regression measures 0,
+11, and 0 frames of error respectively (at most 0.23 ms), and a renderer-level
+test verifies that the published position follows the compensated audible
+output rather than the internal lookahead.
+
 The UI updates its readout immediately and applies a 65 ms trailing debounce before crossing IPC. Button steps are 5% for speed and one semitone for pitch; Shift-click selects the fine 1% or one-cent step respectively.
 
 ## Tempo analysis

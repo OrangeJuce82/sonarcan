@@ -57,13 +57,31 @@ No PCM or frame-level probabilities cross JSON IPC.
 
 The analysis workspace places the six-stem mixer beside a right-hand column
 containing the spectrum and stereo meter. Beneath it, the chord grid and an
-always-visible two-octave keyboard use a 40/60 split. The chord panel wraps segments into a vertically
+multi-view harmony panel use a 40/60 split. The chord panel wraps segments into a vertically
 scrollable grid. Playback can follow the active segment automatically. Standard (`submission`) is the default;
 Essentiel and Complet expose the other native model views. The
 panel can filter the uncalibrated model score, color by score or root, show a
 consistent sharp or flat spelling, follow the playback pitch transposition, and
 switch to an alphabetical repertoire of unique chords.
+Shift-clicking either waveform view seeks to the nearest detected Beat This!
+beat when that analysis exists; otherwise it keeps the ordinary unsnapped seek.
+Option-clicking seeks to the nearest visible chord segment start when chord
+analysis exists, and takes precedence if both modifiers are held.
+Option plus Left or Right seeks to the previous or next visible chord segment
+boundary, and remains inactive while editing text.
+The detailed waveform places those same visible chord segments in a compact,
+clickable lane using the waveform viewport and playhead, so zooming, panning,
+automatic follow, chord filtering, edits, and transposition remain synchronized.
+The harmony panel preserves each source JAMS/Harte label and uses one pure,
+typed parser for its three-octave piano and validated guitar and ukulele
+positions.
+Piano chord tones and fretted-instrument fingering markers reuse the active
+chord color, with theme-aware mixing for readable labels and root emphasis.
 `N` is retained in data and rendered as `-`.
+User chord corrections remain a separate, bounded per-track overlay keyed by
+LV-Chordia vocabulary and native segment times. They are persisted in project
+practice state, never written into the disposable model cache, and never alter
+segment boundaries or the underlying LV-Chordia output.
 
 The webview is strictly a control surface. It never decodes audio or owns playback timing, looping, gain, time-stretching, or pitch-shifting. Those operations always run in Rust; TypeScript only sends control parameters and displays snapshots of engine state.
 
@@ -96,6 +114,12 @@ temporary package is persisted continuously and remembered like any other
 project, so it reopens after a restart while it still exists. If the operating
 system removed it, startup reports the unavailable path, forgets that stale
 entry, and creates a fresh temporary project without failing.
+
+On macOS, opening an associated `.sac` package can deliver the native document
+event before Tauri has run application setup. That path is retained in a small
+process-level queue that does not access managed Tauri state. Startup consumes
+it after setup, while an already-running application also receives an event to
+activate the requested project immediately.
 
 Save promotes the current temporary package through Save As to a user-selected
 `.sac` destination; Save As always creates a copy. A destination cannot already

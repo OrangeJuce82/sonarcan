@@ -14,11 +14,21 @@ import {
   moveWaveformViewport,
   panWaveformViewportFromWheel,
   resizeWaveformViewport,
+  shouldApplyAudioStatus,
   trackLoadPosition,
+  transportJumpPosition,
   visiblePeaks,
+  waveformViewportForWindow,
   waveformWheelAxis,
+  waveformSeekPosition,
   zoomWaveformViewport,
 } from "./presentation.ts";
+
+test("audio status from the previous track cannot overwrite the selected track", () => {
+  assert.equal(shouldApplyAudioStatus(false, 4, 4, "track-b", "track-b"), true);
+  assert.equal(shouldApplyAudioStatus(true, 4, 4, "track-b", "track-b"), false);
+  assert.equal(shouldApplyAudioStatus(false, 3, 4, "track-a", "track-b"), false);
+});
 
 test("buildProjectPath preserves absolute and Windows path navigation", () => {
   assert.deepEqual(buildProjectPath("/Music/Set.sac"), [
@@ -104,10 +114,36 @@ test("loop boundaries snap to the nearest detected Beat This! beat", () => {
   assert.equal(nearestDetectedBeat(0.7, []), 0.7);
 });
 
+test("Shift waveform seeking snaps only when detected beats are available", () => {
+  const beats = [0.4, 0.91, 1.43, 1.96];
+  assert.equal(waveformSeekPosition(1.2, beats, true), 1.43);
+  assert.equal(waveformSeekPosition(1.2, beats, false), 1.2);
+  assert.equal(waveformSeekPosition(1.2, [], true), 1.2);
+});
+
+test("transport jumps to adjacent beats only when Shift navigation is available", () => {
+  const beats = [0.4, 0.91, 1.43, 1.96];
+  assert.equal(transportJumpPosition(1.1, -5, beats, true), 0.91);
+  assert.equal(transportJumpPosition(1.1, 5, beats, true), 1.43);
+  assert.equal(transportJumpPosition(1.43, -5, beats, true), 0.91);
+  assert.equal(transportJumpPosition(1.43, 5, beats, true), 1.96);
+  assert.equal(transportJumpPosition(0.1, -5, beats, true), 0.1);
+  assert.equal(transportJumpPosition(2.1, 5, beats, true), 2.1);
+  assert.equal(transportJumpPosition(10, -5, [], true), 5);
+  assert.equal(transportJumpPosition(10, 5, beats, false), 15);
+});
+
 test("waveform viewport movement preserves its span and stays in bounds", () => {
   assert.deepEqual(moveWaveformViewport(0.25, 4, 0.1), { start: 0.35, zoom: 4 });
   assert.deepEqual(moveWaveformViewport(0.75, 4, 0.5), { start: 0.75, zoom: 4 });
   assert.deepEqual(moveWaveformViewport(0.25, 4, -0.5), { start: 0, zoom: 4 });
+});
+
+test("the default waveform window fits thirty seconds or the whole short track", () => {
+  assert.deepEqual(waveformViewportForWindow(18), { start: 0, zoom: 1 });
+  assert.deepEqual(waveformViewportForWindow(120), { start: 0, zoom: 4 });
+  assert.deepEqual(waveformViewportForWindow(120, 30, 60), { start: 0.375, zoom: 4 });
+  assert.deepEqual(waveformViewportForWindow(120, 30, 118), { start: 0.75, zoom: 4 });
 });
 
 test("trackpad gestures pan horizontally and lock one axis per gesture", () => {

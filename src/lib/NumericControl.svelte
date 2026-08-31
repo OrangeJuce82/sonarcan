@@ -11,6 +11,7 @@
   export let onChange: (value: number) => void;
   export let onTap: (() => void) | undefined = undefined;
   export let tooltip = "";
+  export let showStepButtons = true;
 
   let drag: { pointerId: number; y: number; value: number; moved: boolean } | null = null;
   let lastTapAt = 0;
@@ -70,7 +71,7 @@
 <div class="numeric-control" class:dragging={drag?.moved} data-tooltip={tooltip}>
   <span class="numeric-label" aria-hidden="true">{label}</span>
   <div class="numeric-buttons">
-    <button type="button" class="step" aria-label={`${label} −`} onclick={(event) => buttonIncrement(event, -1)}><span aria-hidden="true">−</span></button>
+    {#if showStepButtons}<button type="button" class="step" aria-label={`${label} −`} onclick={(event) => buttonIncrement(event, -1)}><span aria-hidden="true">−</span></button>{/if}
     <button
       type="button"
       class="value"
@@ -82,6 +83,6 @@
       onwheel={adjustWithWheel}
       ondblclick={onTap ? undefined : reset}
     ><strong>{display(value)}</strong></button>
-    <button type="button" class="step" aria-label={`${label} +`} onclick={(event) => buttonIncrement(event, 1)}><span aria-hidden="true">+</span></button>
+    {#if showStepButtons}<button type="button" class="step" aria-label={`${label} +`} onclick={(event) => buttonIncrement(event, 1)}><span aria-hidden="true">+</span></button>{/if}
   </div>
 </div>
