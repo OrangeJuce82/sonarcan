@@ -108,8 +108,8 @@ embedded-runtime signing script use the same ad-hoc identity.
 4. Create and push the exact matching tag, for example:
 
    ```bash
-   git tag -a v0.2.0 -m "SonArcan 0.2.0"
-   git push origin v0.2.0
+   git tag -a v0.2.0-beta.1 -m "SonArcan 0.2.0 beta 1"
+   git push origin v0.2.0-beta.1
    ```
 
 5. The `Release macOS Apple Silicon` workflow checks version consistency,

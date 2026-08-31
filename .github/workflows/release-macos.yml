@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
 
 permissions:
   contents: write
@@ -81,7 +82,7 @@ jobs:
           releaseName: SonArcan ${{ github.ref_name }}
           generateReleaseNotes: true
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target aarch64-apple-darwin --bundles app,dmg
       - name: Verify bundled macOS resources
         run: |
