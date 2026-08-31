@@ -122,7 +122,8 @@ The manifest stays human-readable. Original media and user-authored data are kep
 - [Architecture](docs/ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) · [Quality](docs/QUALITY.md)
 - [Real-time audio](docs/AUDIO_ENGINE.md) · [Chord analysis](docs/CHORD_ANALYSIS.md) · [Stem separation](docs/STEM_SEPARATION.md)
 - [Practice workflow](docs/PRACTICE_WORKFLOW.md) · [Project management](docs/PROJECT_MANAGEMENT.md) · [Waveforms](docs/WAVEFORM.md)
-- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Roadmap](docs/ROADMAP.md) · [Release guide](docs/RELEASING.md)
+- [Competitive analysis](docs/COMPETITIVE_ANALYSIS.md) · [Roadmap](docs/ROADMAP.md) · [Release guide](docs/RELEASING.md)
+- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## 🤝 Contributors
 
