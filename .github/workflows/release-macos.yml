@@ -104,7 +104,7 @@ jobs:
           test -x "$app_bundle/Contents/Resources/audio-tools/bin/ffprobe"
           "$app_bundle/Contents/Resources/audio-tools/bin/ffmpeg" -hide_banner -version
           "$app_bundle/Contents/Resources/audio-tools/bin/ffprobe" -hide_banner -version
-          "$app_bundle/Contents/Resources/chord-runtime/runtime/bin/python3.12" -m sonarcan_chord_worker.worker --self-test
+          "$app_bundle/Contents/Resources/chord-runtime/runtime/bin/python3.12" -m sonarcan_chord_worker.worker --self-test --downbeat-model "$app_bundle/Contents/Resources/models/beat-this/final0.ckpt"
           "$app_bundle/Contents/Resources/chord-runtime/runtime/bin/python3.12" "$app_bundle/Contents/Resources/ytdlp-search/yt-dlp" --version
       - name: Generate DMG checksum
         run: |
