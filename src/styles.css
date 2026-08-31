@@ -227,7 +227,14 @@ button:disabled { opacity: .4; cursor: default; }
 .loop-handle.selected { box-shadow: 0 0 0 2px #e8ffff66, 0 4px 16px #0008; }
 .loop-handle.overview { top: 0; width: 28px; min-width: 28px; height: 58px; transform: translateX(-14px); padding: 0; border-radius: 0; background: #281a38dd; }
 .loop-handle.overview::after { display: none; }
-.zoom-info { display: flex; justify-content: space-between; color: #60747c; font-size: .64rem; padding: 7px 1px; }
+.waveform-panel-title { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.waveform-panel-title h2 { justify-self: start; }
+.waveform-panel-title .load-states { justify-self: end; }
+.zoom-status { display: flex; align-items: center; gap: 7px; }
+.follow-playhead { display: grid; place-items: center; width: 25px; min-width: 25px; height: 23px; padding: 0; border-radius: 5px; color: var(--muted); }
+.follow-playhead.active { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-bg); }
+.follow-playhead.active.suspended { opacity: .58; border-style: dashed; }
+.waveform-help { min-height: 31px; padding: 7px 1px; color: var(--muted); font-size: .64rem; text-align: right; }
 .overview-wave { position: relative; height: 58px; overflow: hidden; border: 1px solid #26343a; background: #0c1316; cursor: crosshair; touch-action: none; user-select: none; }
 .overview-wave svg line { stroke: #357a7d; stroke-width: 1; }
 .overview-wave .viewport { position: absolute; z-index: 3; top: 0; bottom: 0; min-width: 1px; padding: 0; border: 1px solid #d9a64a; border-radius: 0; background: #d9a64a18; cursor: grab; touch-action: none; }

@@ -44,6 +44,7 @@
   let loopA: number | null = null;
   let loopB: number | null = null;
   let usingDefaultLoopBounds = false;
+  let loopCommandGeneration = 0;
   let preferencesVisible = false;
   let importVisible = false;
   let tasksVisible = false;
@@ -63,7 +64,9 @@
   let chordAnalysis: ChordAnalysis | null = null;
   let chordsLoading = false;
   let chordAnalysisError = "";
-  let chordAutoScroll = true;
+  let chordScrollSuspended = false;
+  let chordPointerInside = false;
+  let chordProgrammaticScroll = false;
   let chordMode: ChordMode = "standard";
   let chordMinimumStrength = 0;
   let chordColorMode: ChordColorMode = "root";
@@ -137,6 +140,11 @@
   let endedGeneration = 0;
   let waveformZoom = 1;
   let waveformStart = 0;
+  let followPlayhead = false;
+  let waveformPointerInside = false;
+  let waveformFocusWithin = false;
+  let waveformFollowNeedsSmooth = false;
+  let waveformFollowAnimationFrame: number | undefined;
   let dragStartX = 0;
   let dragStartViewport = 0;
   let dragStartZoom = 1;
@@ -205,6 +213,27 @@
   $: detailedPeaks = visiblePeaks(waveform?.peaks ?? [], waveformZoom, waveformStart, 1_000);
   $: overviewPeaks = visiblePeaks(waveform?.peaks ?? [], 1, 0, 700);
   $: playheadPercent = durationSeconds > 0 ? ((currentSeconds / durationSeconds - waveformStart) * waveformZoom * 100) : 0;
+  $: waveformFollowSuspended = waveformPointerInside
+    || waveformFocusWithin
+    || waveformDragPointerId !== null
+    || viewportDrag !== null;
+  $: if (waveformFollowSuspended) {
+    waveformFollowNeedsSmooth = true;
+    cancelWaveformFollowAnimation();
+  }
+  $: if (followPlayhead && !waveformFollowSuspended && waveformZoom > 1 && durationSeconds > 0) {
+    const centeredStart = moveWaveformViewport(
+      currentSeconds / durationSeconds - 0.5 / waveformZoom,
+      waveformZoom,
+      0,
+    ).start;
+    if (waveformFollowNeedsSmooth) {
+      waveformFollowNeedsSmooth = false;
+      smoothWaveformFollow();
+    } else if (waveformFollowAnimationFrame === undefined) {
+      waveformStart = centeredStart;
+    }
+  }
   $: detailedBeatLines = calculateDetectedBeatLines(
     chordAnalysis?.beats ?? [],
     chordAnalysis?.downbeats ?? [],
@@ -229,7 +258,7 @@
     lastRepertoirePlaybackLabel = activeChord?.label ?? null;
     repertoireKeyboardLabel = null;
   }
-  $: if (chordView === "timeline" && chordAutoScroll && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
+  $: if (chordView === "timeline" && !chordScrollSuspended && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
     lastFollowedChordIndex = activeChordIndex;
     followChord(activeChordIndex);
   }
@@ -242,18 +271,36 @@
         + item.getBoundingClientRect().top
         - chordList.getBoundingClientRect().top
         - (chordList.clientHeight - item.clientHeight) / 2;
+      const targetTop = Math.max(0, top);
+      if (Math.abs(chordList.scrollTop - targetTop) < 1) return;
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      chordProgrammaticScroll = true;
       chordList.scrollTo({
-        top: Math.max(0, top),
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        top: targetTop,
+        behavior: prefersReducedMotion ? "auto" : "smooth",
       });
+      if (prefersReducedMotion) queueMicrotask(() => chordProgrammaticScroll = false);
     });
   }
 
-  function toggleChordAutoScroll(): void {
-    chordAutoScroll = !chordAutoScroll;
-    if (chordAutoScroll) {
-      lastFollowedChordIndex = -1;
-    }
+  function suspendChordFollow(): void {
+    if (!chordPointerInside) return;
+    chordProgrammaticScroll = false;
+    chordScrollSuspended = true;
+  }
+
+  function handleChordScroll(): void {
+    if (chordPointerInside && !chordProgrammaticScroll) chordScrollSuspended = true;
+  }
+
+  function resumeChordFollow(): void {
+    chordPointerInside = false;
+    chordProgrammaticScroll = false;
+    if (!chordScrollSuspended) return;
+    chordScrollSuspended = false;
+    if (activeChordIndex < 0) return;
+    lastFollowedChordIndex = activeChordIndex;
+    followChord(activeChordIndex);
   }
 
   onMount(() => {
@@ -377,6 +424,7 @@
       window.clearTimeout(importAnalysisTimer);
       stopJumpHold();
       cancelPendingSeek();
+      cancelWaveformFollowAnimation();
       for (const timer of importDismissTimers.values()) window.clearTimeout(timer);
       importDismissTimers.clear();
       window.removeEventListener("error", handleWindowError);
@@ -575,6 +623,9 @@
     chordAnalysis = null;
     chordAnalysisError = "";
     lastFollowedChordIndex = -1;
+    chordScrollSuspended = false;
+    chordPointerInside = false;
+    chordProgrammaticScroll = false;
     currentSeconds = 0;
     durationSeconds = 0;
     playbackRate = preferences.defaultPlaybackRate;
@@ -588,11 +639,16 @@
     loopA = null;
     loopB = null;
     usingDefaultLoopBounds = false;
+    loopCommandGeneration += 1;
     loopDrag = null;
     waveform = null;
     waveformZoom = 1;
     waveformStart = 0;
     waveformDragPointerId = null;
+    waveformPointerInside = false;
+    waveformFocusWithin = false;
+    waveformFollowNeedsSmooth = false;
+    cancelWaveformFollowAnimation();
     viewportDrag = null;
     detectedBpm = null;
     metronomeEnabled = false;
@@ -1173,6 +1229,9 @@
     chordsLoading = false;
     chordAnalysisError = "";
     lastFollowedChordIndex = -1;
+    chordScrollSuspended = false;
+    chordPointerInside = false;
+    chordProgrammaticScroll = false;
     void loadTrackWaveform(track, packagePath, selectionGeneration);
     void loadSelectedAudio(track, packagePath, selectionGeneration, autoplay);
   }
@@ -1345,7 +1404,8 @@
       if (!stillSelected()) return;
       endedGeneration = status.endedGeneration;
       applyLoopToEngine();
-      await audioSeek(currentSeconds);
+      const loopWasDisabled = await audioSeek(currentSeconds);
+      if (loopWasDisabled) disableLoopBeyondB(currentSeconds);
       if (!stillSelected()) return;
       audioLoading = false;
       loadingTrackId = null;
@@ -1440,6 +1500,7 @@
   function seek(position: number): void {
     if (!Number.isFinite(position)) return;
     currentSeconds = Math.max(0, Math.min(position, durationSeconds));
+    disableLoopBeyondB(currentSeconds);
     pendingSeekPosition = currentSeconds;
     if (seekAnimationFrame !== undefined) {
       window.cancelAnimationFrame(seekAnimationFrame);
@@ -1451,6 +1512,7 @@
   function scrub(position: number): void {
     if (!Number.isFinite(position)) return;
     currentSeconds = Math.max(0, Math.min(position, durationSeconds));
+    disableLoopBeyondB(currentSeconds);
     pendingSeekPosition = currentSeconds;
     schedulePendingSeek();
   }
@@ -1469,7 +1531,8 @@
     pendingSeekPosition = null;
     seekRequestActive = true;
     try {
-      await audioSeek(position);
+      const loopWasDisabled = await audioSeek(position);
+      if (loopWasDisabled) disableLoopBeyondB(position);
     } catch (error) {
       notify("error", t("playbackError"), errorText(error));
     } finally {
@@ -1484,6 +1547,17 @@
       window.cancelAnimationFrame(seekAnimationFrame);
       seekAnimationFrame = undefined;
     }
+  }
+
+  function disableLoopBeyondB(position: number): void {
+    if (!loopEnabled || loopB === null || position < loopB) return;
+    loopCommandGeneration += 1;
+    loopEnabled = false;
+    if (trainerEnabled) {
+      trainerEnabled = false;
+      trainerLoopCount = 0;
+    }
+    schedulePracticeSave(0);
   }
 
   function jump(seconds: number): void {
@@ -1551,18 +1625,31 @@
   function toggleLoopTrainer(): void {
     trainerEnabled = !trainerEnabled;
     if (trainerEnabled) {
-      if (loopA === null || loopB === null) {
-        loopA = 0;
-        loopB = durationSeconds;
-        usingDefaultLoopBounds = true;
-      }
+      ensureValidLoopBounds();
       loopEnabled = true;
       playbackRate = trainerStartRate;
       window.clearTimeout(playbackRateTimer);
       playbackRateTimer = undefined;
-      applyLoopToEngine();
+      const generation = ++loopCommandGeneration;
+      void activateTrainingAtA(generation);
+      schedulePracticeSave();
+      return;
     }
+    loopCommandGeneration += 1;
     applyLoopTrainer();
+  }
+
+  async function activateTrainingAtA(generation: number): Promise<void> {
+    if (loopA === null || loopB === null) return;
+    cancelPendingSeek();
+    currentSeconds = loopA;
+    try {
+      await audioSetLoopTrainer(true, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, loopA, loopB);
+      if (generation !== loopCommandGeneration || !trainerEnabled) return;
+      await audioSeek(loopA);
+    } catch (error) {
+      notify("error", t("playbackError"), errorText(error));
+    }
   }
 
   function openTrainingSettings(): void {
@@ -1610,10 +1697,16 @@
   }
 
   function clearLoop(): void {
+    loopCommandGeneration += 1;
     loopA = null;
     loopB = null;
     usingDefaultLoopBounds = false;
     loopEnabled = false;
+    if (trainerEnabled) {
+      trainerEnabled = false;
+      trainerLoopCount = 0;
+      applyLoopTrainer();
+    }
     void audioSetLoop(null, null);
     schedulePracticeSave();
   }
@@ -1697,14 +1790,46 @@
   }
 
   function toggleLoop(): void {
-    if (loopA === null || loopB === null) {
-      const span = Math.min(5, Math.max(0.25, durationSeconds));
-      loopA = Math.min(currentSeconds, Math.max(0, durationSeconds - span));
-      loopB = Math.min(durationSeconds, loopA + span);
+    if (loopEnabled) {
+      loopCommandGeneration += 1;
+      loopEnabled = false;
+      if (trainerEnabled) {
+        trainerEnabled = false;
+        trainerLoopCount = 0;
+        applyLoopTrainer();
+      }
+      applyLoopToEngine();
+      schedulePracticeSave();
+      return;
     }
-    loopEnabled = !loopEnabled;
-    applyLoopToEngine();
+    ensureValidLoopBounds();
+    if (loopA === null || loopB === null || loopB <= loopA) return;
+    loopEnabled = true;
+    const generation = ++loopCommandGeneration;
+    void activateLoopAtA(generation);
     schedulePracticeSave();
+  }
+
+  function ensureValidLoopBounds(): void {
+    if (durationSeconds <= 0) return;
+    if (loopA === null || loopA >= durationSeconds) loopA = 0;
+    if (loopB === null || loopB <= loopA) loopB = durationSeconds;
+    usingDefaultLoopBounds = loopA === 0 && loopB === durationSeconds;
+  }
+
+  async function activateLoopAtA(generation: number): Promise<void> {
+    if (loopA === null || loopB === null) return;
+    const a = loopA;
+    const b = loopB;
+    cancelPendingSeek();
+    currentSeconds = a;
+    try {
+      await audioSetLoop(a, b);
+      if (generation !== loopCommandGeneration || !loopEnabled) return;
+      await audioSeek(a);
+    } catch (error) {
+      notify("error", t("playbackError"), errorText(error));
+    }
   }
 
   function applyLoopToEngine(): void {
@@ -1894,6 +2019,60 @@
   function applyWaveformViewport(viewport: WaveformViewport): void {
     waveformStart = viewport.start;
     waveformZoom = viewport.zoom;
+  }
+
+  function cancelWaveformFollowAnimation(): void {
+    if (waveformFollowAnimationFrame === undefined) return;
+    window.cancelAnimationFrame(waveformFollowAnimationFrame);
+    waveformFollowAnimationFrame = undefined;
+  }
+
+  function smoothWaveformFollow(): void {
+    cancelWaveformFollowAnimation();
+    const initialStart = waveformStart;
+    const animationStart = performance.now();
+    const duration = 180;
+    const animate = (now: number): void => {
+      if (!followPlayhead || waveformFollowSuspended || waveformZoom <= 1 || durationSeconds <= 0) {
+        waveformFollowAnimationFrame = undefined;
+        return;
+      }
+      const progress = Math.min(1, (now - animationStart) / duration);
+      const eased = 1 - (1 - progress) ** 3;
+      const target = moveWaveformViewport(
+        currentSeconds / durationSeconds - 0.5 / waveformZoom,
+        waveformZoom,
+        0,
+      ).start;
+      waveformStart = initialStart + (target - initialStart) * eased;
+      if (progress < 1) {
+        waveformFollowAnimationFrame = window.requestAnimationFrame(animate);
+      } else {
+        waveformFollowAnimationFrame = undefined;
+        waveformStart = target;
+      }
+    };
+    waveformFollowAnimationFrame = window.requestAnimationFrame(animate);
+  }
+
+  function toggleWaveformFollow(): void {
+    followPlayhead = !followPlayhead;
+    cancelWaveformFollowAnimation();
+    waveformFollowNeedsSmooth = followPlayhead;
+  }
+
+  function enterDetailedWaveform(event: PointerEvent): void {
+    if (event.pointerType !== "touch") waveformPointerInside = true;
+  }
+
+  function leaveDetailedWaveform(event: PointerEvent): void {
+    if (event.pointerType !== "touch") waveformPointerInside = false;
+  }
+
+  function leaveDetailedWaveformFocus(event: FocusEvent): void {
+    waveformFocusWithin = event.currentTarget instanceof HTMLElement
+      && event.relatedTarget instanceof Node
+      && event.currentTarget.contains(event.relatedTarget);
   }
 
   function startWaveformDrag(event: PointerEvent): void {
@@ -2098,7 +2277,23 @@
     <section class="main-stage">
       {#if currentTrack}
       <div class="visualizer panel">
-        <div class="panel-title"><h2>{t("waveform")}</h2><div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div></div>
+        <div class="panel-title waveform-panel-title">
+          <h2>{t("waveform")}</h2>
+          <span class="zoom-status">
+            <button
+              type="button"
+              class="follow-playhead"
+              class:active={followPlayhead}
+              class:suspended={followPlayhead && waveformFollowSuspended}
+              aria-label={t("followPlayhead")}
+              aria-pressed={followPlayhead}
+              data-tooltip={t("followPlayhead")}
+              onclick={toggleWaveformFollow}
+            ><Icon name="crosshairs" size="12px" /></button>
+            <span>{waveformZoom.toFixed(1)}×</span>
+          </span>
+          <div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}{#if currentTrack && !audioLoading && !waveformLoading}<span class="loaded"><Icon name="check" size="10px" /> {t("audioReady")}</span>{/if}</div>
+        </div>
         <div
           class="wave detailed-wave"
           class:dragging={waveformDragPointerId !== null}
@@ -2107,9 +2302,13 @@
           data-tooltip={t("seekHelp")}
           onwheel={(event) => navigateWaveformWithWheel(event, false)}
           onpointerdown={startWaveformDrag}
+          onpointerenter={enterDetailedWaveform}
+          onpointerleave={leaveDetailedWaveform}
           onpointermove={dragWaveform}
           onpointerup={finishWaveformDrag}
           onpointercancel={cancelWaveformDrag}
+          onfocusin={() => waveformFocusWithin = true}
+          onfocusout={leaveDetailedWaveformFocus}
         >
           {#if waveformLoading}<div class="wave-skeleton" aria-label={t("waveformLoading")}><svg viewBox={`0 0 ${loadingWave.length} 100`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={50 - height * 45} y2={50 + height * 45}></line>{/each}</svg><i></i><span>{t("waveformLoading")}</span></div>
           {:else if detailedPeaks.length === 0}<span class="wave-message">{t("waveformEmpty")}</span>
@@ -2137,7 +2336,7 @@
             {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
           {/if}
         </div>
-        <div class="zoom-info"><span>{waveformZoom.toFixed(1)}×</span><span>{t("waveformHelp")}</span></div>
+        <div class="waveform-help">{t("waveformHelp")}</div>
         <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheel={(event) => navigateWaveformWithWheel(event, true)} onpointerdown={seekFromOverview}>
           {#if waveformLoading}<div class="overview-skeleton"><svg viewBox={`0 0 ${loadingWave.length} 60`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={30 - height * 27} y2={30 + height * 27}></line>{/each}</svg><i></i></div>
           {:else if overviewPeaks.length > 0}
@@ -2312,10 +2511,9 @@
                 {#if chordsLoading}<span class="chord-title-loader" aria-label={t("analyzingChords")} data-tooltip={t("analyzingChords")}><i class="mini-spinner"></i></span>{/if}
               </div>
               <div class="chord-panel-actions">
-                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; }}><Icon name="book-open" size="13px" /></button>
+                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; chordScrollSuspended = false; chordPointerInside = false; chordProgrammaticScroll = false; lastFollowedChordIndex = -1; }}><Icon name="book-open" size="13px" /></button>
                 <button aria-label={t("chordColors")} data-tooltip={t("chordColorsHelp")} onclick={() => chordColorMode = chordColorMode === "root" ? "score" : "root"}>{chordColorMode === "root" ? "12" : "%"}</button>
                 <button class="chord-accidental-toggle" aria-label={t("chordAccidentals")} data-tooltip={t("chordAccidentalsHelp")} onclick={() => chordAccidentalMode = chordAccidentalMode === "sharp" ? "flat" : "sharp"}>{chordAccidentalMode === "sharp" ? "♯" : "♭"}</button>
-                <button disabled={chordView !== "timeline"} class:active={chordView === "timeline" && chordAutoScroll} aria-pressed={chordView === "timeline" && chordAutoScroll} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="12px" /></button>
               </div>
             </div>
             <div class="chord-filter-row">
@@ -2336,7 +2534,18 @@
             <p class="chord-state">{chordsLoading ? t("analyzingChords") : t("noChords")}</p>
           {:else}
             {#if chordView === "timeline"}
-              <div class="chords" aria-label={t("chords")} bind:this={chordList}>
+              <div
+                class="chords"
+                role="region"
+                aria-label={t("chords")}
+                bind:this={chordList}
+                onpointerenter={(event) => { if (event.pointerType !== "touch") chordPointerInside = true; }}
+                onpointerleave={() => resumeChordFollow()}
+                onpointerdown={(event) => { if (event.target === event.currentTarget) chordProgrammaticScroll = false; }}
+                onwheel={suspendChordFollow}
+                onscroll={handleChordScroll}
+                onscrollend={() => chordProgrammaticScroll = false}
+              >
                 {#each timelineChords as chord, chordIndex}
                   <button
                     class:active={chordIndex === activeChordIndex}

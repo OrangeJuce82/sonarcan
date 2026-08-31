@@ -105,7 +105,7 @@ export const audioLoad = (packagePath: string, trackId: string): Promise<AudioSt
 export const audioPreload = (packagePath: string, trackId: string): Promise<void> => invoke("audio_preload", { packagePath, trackId });
 export const audioPlay = (): Promise<void> => invoke("audio_play");
 export const audioPause = (): Promise<void> => invoke("audio_pause");
-export const audioSeek = (seconds: number): Promise<void> => invoke("audio_seek", { seconds });
+export const audioSeek = (seconds: number): Promise<boolean> => invoke("audio_seek", { seconds });
 export const audioSetLoop = (aSeconds: number | null, bSeconds: number | null): Promise<void> => invoke("audio_set_loop", { aSeconds, bSeconds });
 export const audioSetVolume = (volume: number): Promise<void> => invoke("audio_set_volume", { volume });
 export const audioSetPlaybackRate = (rate: number): Promise<void> => invoke("audio_set_playback_rate", { rate });

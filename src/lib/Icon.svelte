@@ -12,13 +12,14 @@
     | "pause" | "stop" | "backward" | "forward" | "backward-step" | "forward-step" | "rotate-right"
     | "rotate-left" | "music" | "book-open" | "metronome" | "lightbulb" | "xmark" | "check" | "arrow-left" | "arrow-right" | "arrow-down"
     | "folder-open" | "floppy-disk" | "file-export" | "cloud-arrow-down"
-    | "sliders" | "gauge-high" | "magnifying-glass" | "file" | "terminal" | "keyboard" | "magnet";
+    | "sliders" | "gauge-high" | "magnifying-glass" | "file" | "terminal" | "keyboard" | "magnet" | "crosshairs";
 
   export let name: IconName;
   export let label: string | undefined = undefined;
   export let size = "1em";
 
   const icons: Record<IconName, { width: number; height: number; path: string }> = {
+    crosshairs: { width: 512, height: 512, path: "M232 0h48v72c84 11 149 76 160 160h72v48h-72c-11 84-76 149-160 160v72h-48v-72C148 429 83 364 72 280H0v-48h72C83 148 148 83 232 72V0zm24 120a136 136 0 1 0 0 272 136 136 0 1 0 0-272zm0 88a48 48 0 1 1 0 96 48 48 0 1 1 0-96z" },
     magnet: { width: 512, height: 512, path: "M0 160v96c0 141.4 114.6 256 256 256s256-114.6 256-256v-96H352v96c0 53-43 96-96 96s-96-43-96-96v-96H0zM0 96C0 43 43 0 96 0h64v96H0zm352 0V0h64c53 0 96 43 96 96H352z" },
     "magnifying-glass": { width: 512, height: 512, path: "M208 416a208 208 0 1 0 0-416 208 208 0 1 0 0 416zM480 512c8.2 0 16.4-3.1 22.6-9.4 12.5-12.5 12.5-32.8 0-45.3L374.6 329.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c6.3 6.3 14.5 9.4 22.7 9.4zM208 352a144 144 0 1 1 0-288 144 144 0 1 1 0 288z" },
     file: { width: 384, height: 512, path: "M64 0C28.7 0 0 28.7 0 64l0 384c0 35.3 28.7 64 64 64l256 0c35.3 0 64-28.7 64-64l0-288L224 0 64 0zm160 32 128 128-96 0c-17.7 0-32-14.3-32-32l0-96zM96 272c0-13.3 10.7-24 24-24l144 0c13.3 0 24 10.7 24 24s-10.7 24-24 24l-144 0c-13.3 0-24-10.7-24-24zm0 96c0-13.3 10.7-24 24-24l144 0c13.3 0 24 10.7 24 24s-10.7 24-24 24l-144 0c-13.3 0-24-10.7-24-24z" },
