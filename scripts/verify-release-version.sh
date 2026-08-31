@@ -46,4 +46,8 @@ if ! grep -Fq 'SHA256SUMS.txt' "$release_workflow"; then
   echo "The macOS release workflow must publish a DMG checksum." >&2
   exit 1
 fi
+if ! grep -Fq 'uv python install 3.12.12' "$release_workflow"; then
+  echo "The macOS release workflow must install the Python version bundled in the chord runtime." >&2
+  exit 1
+fi
 echo "Release version $package_version is consistent."
