@@ -19,6 +19,7 @@ pub struct UserPreferences {
     pub channels: ChannelPreference,
     pub mp3_quality: Mp3Quality,
     pub master_volume: f32,
+    pub music_volume: f32,
     pub metronome_volume: f32,
     pub metronome_sound: MetronomeSound,
     pub default_playback_rate: f64,
@@ -105,6 +106,7 @@ impl Default for UserPreferences {
             channels: ChannelPreference::Stereo,
             mp3_quality: Mp3Quality::VbrHigh,
             master_volume: 0.8,
+            music_volume: 1.0,
             metronome_volume: 0.55,
             metronome_sound: MetronomeSound::Electronic,
             default_playback_rate: 1.0,
@@ -165,6 +167,7 @@ fn validate(value: &mut UserPreferences) {
     value.toast_duration_seconds = value.toast_duration_seconds.clamp(1, 10);
     value.concurrent_downloads = value.concurrent_downloads.clamp(1, 8);
     value.master_volume = value.master_volume.clamp(0.0, 1.0);
+    value.music_volume = value.music_volume.clamp(0.0, 1.0);
     value.metronome_volume = value.metronome_volume.clamp(0.0, 1.0);
     value.default_playback_rate = value.default_playback_rate.clamp(0.5, 2.0);
     value.default_pitch_semitones = value.default_pitch_semitones.clamp(-12.0, 12.0);
@@ -221,6 +224,16 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
+    }
+
+    #[test]
+    fn older_preferences_default_to_full_music_volume() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("musicVolume");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(preferences.music_volume, 1.0);
     }
 
     #[test]

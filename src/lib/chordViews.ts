@@ -99,10 +99,19 @@ export function adjacentChordTransportPosition(
   direction: -1 | 1,
 ): number {
   if (!chords.length || !Number.isFinite(positionSeconds)) return positionSeconds;
-  const activeIndex = chords.findIndex((chord) => (
-    positionSeconds >= chord.startSeconds - 0.01
-      && positionSeconds < chord.endSeconds
-  ));
+  // Adjacent model regions may overlap by a sub-millisecond rounding margin.
+  // At a shared boundary, prefer the most recently started region; choosing the
+  // earlier one would return the same next start forever while playback is paused.
+  let activeIndex = -1;
+  for (let index = chords.length - 1; index >= 0; index -= 1) {
+    const chord = chords[index];
+    if (chord
+      && positionSeconds >= chord.startSeconds - 0.01
+      && positionSeconds < chord.endSeconds) {
+      activeIndex = index;
+      break;
+    }
+  }
   if (activeIndex >= 0) {
     const targetIndex = Math.max(0, Math.min(chords.length - 1, activeIndex + direction));
     return chords[targetIndex]?.startSeconds ?? positionSeconds;

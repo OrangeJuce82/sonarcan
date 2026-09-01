@@ -19,7 +19,10 @@ is activated. Chord-card navigation targets the exact model timestamp. The UI
 anticipates only the active-chord highlight by 10 ms so transport refresh and
 sample rounding cannot briefly leave the preceding chord highlighted; stored,
 displayed, and sought timestamps remain unchanged. Cache revisions track the
-pinned model contract.
+pinned model contract. The worker trims any sub-frame decoder/rounding overlap
+to the following region's start before publishing results, and Rust rejects any
+remaining overlap. Chord regions therefore always have ordered,
+non-overlapping timing boundaries.
 
 On the August 30, 2026 Apple-silicon integration check, Beat This! detected 75
 downbeats in a 173-second MP3 in 6.47 seconds on MPS. The warmed combined
@@ -48,11 +51,12 @@ bounded WAV staging one stem at a time, then invokes FFmpeg with the user's MP3
 quality preference. Export is unavailable until all six stems validate, writes
 into a newly selected directory, and never runs on the audio callback.
 
-The master volume is the final output gain: it applies to the combined music,
-stem mix, and metronome signal. Master volume changes, mute/unmute transitions,
-stem gain/pan changes, and stem mute/solo changes use a 40 ms callback-side ramp to
-avoid clicks and zipper noise. The ramp keeps the real-time path allocation-free
-and lock-free.
+The music volume is applied to whichever musical source is active: the original
+audio or the six-stem mix. The metronome is added afterwards, then the master
+volume is applied as the final gain to the combined signal. Master, music,
+mute/unmute, stem gain/pan, and stem mute/solo changes use a 40 ms callback-side
+ramp to avoid clicks and zipper noise. The ramp keeps the real-time path
+allocation-free and lock-free.
 
 Interactive seeks are coalesced by the UI to at most one in-flight IPC request,
 while the position readout continues to follow the pointer immediately. Each

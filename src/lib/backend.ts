@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Language } from "./i18n";
-import type { AppLogEntry, AudioStatus, ChordAnalysis, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, MetronomeSound, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
+import type { JamsChordSegment } from "./chordExport";
+import type { AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, MetronomeSound, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -108,6 +109,7 @@ export const audioPause = (): Promise<void> => invoke("audio_pause");
 export const audioSeek = (seconds: number): Promise<boolean> => invoke("audio_seek", { seconds });
 export const audioSetLoop = (aSeconds: number | null, bSeconds: number | null): Promise<void> => invoke("audio_set_loop", { aSeconds, bSeconds });
 export const audioSetVolume = (volume: number): Promise<void> => invoke("audio_set_volume", { volume });
+export const audioSetMusicVolume = (volume: number): Promise<void> => invoke("audio_set_music_volume", { volume });
 export const audioSetPlaybackRate = (rate: number): Promise<void> => invoke("audio_set_playback_rate", { rate });
 export const audioSetPitch = (semitones: number): Promise<void> => invoke("audio_set_pitch", { semitones });
 export const audioSetBeatTimeline = (beats: number[], downbeats: number[]): Promise<void> => invoke("audio_set_beat_timeline", { beats, downbeats });
@@ -123,6 +125,7 @@ export const stemDisable = (): Promise<void> => invoke("stem_disable");
 export const stemSetEnabled = (enabled: boolean): Promise<boolean> => invoke("stem_set_enabled", { enabled });
 export const stemSetMix = (index: number, gain: number, pan: number, muted: boolean, soloed: boolean): Promise<void> => invoke("stem_set_mix", { index, gain, pan, muted, soloed });
 export const exportStems = (packagePath: string, trackId: string, destination: string, format: "wav" | "mp3", displayNames: string[]): Promise<void> => invoke("stem_export", { packagePath, trackId, destination, format, displayNames });
+export const exportChords = (destination: string, title: string, duration: number, mode: ChordMode, segments: JamsChordSegment[]): Promise<void> => invoke("export_chords", { destination, title, duration, mode, segments });
 export const getPreferences = (): Promise<UserPreferences> => invoke("get_preferences");
 export const savePreferences = (value: UserPreferences): Promise<UserPreferences> => invoke("save_preferences", { value });
 export const analyzeImportText = (text: string): Promise<ImportCandidate[]> => invoke("analyze_import_text", { text });

@@ -22,6 +22,7 @@ CHECKPOINT_SHA256 = {
 }
 BEAT_THIS_VERSION = "1.1.0"
 BEAT_THIS_CHECKPOINT_SHA256 = "8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331"
+MAX_BOUNDARY_ROUNDING_OVERLAP_SECONDS = 0.001
 
 
 def _file_sha256(path: Path) -> str:
@@ -88,4 +89,13 @@ def dictionary_decode(entry, probabilities, dictionary: str) -> list[dict]:
             quality = ("Major", "Minor", "Sus4", "Sus2", "Diminished", "Augmented").index(reduced.family)
             score = float(np.mean(triad[first:last, 1 + quality * 12 + pitch_class(reduced.root)]))
         result.append({"rawLabel": str(raw_label), "startSeconds": round(float(start), 6), "endSeconds": round(float(end), 6), "strength": score})
-    return result
+    return normalize_segment_boundaries(result)
+
+
+def normalize_segment_boundaries(segments: list[dict]) -> list[dict]:
+    """Trim rounding overlaps so every adjacent chord has one ordered boundary."""
+    for previous, current in zip(segments, segments[1:]):
+        overlap = previous["endSeconds"] - current["startSeconds"]
+        if 0 < overlap <= MAX_BOUNDARY_ROUNDING_OVERLAP_SECONDS + 1e-9:
+            previous["endSeconds"] = current["startSeconds"]
+    return segments

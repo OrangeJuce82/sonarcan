@@ -4,6 +4,7 @@ mod audio_engine;
 mod audio_fingerprint;
 mod chord_analysis;
 mod chord_contract;
+mod chord_export;
 mod error;
 mod ffmpeg;
 mod importer;
@@ -208,6 +209,18 @@ fn export_playlist(
 }
 
 #[tauri::command]
+fn export_chords(
+    destination: PathBuf,
+    title: String,
+    duration: f64,
+    mode: String,
+    segments: Vec<chord_export::ChordExportSegment>,
+) -> Result<(), AppError> {
+    info!(path = %destination.display(), %mode, count = segments.len(), "exporting chords as JAMS");
+    chord_export::export_jams(&destination, &title, duration, &mode, &segments)
+}
+
+#[tauri::command]
 fn update_practice_state(
     package_path: PathBuf,
     track_id: uuid::Uuid,
@@ -268,10 +281,12 @@ fn save_preferences(
     let saved = store.save(value)?;
     native_menu::set_language(&app, &saved.language)
         .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
-    app.state::<audio_engine::AudioEngine>()
-        .set_volume(saved.master_volume);
-    app.state::<audio_engine::AudioEngine>().set_metronome(
-        false,
+    let engine = app.state::<audio_engine::AudioEngine>();
+    engine.set_volume(saved.master_volume);
+    engine.set_music_volume(saved.music_volume);
+    let metronome_enabled = engine.status().metronome_enabled;
+    engine.set_metronome(
+        metronome_enabled,
         saved.metronome_volume,
         saved.metronome_sound,
     );
@@ -496,6 +511,11 @@ fn audio_set_loop(
 #[tauri::command]
 fn audio_set_volume(engine: State<'_, audio_engine::AudioEngine>, volume: f32) {
     engine.set_volume(volume);
+}
+
+#[tauri::command]
+fn audio_set_music_volume(engine: State<'_, audio_engine::AudioEngine>, volume: f32) {
+    engine.set_music_volume(volume);
 }
 
 #[tauri::command]
@@ -736,6 +756,7 @@ pub fn run() {
             reorder_track,
             delete_track,
             export_playlist,
+            export_chords,
             update_practice_state,
             save_project_as,
             get_waveform,
@@ -766,6 +787,7 @@ pub fn run() {
             audio_seek,
             audio_set_loop,
             audio_set_volume,
+            audio_set_music_volume,
             audio_set_playback_rate,
             audio_set_pitch,
             audio_set_beat_timeline,

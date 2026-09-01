@@ -102,6 +102,17 @@ test("chord transport moves strictly between segments while playback advances", 
   assert.equal(adjacentChordTransportPosition(chords, 8.03, 1), 8);
 });
 
+test("chord transport does not stall on slightly overlapping model regions", () => {
+  const chords = [
+    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 4.0008 },
+    { ...chord("Dm", 0.8), startSeconds: 4, endSeconds: 8.0006 },
+    { ...chord("G", 0.8), startSeconds: 8, endSeconds: 12 },
+  ];
+
+  assert.equal(adjacentChordTransportPosition(chords, 4, 1), 8);
+  assert.equal(adjacentChordTransportPosition(chords, 8, -1), 4);
+});
+
 test("waveform chord blocks share its zoomed viewport and clip edge segments", () => {
   const chords = [
     { ...chord("C", 0.8), startSeconds: 0, endSeconds: 4 },

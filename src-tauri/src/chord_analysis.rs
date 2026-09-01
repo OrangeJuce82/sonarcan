@@ -23,7 +23,7 @@ use crate::{
     error::AppError,
 };
 
-const CACHE_VERSION: u32 = 11;
+const CACHE_VERSION: u32 = 12;
 const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 32 * 1024;
 const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024;

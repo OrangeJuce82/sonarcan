@@ -253,6 +253,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 "Exporter en Markdown…",
             ),
         )
+        .separator()
+        .text(
+            "playlist:export_stems",
+            tr(selected_language, "Export Stems…", "Exporter les stems…"),
+        )
+        .text(
+            "playlist:export_chords",
+            tr(
+                selected_language,
+                "Export Chords as JAMS…",
+                "Exporter les accords en JAMS…",
+            ),
+        )
         .build()?;
 
     let window_menu = SubmenuBuilder::new(app, tr(selected_language, "Window", "Fenêtre"))

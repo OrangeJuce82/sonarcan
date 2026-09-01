@@ -4,6 +4,7 @@ export const additionalMessages = {
   es: {
     resetChordEdits: "Restaurar los acordes del análisis original",
     chordEditMode: "Modo de edición de acordes", chordEditModeHelp: "Activar o desactivar la edición de acordes (E)", noChord: "Sin acorde",
+    exportChords: "Exportar acordes", exportChordsUnavailable: "Analice esta pista antes de exportar sus acordes.", exportChordsDestination: "Exportar acordes como JAMS", chordExportComplete: "Los acordes se exportaron a un archivo JAMS.", musicVolume: "Volumen de la música", musicVolumeHelp: "Volumen del audio original o de la mezcla de stems activa; no afecta al metrónomo",
     shortcutInterface: "Interfaz",
     instrumentLabels: "Etiquetas del instrumento", noteNames: "Notas", chordDegrees: "Grados",
     tagline: "Sumérgete en la música.",
@@ -309,6 +310,7 @@ export const additionalMessages = {
   de: {
     resetChordEdits: "Akkorde der ursprünglichen Analyse wiederherstellen",
     chordEditMode: "Akkord-Bearbeitungsmodus", chordEditModeHelp: "Akkordbearbeitung ein- oder ausschalten (E)", noChord: "Kein Akkord",
+    exportChords: "Akkorde exportieren", exportChordsUnavailable: "Analysieren Sie den Titel, bevor Sie seine Akkorde exportieren.", exportChordsDestination: "Akkorde als JAMS exportieren", chordExportComplete: "Die Akkorde wurden als JAMS-Datei exportiert.", musicVolume: "Musiklautstärke", musicVolumeHelp: "Lautstärke des Originals oder des aktiven Stem-Mixes; das Metronom bleibt unverändert",
     shortcutInterface: "Oberfläche",
     instrumentLabels: "Instrumentenbeschriftung", noteNames: "Noten", chordDegrees: "Stufen",
     tagline: "Tauche ein in die Musik.",
@@ -614,6 +616,7 @@ export const additionalMessages = {
   pt: {
     resetChordEdits: "Restaurar os acordes da análise original",
     chordEditMode: "Modo de edição de acordes", chordEditModeHelp: "Ativar ou desativar a edição de acordes (E)", noChord: "Sem acorde",
+    exportChords: "Exportar acordes", exportChordsUnavailable: "Analise esta faixa antes de exportar os acordes.", exportChordsDestination: "Exportar acordes como JAMS", chordExportComplete: "Os acordes foram exportados para um arquivo JAMS.", musicVolume: "Volume da música", musicVolumeHelp: "Volume do áudio original ou da mistura de stems ativa; o metrônomo não é afetado",
     shortcutInterface: "Interface",
     instrumentLabels: "Rótulos do instrumento", noteNames: "Notas", chordDegrees: "Graus",
     tagline: "Mergulhe na música.",
@@ -919,6 +922,7 @@ export const additionalMessages = {
   it: {
     resetChordEdits: "Ripristina gli accordi dell’analisi originale",
     chordEditMode: "Modalità modifica accordi", chordEditModeHelp: "Attiva o disattiva la modifica degli accordi (E)", noChord: "Nessun accordo",
+    exportChords: "Esporta accordi", exportChordsUnavailable: "Analizza questa traccia prima di esportarne gli accordi.", exportChordsDestination: "Esporta accordi come JAMS", chordExportComplete: "Gli accordi sono stati esportati in un file JAMS.", musicVolume: "Volume musica", musicVolumeHelp: "Volume dell’audio originale o del mix stem attivo; il metronomo non cambia",
     shortcutInterface: "Interfaccia",
     instrumentLabels: "Etichette dello strumento", noteNames: "Note", chordDegrees: "Gradi",
     tagline: "Immergiti nella musica.",
@@ -1224,6 +1228,7 @@ export const additionalMessages = {
   zh: {
     resetChordEdits: "恢复原始分析的和弦",
     chordEditMode: "和弦编辑模式", chordEditModeHelp: "启用或停用和弦编辑（E）", noChord: "无和弦",
+    exportChords: "导出和弦", exportChordsUnavailable: "请先分析此曲目，再导出和弦。", exportChordsDestination: "将和弦导出为 JAMS", chordExportComplete: "和弦已导出为 JAMS 文件。", musicVolume: "音乐音量", musicVolumeHelp: "原始音频或当前分轨混音的音量；不影响节拍器",
     shortcutInterface: "界面",
     instrumentLabels: "乐器标签", noteNames: "音符", chordDegrees: "音级",
     tagline: "沉浸在音乐中。",
@@ -1529,6 +1534,7 @@ export const additionalMessages = {
   ja: {
     resetChordEdits: "元の解析のコードに戻す",
     chordEditMode: "コード編集モード", chordEditModeHelp: "コード編集をオンまたはオフにします（E）", noChord: "コードなし",
+    exportChords: "コードを書き出す", exportChordsUnavailable: "コードを書き出す前にこの曲を解析してください。", exportChordsDestination: "コードを JAMS で書き出す", chordExportComplete: "コードを JAMS ファイルに書き出しました。", musicVolume: "音楽の音量", musicVolumeHelp: "原音または有効なステムミックスの音量。メトロノームには影響しません",
     shortcutInterface: "インターフェース",
     instrumentLabels: "楽器のラベル", noteNames: "音名", chordDegrees: "度数",
     tagline: "音楽の世界へ飛び込もう。",
@@ -1834,6 +1840,7 @@ export const additionalMessages = {
   ko: {
     resetChordEdits: "원본 분석의 코드 복원",
     chordEditMode: "코드 편집 모드", chordEditModeHelp: "코드 편집을 켜거나 끕니다(E)", noChord: "코드 없음",
+    exportChords: "코드 내보내기", exportChordsUnavailable: "코드를 내보내기 전에 이 트랙을 분석하세요.", exportChordsDestination: "코드를 JAMS로 내보내기", chordExportComplete: "코드를 JAMS 파일로 내보냈습니다.", musicVolume: "음악 볼륨", musicVolumeHelp: "원본 오디오 또는 활성 스템 믹스의 볼륨이며 메트로놈에는 영향을 주지 않습니다",
     shortcutInterface: "인터페이스",
     instrumentLabels: "악기 레이블", noteNames: "음표", chordDegrees: "음정",
     tagline: "음악 속으로 빠져보세요.",
@@ -2139,6 +2146,7 @@ export const additionalMessages = {
   ar: {
     resetChordEdits: "استعادة أوتار التحليل الأصلي",
     chordEditMode: "وضع تحرير الأوتار", chordEditModeHelp: "تشغيل تحرير الأوتار أو إيقافه (E)", noChord: "بدون وتر",
+    exportChords: "تصدير الأوتار", exportChordsUnavailable: "حلّل هذا المقطع قبل تصدير أوتاره.", exportChordsDestination: "تصدير الأوتار بصيغة JAMS", chordExportComplete: "تم تصدير الأوتار إلى ملف JAMS.", musicVolume: "مستوى صوت الموسيقى", musicVolumeHelp: "مستوى صوت التسجيل الأصلي أو مزيج المسارات النشط؛ لا يتأثر المسرع",
     shortcutInterface: "الواجهة",
     instrumentLabels: "تسميات الآلة", noteNames: "النغمات", chordDegrees: "الدرجات",
     tagline: "انغمس في الموسيقى.",
@@ -2444,6 +2452,7 @@ export const additionalMessages = {
   hi: {
     resetChordEdits: "मूल विश्लेषण के कॉर्ड पुनर्स्थापित करें",
     chordEditMode: "कॉर्ड संपादन मोड", chordEditModeHelp: "कॉर्ड संपादन चालू या बंद करें (E)", noChord: "कोई कॉर्ड नहीं",
+    exportChords: "कॉर्ड निर्यात करें", exportChordsUnavailable: "कॉर्ड निर्यात करने से पहले इस ट्रैक का विश्लेषण करें।", exportChordsDestination: "कॉर्ड को JAMS के रूप में निर्यात करें", chordExportComplete: "कॉर्ड JAMS फ़ाइल में निर्यात किए गए।", musicVolume: "संगीत का वॉल्यूम", musicVolumeHelp: "मूल ऑडियो या सक्रिय स्टेम मिक्स का वॉल्यूम; मेट्रोनोम पर असर नहीं पड़ता",
     shortcutInterface: "इंटरफ़ेस",
     instrumentLabels: "वाद्य लेबल", noteNames: "स्वर", chordDegrees: "डिग्री",
     tagline: "संगीत में डूब जाएँ।",
@@ -2749,6 +2758,7 @@ export const additionalMessages = {
   id: {
     resetChordEdits: "Pulihkan akor dari analisis asli",
     chordEditMode: "Mode edit akor", chordEditModeHelp: "Aktifkan atau nonaktifkan pengeditan akor (E)", noChord: "Tanpa akor",
+    exportChords: "Ekspor akor", exportChordsUnavailable: "Analisis trek ini sebelum mengekspor akornya.", exportChordsDestination: "Ekspor akor sebagai JAMS", chordExportComplete: "Akor telah diekspor ke berkas JAMS.", musicVolume: "Volume musik", musicVolumeHelp: "Volume audio asli atau campuran stem aktif; metronom tidak terpengaruh",
     shortcutInterface: "Antarmuka",
     instrumentLabels: "Label instrumen", noteNames: "Nada", chordDegrees: "Derajat",
     tagline: "Selami musiknya.",

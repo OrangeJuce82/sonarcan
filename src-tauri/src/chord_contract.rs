@@ -138,7 +138,7 @@ fn validate_segments(segments: &[TimedChord]) -> Result<(), AppError> {
         let scalar_valid = chord.start_seconds.is_finite()
             && chord.end_seconds.is_finite()
             && chord.strength.is_finite()
-            && chord.start_seconds >= previous_end - 0.001
+            && chord.start_seconds >= previous_end
             && chord.start_seconds >= 0.0
             && chord.end_seconds > chord.start_seconds
             && chord.end_seconds <= MAX_DURATION_SECONDS
@@ -208,5 +208,16 @@ mod tests {
         invalid.strength = f32::NAN;
         assert!(validate_segments(&[invalid]).is_err());
         assert!(validate_positions(&[2.0, 1.0], MAX_DOWNBEATS, "downbeat").is_err());
+    }
+
+    #[test]
+    fn rejects_overlapping_chord_regions() {
+        let mut first = segment("C");
+        first.end_seconds = 1.000_001;
+        let mut second = segment("G");
+        second.start_seconds = 1.0;
+        second.end_seconds = 2.0;
+
+        assert!(validate_segments(&[first, second]).is_err());
     }
 }

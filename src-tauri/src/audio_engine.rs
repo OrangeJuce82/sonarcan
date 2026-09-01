@@ -82,6 +82,7 @@ struct SharedState {
     loop_cycle_armed: AtomicBool,
     loop_waiting_for_a: AtomicBool,
     volume_bits: AtomicU32,
+    music_volume_bits: AtomicU32,
     playback_rate_bits: AtomicU64,
     pitch_semitones_bits: AtomicU32,
     beat_timeline: ArcSwapOption<BeatTimeline>,
@@ -269,6 +270,7 @@ impl AudioEngine {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(0.8_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -496,6 +498,12 @@ impl AudioEngine {
     pub fn set_volume(&self, volume: f32) {
         self.shared
             .volume_bits
+            .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
+    }
+
+    pub fn set_music_volume(&self, volume: f32) {
+        self.shared
+            .music_volume_bits
             .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
     }
 
@@ -825,6 +833,7 @@ struct RealtimeRenderer {
     smoothed_rate: f64,
     smoothed_pitch: f32,
     smoothed_volume: f32,
+    smoothed_music_volume: f32,
     smoothed_stem_gains: StemChannelGains,
     gains_initialized: bool,
     dsp_active: bool,
@@ -908,6 +917,7 @@ impl RealtimeRenderer {
             smoothed_rate: 1.0,
             smoothed_pitch: 0.0,
             smoothed_volume: 0.8,
+            smoothed_music_volume: 1.0,
             smoothed_stem_gains: [[1.0; 2]; STEM_COUNT],
             gains_initialized: false,
             dsp_active: false,
@@ -931,13 +941,20 @@ impl RealtimeRenderer {
         let block_seconds = frames as f64 / self.output_rate as f64;
         let blend = 1.0 - (-block_seconds / GAIN_RAMP_SECONDS).exp();
         let target_volume = f32::from_bits(shared.volume_bits.load(Ordering::Relaxed));
+        let target_music_volume = f32::from_bits(shared.music_volume_bits.load(Ordering::Relaxed));
         let target_stem_gains = target_stem_gains(shared);
         if !self.gains_initialized {
             self.smoothed_volume = target_volume;
+            self.smoothed_music_volume = target_music_volume;
             self.smoothed_stem_gains = target_stem_gains;
             self.gains_initialized = true;
         } else {
             smooth_gain(&mut self.smoothed_volume, target_volume, blend as f32);
+            smooth_gain(
+                &mut self.smoothed_music_volume,
+                target_music_volume,
+                blend as f32,
+            );
             for (current, target) in self.smoothed_stem_gains.iter_mut().zip(target_stem_gains) {
                 smooth_gain(&mut current[0], target[0], blend as f32);
                 smooth_gain(&mut current[1], target[1], blend as f32);
@@ -971,7 +988,7 @@ impl RealtimeRenderer {
                 self.channels,
                 self.output_rate,
                 shared,
-                self.smoothed_volume,
+                [self.smoothed_volume, self.smoothed_music_volume],
                 &smoothed_stem_gains,
                 Some(&mut self.seek_transition),
             );
@@ -983,7 +1000,7 @@ impl RealtimeRenderer {
             shared,
             self.smoothed_rate,
             self.smoothed_pitch,
-            self.smoothed_volume,
+            [self.smoothed_volume, self.smoothed_music_volume],
             &smoothed_stem_gains,
         );
     }
@@ -994,7 +1011,7 @@ impl RealtimeRenderer {
         shared: &SharedState,
         rate: f64,
         pitch: f32,
-        volume: f32,
+        output_gains: [f32; 2],
         stem_gains: &StemChannelGains,
     ) where
         T: SizedSample + FromSample<f32>,
@@ -1163,7 +1180,8 @@ impl RealtimeRenderer {
                     let value = apply_master_gain(
                         self.processed[frame_index * self.channels + channel],
                         click,
-                        volume,
+                        output_gains[0],
+                        output_gains[1],
                     );
                     let value = self
                         .seek_transition
@@ -1321,13 +1339,14 @@ where
     T: SizedSample + FromSample<f32>,
 {
     let volume = f32::from_bits(shared.volume_bits.load(Ordering::Relaxed));
+    let music_volume = f32::from_bits(shared.music_volume_bits.load(Ordering::Relaxed));
     let stem_gains = target_stem_gains(shared);
     render_with_gains(
         output,
         output_channels,
         output_rate,
         shared,
-        volume,
+        [volume, music_volume],
         &stem_gains,
         None,
     );
@@ -1338,7 +1357,7 @@ fn render_with_gains<T>(
     output_channels: usize,
     output_rate: u32,
     shared: &SharedState,
-    volume: f32,
+    output_gains: [f32; 2],
     stem_gains: &StemChannelGains,
     mut seek_transition: Option<&mut SeekTransition>,
 ) where
@@ -1426,7 +1445,8 @@ fn render_with_gains<T>(
                 stem_gains,
                 Some(&mut stem_peaks),
             );
-            let mut output_value = apply_master_gain(value, click, volume);
+            let mut output_value =
+                apply_master_gain(value, click, output_gains[0], output_gains[1]);
             if let Some(transition) = seek_transition.as_deref_mut() {
                 output_value = transition.smooth_sample(channel, output_value, seek_blend);
             }
@@ -1487,8 +1507,8 @@ fn publish_stem_peaks(shared: &SharedState, block_peaks: [f32; STEM_COUNT]) {
     }
 }
 
-fn apply_master_gain(music: f32, metronome: f32, volume: f32) -> f32 {
-    ((music + metronome) * volume).clamp(-1.0, 1.0)
+fn apply_master_gain(music: f32, metronome: f32, volume: f32, music_volume: f32) -> f32 {
+    ((music * music_volume + metronome) * volume).clamp(-1.0, 1.0)
 }
 
 fn smooth_gain(current: &mut f32, target: f32, blend: f32) {
@@ -2018,6 +2038,7 @@ mod tests {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2188,6 +2209,7 @@ mod tests {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(0.8_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2263,6 +2285,7 @@ mod tests {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2383,6 +2406,7 @@ mod tests {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(true),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2449,6 +2473,7 @@ mod tests {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(0.5_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2559,6 +2584,7 @@ mod tests {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(12_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2627,6 +2653,7 @@ mod tests {
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
+            music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2770,9 +2797,10 @@ mod tests {
 
     #[test]
     fn master_volume_controls_music_and_metronome_together() {
-        assert_eq!(apply_master_gain(0.4, 0.2, 0.0), 0.0);
-        assert!((apply_master_gain(0.4, 0.2, 0.5) - 0.3).abs() < f32::EPSILON);
-        assert_eq!(apply_master_gain(1.0, 1.0, 1.0), 1.0);
+        assert_eq!(apply_master_gain(0.4, 0.2, 0.0, 1.0), 0.0);
+        assert!((apply_master_gain(0.4, 0.2, 0.5, 1.0) - 0.3).abs() < f32::EPSILON);
+        assert_eq!(apply_master_gain(1.0, 1.0, 1.0, 1.0), 1.0);
+        assert!((apply_master_gain(0.4, 0.2, 1.0, 0.5) - 0.4).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -3,7 +3,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
   import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
@@ -25,6 +25,8 @@
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { effectiveNavigationMode, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
+  import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
+  import { chordSegmentsForJams } from "./lib/chordExport";
   import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
   import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
@@ -35,11 +37,13 @@
   let busy = false;
   let currentTrack: TrackSummary | null = null;
   let isPlaying = false;
+  let playRequestActive: Promise<void> | null = null;
   let currentSeconds = 0;
   let durationSeconds = 0;
   let playbackRate = 1;
   let pitchSemitones = 0;
   let volume = 0.8;
+  let musicVolume = 1;
   let volumeBeforeMute = 0.8;
   let masterPeak = 0;
   let masterPeakLeft = 0;
@@ -123,9 +127,13 @@
   let stemNames: string[] = [...canonicalStemNames];
   let stemPeaks = Array<number>(6).fill(0);
   let stemStatusRequestActive = false;
+  let stemPlaybackLocked = false;
+  let stemPlaybackResume: StemPlaybackResumeRequest | null = null;
+  let stemPlaybackLockGeneration = 0;
+  let stemGenerationStarting = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, metronomeSound: "electronic", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, musicVolume: 1, metronomeVolume: 0.55, metronomeSound: "electronic", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let preferences: UserPreferences = { ...defaultUserPreferences };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
@@ -1113,6 +1121,7 @@
       preferences = await getPreferences();
       language = preferences.language;
       volume = preferences.masterVolume;
+      musicVolume = preferences.musicVolume;
       metronomeVolume = preferences.metronomeVolume;
       metronomeSound = preferences.metronomeSound;
       loopSnapEnabled = preferences.loopSnapEnabled;
@@ -1121,6 +1130,7 @@
       document.documentElement.dir = languageDirection(language);
       await setApplicationLanguage(language);
       await audioSetVolume(volume);
+      await audioSetMusicVolume(musicVolume);
       await audioSetMetronome(false, metronomeVolume, metronomeSound);
     } catch {
       applyTheme();
@@ -1133,6 +1143,7 @@
   function applyPreferencesImmediately(): void {
     language = preferences.language;
     volume = preferences.masterVolume;
+    musicVolume = preferences.musicVolume;
     metronomeVolume = preferences.metronomeVolume;
     metronomeSound = preferences.metronomeSound;
     loopSnapEnabled = preferences.loopSnapEnabled;
@@ -1141,6 +1152,7 @@
     document.documentElement.dir = languageDirection(language);
     void setApplicationLanguage(language);
     void audioSetVolume(volume);
+    void audioSetMusicVolume(musicVolume);
     void audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
   }
 
@@ -1322,6 +1334,10 @@
     stemMix = Array.from({ length: 6 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
     stemNames = [...canonicalStemNames];
     stemPeaks = Array<number>(6).fill(0);
+    stemPlaybackLockGeneration += 1;
+    stemPlaybackLocked = false;
+    stemPlaybackResume = null;
+    stemGenerationStarting = false;
     editingTrackId = null;
     editingTrackLocation = null;
     draggedTrackId = null;
@@ -1545,6 +1561,11 @@
     else if (id === "playlist:add") openImportCenter();
     else if (id === "playlist:export_json") exportCurrentPlaylist("json");
     else if (id === "playlist:export_markdown") exportCurrentPlaylist("markdown");
+    else if (id === "playlist:export_stems") {
+      if (stems.state === "ready" && stems.trackId === currentTrack?.id) openStemExport();
+      else notify("warn", t("exportStemsUnavailable"));
+    }
+    else if (id === "playlist:export_chords") void exportCurrentChords();
     else if (id.startsWith("recent:")) {
       const index = Number(id.slice("recent:".length));
       const recent = await listRecentProjects();
@@ -1851,6 +1872,10 @@
   ): void {
     if (!project) return;
     const { autoplay = true } = options;
+    stemPlaybackLockGeneration += 1;
+    stemPlaybackLocked = false;
+    stemPlaybackResume = null;
+    stemGenerationStarting = false;
     cancelPendingSeek();
     const packagePath = project.packagePath;
     const selectionGeneration = ++trackSelectionGeneration;
@@ -1914,18 +1939,84 @@
     void loadSelectedAudio(track, packagePath, selectionGeneration, autoplay);
   }
 
-  async function enableStems(): Promise<void> {
+  function finishStemPlaybackLock(trackId: string | null): void {
+    if (!stemPlaybackLocked) return;
+    const resumeRequest = stemPlaybackResume;
+    stemPlaybackLockGeneration += 1;
+    stemPlaybackLocked = false;
+    stemPlaybackResume = null;
+    stemGenerationStarting = false;
+    if (trackId !== null
+      && resumeRequest?.trackId !== trackId) return;
+    if (shouldResumeStemPlayback(
+      resumeRequest,
+      currentTrack?.id,
+      trackSelectionGeneration,
+    )) void play();
+  }
+
+  async function enableStems(options: { resumePlayback?: boolean } = {}): Promise<void> {
     if (!project || !currentTrack) return;
-    stems = { state: "separating", enabled: true, progress: 0, stage: "checkingCache", trackId: currentTrack.id, cached: false, error: null, computeBackend: null };
-    try { await stemStart(project.packagePath, currentTrack.id); schedulePracticeSave(); }
-    catch (error) { notify("error", t("stemFailed"), errorText(error)); }
+    if (stemPlaybackLocked || stems.state === "separating") return;
+    const trackId = currentTrack.id;
+    const packagePath = project.packagePath;
+    const selectionGeneration = trackSelectionGeneration;
+    const lockGeneration = ++stemPlaybackLockGeneration;
+    stemPlaybackLocked = true;
+    stemGenerationStarting = true;
+    stemPlaybackResume = stemPlaybackResumeRequest(
+      options.resumePlayback ?? (isPlaying || playRequestActive !== null),
+      trackId,
+      selectionGeneration,
+    );
+    const pendingPlay = playRequestActive;
+    if (pendingPlay) {
+      try {
+        await pendingPlay;
+      } catch {
+        // The play request reports its own error; separation still requires an explicit pause.
+      }
+    }
+    try {
+      await audioPause();
+    } catch (error) {
+      if (lockGeneration === stemPlaybackLockGeneration) {
+        stemPlaybackLocked = false;
+        stemPlaybackResume = null;
+        stemGenerationStarting = false;
+        notify("error", t("playbackError"), errorText(error));
+      }
+      return;
+    }
+    if (lockGeneration !== stemPlaybackLockGeneration
+      || currentTrack?.id !== trackId
+      || trackSelectionGeneration !== selectionGeneration) return;
+    if (isPlaying) {
+      isPlaying = false;
+      schedulePracticeSave(0);
+    }
+    stems = { state: "separating", enabled: true, progress: 0, stage: "checkingCache", trackId, cached: false, error: null, computeBackend: null };
+    try {
+      await stemStart(packagePath, trackId);
+      if (lockGeneration !== stemPlaybackLockGeneration) return;
+      stemGenerationStarting = false;
+      schedulePracticeSave();
+    } catch (error) {
+      if (lockGeneration !== stemPlaybackLockGeneration) return;
+      stemGenerationStarting = false;
+      stems = { state: "failed", enabled: false, progress: 0, stage: "failed", trackId, cached: false, error: errorText(error), computeBackend: null };
+      notify("error", t("stemFailed"), errorText(error));
+      finishStemPlaybackLock(trackId);
+    }
   }
 
   async function disableStems(): Promise<void> {
+    const generatedTrackId = stems.trackId;
     await stemDisable();
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
     stemPeaks = Array<number>(6).fill(0);
     schedulePracticeSave();
+    finishStemPlaybackLock(generatedTrackId);
   }
 
   async function toggleStemMode(event: Event): Promise<void> {
@@ -1948,11 +2039,13 @@
   }
 
   async function refreshStemStatus(): Promise<void> {
-    if (stemStatusRequestActive || stems.state === "disabled") return;
+    if (stemStatusRequestActive || stemGenerationStarting || (stems.state === "disabled" && !stemPlaybackLocked)) return;
+    const requestedLockGeneration = stemPlaybackLockGeneration;
     stemStatusRequestActive = true;
     try {
       const previous = stems;
       const next = await stemStatus();
+      if (requestedLockGeneration !== stemPlaybackLockGeneration) return;
       if (!next.trackId || next.trackId === currentTrack?.id) {
         stems = next;
         if (next.state === "ready"
@@ -1963,6 +2056,9 @@
           const track = currentTrack;
           const packagePath = project.packagePath;
           void loadTrackChords(track, packagePath, trackSelectionGeneration);
+        }
+        if (stemPlaybackLocked && next.state !== "separating") {
+          finishStemPlaybackLock(previous.trackId);
         }
       }
     } finally { stemStatusRequestActive = false; }
@@ -2029,6 +2125,24 @@
     });
   }
 
+  async function exportCurrentChords(): Promise<void> {
+    if (!currentTrack || !effectiveChords.length) {
+      notify("warn", t("exportChordsUnavailable"));
+      return;
+    }
+    const track = currentTrack;
+    const destination = await save({
+      title: t("exportChordsDestination"),
+      defaultPath: `${safeStemExportFolderName(track.title)}.jams`,
+      filters: [{ name: "JAMS", extensions: ["jams"] }],
+    });
+    if (!destination) return;
+    await run(async () => {
+      await exportChords(destination, track.title, durationSeconds, chordMode, chordSegmentsForJams(effectiveChords));
+      notify("success", t("chordExportComplete"));
+    });
+  }
+
   async function loadTrackChords(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
     chordsLoading = true;
     tempoLoading = true;
@@ -2088,8 +2202,8 @@
       audioLoading = false;
       loadingTrackId = null;
       void loadTrackChords(track, packagePath, selectionGeneration);
-      if (track.practice.stemsEnabled) void enableStems();
-      if (autoplay) await play();
+      if (track.practice.stemsEnabled) void enableStems({ resumePlayback: autoplay });
+      else if (autoplay) await play();
       if (!stillSelected()) return;
       preloadNeighbour(track);
       void warmPlaylistCache(packagePath, track.id);
@@ -2154,16 +2268,26 @@
 
   async function play(): Promise<void> {
     if (!currentTrack && project?.tracks.length) selectTrack(project.tracks[0], { autoplay: false });
-    if (!currentTrack || audioLoading) return;
+    if (!currentTrack || audioLoading || stemPlaybackLocked) return;
+    const request = audioPlay();
+    playRequestActive = request;
     try {
-      await audioPlay();
+      await request;
+      if (stemPlaybackLocked) {
+        await audioPause();
+        isPlaying = false;
+        return;
+      }
       isPlaying = true;
     } catch (error) {
       notify("error", t("playbackError"), errorText(error));
+    } finally {
+      if (playRequestActive === request) playRequestActive = null;
     }
   }
 
   function togglePlayback(): void {
+    if (stemPlaybackLocked) return;
     if (isPlaying) {
       void audioPause();
       isPlaying = false;
@@ -2439,6 +2563,14 @@
     volumePreferenceTimer = window.setTimeout(() => void persistPreferences(), 180);
   }
 
+  function changeMusicVolume(value: number): void {
+    musicVolume = Math.max(0, Math.min(1, value));
+    void audioSetMusicVolume(musicVolume);
+    preferences = { ...preferences, musicVolume };
+    window.clearTimeout(volumePreferenceTimer);
+    volumePreferenceTimer = window.setTimeout(() => void persistPreferences(), 180);
+  }
+
   function setPlaybackRate(value: number): void {
     playbackRate = Math.round(Math.max(0.5, Math.min(2, value)) * 100) / 100;
     const target = playbackRate;
@@ -2592,7 +2724,10 @@
         currentSeconds = status.positionSeconds;
       }
       durationSeconds = status.durationSeconds || durationSeconds;
-      isPlaying = status.playing;
+      if (stemPlaybackLocked) {
+        if (status.playing) void audioPause();
+        isPlaying = false;
+      } else isPlaying = status.playing;
       masterPeak = status.outputPeak;
       masterPeakLeft = status.outputPeakLeft;
       masterPeakRight = status.outputPeakRight;
@@ -3138,14 +3273,17 @@
           <div class="transport-center">
             <button class="seek-button" disabled={audioLoading} aria-label={navigationDirectionLabel(-1)} data-tooltip={`${navigationDirectionLabel(-1)} · ${t("holdToRepeat")}`} onpointerdown={(event) => startJumpHold(event, -1)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, -1)}><Icon name="backward" size="14px" /></button>
             <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}><Icon name="backward-step" size="15px" /></button>
-            <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}<Icon name={isPlaying ? "pause" : "play"} size="15px" />{/if}</button>
+            <button disabled={audioLoading || stemPlaybackLocked} class="play" class:loading={audioLoading || stemPlaybackLocked} aria-label={audioLoading ? t("loadingAudio") : stemPlaybackLocked ? t("separatingStems") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : stemPlaybackLocked ? t("separatingStems") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading || stemPlaybackLocked}<i class="button-spinner"></i>{:else}<Icon name={isPlaying ? "pause" : "play"} size="15px" />{/if}</button>
             <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}><Icon name="forward-step" size="15px" /></button>
             <button class="seek-button" disabled={audioLoading} aria-label={navigationDirectionLabel(1)} data-tooltip={`${navigationDirectionLabel(1)} · ${t("holdToRepeat")}`} onpointerdown={(event) => startJumpHold(event, 1)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, 1)}><Icon name="forward" size="14px" /></button>
           </div>
-          <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
-            <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}><Icon name="rotate-left" size="13px" /></button>
-            <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}><Icon name="forward-step" size="13px" /></button>
-            <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}><Icon name="stop" size="13px" /></button>
+          <div class="transport-right">
+            <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
+              <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}><Icon name="rotate-left" size="13px" /></button>
+              <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}><Icon name="forward-step" size="13px" /></button>
+              <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}><Icon name="stop" size="13px" /></button>
+            </div>
+            <label class="metronome-volume transport-volume" data-tooltip={t("musicVolumeHelp")}><Icon name="volume-high" size="11px" /><input aria-label={t("musicVolume")} type="range" min="0" max="1" step="0.01" value={musicVolume} oninput={(event) => changeMusicVolume(Number(event.currentTarget.value))} /></label>
           </div>
         </div>
       </div>
@@ -3206,11 +3344,11 @@
             </div>
           </div>
           {#if stems.state === "disabled"}
-            <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={enableStems}>{t("enableStems")}</button><small>HTDemucs 6s · 6 stems · MLX</small></div>
+            <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={() => void enableStems()}>{t("enableStems")}</button><small>HTDemucs 6s · 6 stems · MLX</small></div>
           {:else if stems.state === "separating"}
             <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.stage === "checkingCache" ? t("loadingAvailableStems") : stems.stage === "loadingModel" ? t("loadingStemModel") : stems.stage === "loadingAudio" ? t("loadingStemAudio") : stems.stage === "writingStems" || stems.stage === "validatingStems" || stems.stage === "cachingStems" ? t("writingStems") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
           {:else if stems.state === "failed"}
-            <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><button onclick={enableStems}>{t("enableStems")}</button></div>
+            <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><button onclick={() => void enableStems()}>{t("enableStems")}</button></div>
           {:else}
             <div class="stem-mixer" aria-label={t("stemMixer")}>
               {#each stemDisplayOrder as index, position}
@@ -3518,7 +3656,7 @@
         <section><h3>{t("appearance")}</h3><label>{t("language")}<select value={preferences.language} onchange={(event) => { event.stopPropagation(); changeLanguage(event.currentTarget.value as Language); }}>{#each languageOptions as option}<option value={option.value}>{option.label}</option>{/each}</select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
         <section><h3>{t("practiceDefaults")}</h3><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option></select></label><label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
-        <section><h3>{t("audio")}</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
+        <section><h3>{t("audio")}</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
       </div>
       <div class="modal-actions"><button onclick={resetUserPreferences}>{t("resetPreferences")}</button></div>
     </Modal>
