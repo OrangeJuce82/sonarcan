@@ -11,13 +11,40 @@ const COMMON_CHORD_TEMPLATES = [
 
 const NATURAL_PITCHES: Readonly<Record<string, number>> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
-export type ChordEditKeyboardAction = "acceptSuggestion" | "cancel" | "commit";
+export type ChordEditKeyboardAction = "cancel" | "commit";
+export type ChordEditPointerTarget = "editor" | "option" | "outside";
+
+export function chordEditPointerAction(
+  target: ChordEditPointerTarget,
+  button: number,
+  shiftKey: boolean,
+): "cancel" | "commit" | "commitAll" | null {
+  if (button !== 0) return null;
+  if (target === "outside") return "cancel";
+  if (target === "option") return shiftKey ? "commitAll" : "commit";
+  return null;
+}
+
+export function shouldSeekChordFromClick(altKey: boolean): boolean {
+  return altKey;
+}
+
+export function centeredChordOptionScrollTop(
+  selectedIndex: number,
+  optionCount: number,
+  viewportHeight: number,
+  scrollHeight: number,
+): number {
+  if (selectedIndex < 0 || optionCount <= 0 || viewportHeight <= 0 || scrollHeight <= viewportHeight) return 0;
+  const optionHeight = scrollHeight / optionCount;
+  const centered = (selectedIndex + 0.5) * optionHeight - viewportHeight / 2;
+  return Math.max(0, Math.min(scrollHeight - viewportHeight, centered));
+}
 
 export function chordEditKeyboardAction(
   key: string,
-  suggestionNavigationActive: boolean,
 ): ChordEditKeyboardAction | null {
-  if (key === "Enter") return suggestionNavigationActive ? "acceptSuggestion" : "commit";
+  if (key === "Enter") return "commit";
   if (key === "Escape") return "cancel";
   return null;
 }
@@ -74,6 +101,12 @@ export function chordSuggestions(value: string): string[] {
   return COMMON_CHORD_TEMPLATES
     .map((template) => presentChordLabel(template, pitch, spelling))
     .filter((label, index, labels) => labels.indexOf(label) === index && label.toLocaleLowerCase("en").startsWith(query));
+}
+
+export function chordEditOptions(accidentals: ChordAccidentalMode): string[] {
+  return Array.from({ length: 12 }, (_, pitch) => (
+    COMMON_CHORD_TEMPLATES.map((template) => presentChordLabel(template, pitch, accidentals))
+  )).flat().filter((label, index, labels) => labels.indexOf(label) === index);
 }
 
 export function updateChordEdits(

@@ -77,6 +77,11 @@ typed parser for its three-octave piano and validated guitar and ukulele
 positions.
 Piano chord tones and fretted-instrument fingering markers reuse the active
 chord color, with theme-aware mixing for readable labels and root emphasis.
+Piano, guitar, and ukulele positions come only from the pinned, MIT-licensed
+`chords-db` corpus. SonArcan validates every position against the parsed
+LV-Chordia tones and shows no position when the published corpus has no match;
+it never synthesizes an instrument fingering. Each instrument uses the same
+bounded position navigator.
 `N` is retained in data and rendered as `-`.
 User chord corrections remain a separate, bounded per-track overlay keyed by
 LV-Chordia vocabulary and native segment times. They are persisted in project

@@ -1,13 +1,12 @@
 <script lang="ts">
   import { keyboardFlatPitchNames, keyboardPitchNames } from "./chordNotes";
-  import { INSTRUMENTS, instrumentVoicings, type FrettedInstrument } from "./instrumentVoicings";
+  import { fretboardStartFret, INSTRUMENTS, instrumentVoicings, type FrettedInstrument } from "./instrumentVoicings";
 
   export let label: string;
   export let instrument: FrettedInstrument;
   export let accidentals: "flat" | "sharp";
   export let accessibleLabel: string;
   export let positionLabel: string;
-  export let exactLabel: string;
   export let adaptedLabel: string;
   export let unavailableLabel: string;
   export let omittedLabel: string;
@@ -23,6 +22,8 @@
   $: voicings = instrumentVoicings(label, instrument);
   $: if (selectedIndex >= voicings.length) selectedIndex = 0;
   $: selected = voicings[selectedIndex] ?? null;
+  $: diagramStartFret = fretboardStartFret(selected);
+  $: visibleFretCount = 7;
   $: definition = INSTRUMENTS[instrument];
   $: displayedStrings = definition.tuning.map((name, string) => ({ name, string })).reverse();
   $: pitchNames = accidentals === "flat" ? keyboardFlatPitchNames : keyboardPitchNames;
@@ -37,29 +38,29 @@
   }
 </script>
 
-<div class="fretboard-view" style={`--instrument-chord-color:${chordColor}`} role="img" aria-label={`${accessibleLabel}: ${label}`}>
+<div class="fretboard-view" style={`--instrument-chord-color:${chordColor};--visible-frets:${visibleFretCount}`} role="img" aria-label={`${accessibleLabel}: ${label}`}>
   {#if selected}
     <div class="voicing-toolbar">
       <button aria-label="‹" onclick={previous}>‹</button>
       <strong>{positionLabel} {selectedIndex + 1}/{voicings.length}</strong>
       <button aria-label="›" onclick={next}>›</button>
-      <span class:exact={selected.coverage === "exact"}>{selected.coverage === "exact" ? exactLabel : adaptedLabel}</span>
+      {#if selected.coverage === "adapted"}<span>{adaptedLabel}</span>{/if}
     </div>
     <div class="fretboard-diagram" aria-hidden="true">
       {#each displayedStrings as item}
         <div class="fret-string">
           <b>{item.name}</b>
           <i class:open={selected.frets[item.string] === 0} class:muted={selected.frets[item.string] < 0}>{selected.frets[item.string] < 0 ? "×" : selected.frets[item.string] === 0 ? "○" : ""}</i>
-          {#each Array(5) as _, fretOffset}
+          {#each Array(visibleFretCount) as _, fretOffset}
             <span>
-              {#if selected.frets[item.string] > 0 && selected.frets[item.string] - selected.baseFret === fretOffset}
+              {#if selected.frets[item.string] > 0 && selected.frets[item.string] - diagramStartFret === fretOffset}
                 <em>{selected.fingers[item.string]}</em>
               {/if}
             </span>
           {/each}
         </div>
       {/each}
-      <small>{selected.baseFret > 1 ? selected.baseFret : 1}</small>
+      {#if diagramStartFret >= 5}<small>{diagramStartFret}</small>{/if}
     </div>
     {#if omitted}<p class="voicing-omissions">{omittedLabel}: {omitted}</p>{/if}
   {:else}
@@ -73,9 +74,8 @@
   .voicing-toolbar button { width: 28px; min-width: 28px; height: 26px; padding: 0; }
   .voicing-toolbar strong { min-width: 92px; color: var(--text); font-size: .65rem; text-align: center; }
   .voicing-toolbar span { padding: 3px 7px; border: 1px solid var(--gold); border-radius: 999px; color: var(--gold); font-size: .55rem; font-weight: 800; }
-  .voicing-toolbar span.exact { border-color: var(--accent); color: var(--accent); }
-  .fretboard-diagram { position: relative; display: grid; gap: 0; width: min(430px, 94%); margin: 0 auto; padding-left: 28px; }
-  .fret-string { display: grid; grid-template-columns: 20px 18px repeat(5, 1fr); align-items: center; min-height: 24px; }
+  .fretboard-diagram { position: relative; display: grid; gap: 0; width: min(560px, 98%); margin: 0 auto; padding-left: 28px; }
+  .fret-string { display: grid; grid-template-columns: 20px 18px repeat(var(--visible-frets), 1fr); align-items: center; min-height: 24px; }
   .fret-string > b { color: var(--muted); font: 700 .56rem/1 ui-monospace, monospace; }
   .fret-string > i { color: var(--muted); font: 800 .72rem/1 ui-monospace, monospace; text-align: center; }
   .fret-string > i.open { color: var(--instrument-chord-color); }

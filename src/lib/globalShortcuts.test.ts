@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isTextEditingTarget, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
+import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
 
 function shortcutEvent(overrides: Partial<Parameters<typeof shouldHandleGlobalShortcut>[0]> = {}): Parameters<typeof shouldHandleGlobalShortcut>[0] {
   return {
@@ -20,6 +20,18 @@ test("global shortcuts never intercept text editing", () => {
   const input = Object.assign(new EventTarget(), { closest: () => ({}) });
   assert.equal(isTextEditingTarget(input), true);
   assert.equal(shouldHandleGlobalShortcut(shortcutEvent({ target: input })), false);
+});
+
+test("Space toggles playback over controls but not while entering text", () => {
+  const button = Object.assign(new EventTarget(), { closest: () => null });
+  const select = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("select") ? ({}) : null });
+  const input = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("input") ? ({}) : null });
+  assert.equal(isTextEntryTarget(input), true);
+  assert.equal(isTextEntryTarget(select), false);
+  assert.equal(shouldHandlePlayPauseShortcut(shortcutEvent({ key: " ", target: button })), true);
+  assert.equal(shouldHandlePlayPauseShortcut(shortcutEvent({ key: " ", target: select })), true);
+  assert.equal(shouldHandlePlayPauseShortcut(shortcutEvent({ key: " ", target: input })), false);
+  assert.equal(shouldHandlePlayPauseShortcut(shortcutEvent({ key: "Enter", target: button })), false);
 });
 
 test("Option plus an arrow navigates chords outside editing controls", () => {
@@ -59,14 +71,39 @@ test("parameter shortcuts pair T, P, Z, and M with arrows, signs, and reset", ()
   assert.equal(parameterShortcutAction("Enter"), null);
 });
 
+test("M maps vertical arrows to sound and horizontal arrows to volume", () => {
+  assert.equal(metronomeShortcutAction("ArrowUp"), "nextSound");
+  assert.equal(metronomeShortcutAction("ArrowDown"), "previousSound");
+  assert.equal(metronomeShortcutAction("ArrowRight"), "incrementVolume");
+  assert.equal(metronomeShortcutAction("ArrowLeft"), "decrementVolume");
+  assert.equal(metronomeShortcutAction("+"), "incrementVolume");
+  assert.equal(metronomeShortcutAction("-"), "decrementVolume");
+  assert.equal(metronomeShortcutAction("Backspace"), "resetVolume");
+  assert.equal(metronomeShortcutAction("Enter"), null);
+});
+
+test("parameter shortcuts are global over controls but preserve text entry", () => {
+  const button = Object.assign(new EventTarget(), { closest: () => null });
+  const select = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("select") ? ({}) : null });
+  const range = Object.assign(new EventTarget(), { closest: () => null });
+  const textInput = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("input:not") ? ({}) : null });
+  assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "m", target: button })), true);
+  assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "t", target: select })), true);
+  assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "p", target: range })), true);
+  assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "z", target: textInput })), false);
+  assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "+", shiftKey: true })), true);
+});
+
 test("M toggles the metronome on release only when no volume action was used", () => {
   const releaseM = shortcutEvent({ key: "m" });
   assert.equal(shouldToggleMetronomeOnRelease(releaseM, "metronomeVolume", false), true);
   assert.equal(shouldToggleMetronomeOnRelease(releaseM, "metronomeVolume", true), false);
   assert.equal(shouldToggleMetronomeOnRelease(releaseM, "tempo", false), false);
   assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "t" }), "metronomeVolume", false), false);
-  const input = Object.assign(new EventTarget(), { closest: () => ({}) });
+  const input = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("input:not") ? ({}) : null });
   assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "m", target: input }), "metronomeVolume", false), false);
+  const select = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("select") ? ({}) : null });
+  assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "m", target: select }), "metronomeVolume", false), true);
 });
 
 test("shortcut labels follow macOS, Windows, and Linux keyboards", () => {

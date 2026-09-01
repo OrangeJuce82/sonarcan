@@ -65,6 +65,17 @@ parsed pitch set and requested bass; unavoidable omissions are labelled as
 adapted rather than silently substituted. The timeline preserves LV-Chordia's native
 regions exactly; Beat This! downbeats never split them into extra cards.
 
+Clicking a timeline card selects its harmony diagram without moving playback;
+Alt-click seeks to the exact model boundary. Enter edits the focused card. While editing, Up, Down, or the
+mouse wheel moves through chord suggestions; Enter or a middle click validates
+one region, and the same action with Shift validates every matching region.
+Clicking an option validates it immediately, Shift-clicking applies it to every
+matching region, and clicking outside the editor cancels the pending change.
+When the list opens, the current chord is selected and centered in its visible
+options, including labels outside the standard suggestion catalogue.
+On the waveform, Alt-click seeks to the start of the chord region under the
+pointer, falling back to the closest region only when the pointer is in a gap.
+
 User chord corrections are stored separately in the track's bounded practice
 state and applied as a presentation overlay for one LV-Chordia vocabulary and
 one existing timed region. They never rewrite the disposable analysis cache or

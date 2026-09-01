@@ -89,16 +89,26 @@ test("chord transport moves strictly between segments while playback advances", 
   assert.equal(adjacentChordTransportPosition(chords, 8.03, 1), 8);
 });
 
-test("Option waveform seeking chooses the closest displayed chord start", () => {
+test("Option waveform seeking chooses the start of the region under the pointer", () => {
   const chords = [
     { ...chord("C", 0.8), startSeconds: 0, endSeconds: 4 },
     { ...chord("Dm", 0.8), startSeconds: 4, endSeconds: 8 },
     { ...chord("G", 0.8), startSeconds: 8, endSeconds: 12 },
   ];
   assert.equal(nearestChordPosition(chords, 2), 0);
-  assert.equal(nearestChordPosition(chords, 2.01), 4);
-  assert.equal(nearestChordPosition(chords, 7.8), 8);
+  assert.equal(nearestChordPosition(chords, 3.99), 0);
+  assert.equal(nearestChordPosition(chords, 4), 4);
+  assert.equal(nearestChordPosition(chords, 7.8), 4);
   assert.equal(nearestChordPosition([], 7.8), 7.8);
+});
+
+test("Option waveform seeking falls back to the closest region across a gap", () => {
+  const chords = [
+    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 3 },
+    { ...chord("Dm", 0.8), startSeconds: 5, endSeconds: 8 },
+  ];
+  assert.equal(nearestChordPosition(chords, 4), 0);
+  assert.equal(nearestChordPosition(chords, 4.01), 5);
 });
 
 test("waveform chord blocks share its zoomed viewport and clip edge segments", () => {

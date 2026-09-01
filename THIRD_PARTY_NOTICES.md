@@ -25,6 +25,10 @@ be reviewed before public distribution.
 ## Chord recognition
 
 - LV-Chordia source and pretrained checkpoints — MIT License — Music X Lab.
+- `@tombatossals/chords-db` guitar, ukulele, and piano position corpus — MIT
+  License — copyright David Rubert. SonArcan pins source revision
+  `df06fa7b425cf5fd29485ff6591236b3557e3fac`; the complete license is retained
+  in `docs/licenses/chords-db-MIT.txt`.
 - PyTorch — BSD-3-Clause License.
 - Librosa — ISC License.
 

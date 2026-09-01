@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { chordKeyboardPositions, keyboardFlatPitchNames, keyboardPitchNames, parseChordLabel } from "./chordNotes";
+  import { keyboardFlatPitchNames, keyboardPitchNames, parseChordLabel } from "./chordNotes";
 
   export let label: string;
   export let accessibleLabel: string;
   export let accidentals: "flat" | "sharp";
-  export let inversion = 0;
-  export let voicing: "close" | "open" = "close";
+  export let positions: readonly number[];
   export let chordColor = "var(--accent)";
 
   const whitePitches = [0, 2, 4, 5, 7, 9, 11] as const;
@@ -20,7 +19,7 @@
   $: chord = parseChordLabel(label);
   $: displayedPitchNames = accidentals === "flat" ? keyboardFlatPitchNames : keyboardPitchNames;
   $: notes = chord?.pitches.map((pitch) => displayedPitchNames[pitch]).join(" · ") ?? "—";
-  $: activePositions = new Set(chord ? chordKeyboardPositions(chord, inversion, voicing) : []);
+  $: activePositions = new Set(positions);
   $: lowestPosition = activePositions.size ? Math.min(...activePositions) : -1;
   const active = (position: number): boolean => activePositions.has(position);
   const root = (position: number): boolean => chord ? active(position) && position % 12 === chord.root : false;

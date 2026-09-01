@@ -24,6 +24,7 @@ pub struct UserPreferences {
     pub default_playback_rate: f64,
     pub default_pitch_semitones: f64,
     pub loop_load_position: LoopLoadPosition,
+    pub loop_snap_enabled: bool,
     pub default_trainer_start_rate: f64,
     pub default_trainer_repetitions: u32,
     pub default_trainer_increment: f64,
@@ -99,6 +100,7 @@ impl Default for UserPreferences {
             default_playback_rate: 1.0,
             default_pitch_semitones: 0.0,
             loop_load_position: LoopLoadPosition::Beginning,
+            loop_snap_enabled: true,
             default_trainer_start_rate: 0.5,
             default_trainer_repetitions: 1,
             default_trainer_increment: 0.05,
@@ -182,6 +184,7 @@ mod tests {
         assert_eq!(preferences.default_trainer_increment, 0.05);
         assert_eq!(preferences.default_trainer_repetitions, 1);
         assert_eq!(preferences.loop_load_position, LoopLoadPosition::Beginning);
+        assert!(preferences.loop_snap_enabled);
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
     }
 
@@ -203,6 +206,16 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
+    }
+
+    #[test]
+    fn older_preferences_enable_loop_snap_by_default() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("loopSnapEnabled");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert!(preferences.loop_snap_enabled);
     }
 
     #[test]

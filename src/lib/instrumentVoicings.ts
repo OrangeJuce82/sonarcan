@@ -1,3 +1,4 @@
+import instrumentChordCorpus from "./instrumentChordCorpus.json" with { type: "json" };
 import { parseChordLabel, type ParsedChord } from "./chordNotes.ts";
 
 export type FrettedInstrument = "guitar" | "ukulele";
@@ -19,22 +20,36 @@ export interface InstrumentVoicing {
   score: number;
 }
 
+interface FrettedCorpusPosition { frets: number[]; fingers: number[] }
+interface PianoCorpusPosition { pitches: number[] }
+interface InstrumentChordCorpus {
+  source: { name: string; revision: string; license: string };
+  instruments: {
+    guitar: Record<string, FrettedCorpusPosition[]>;
+    ukulele: Record<string, FrettedCorpusPosition[]>;
+    piano: Record<string, PianoCorpusPosition[]>;
+  };
+}
+
+const CORPUS: InstrumentChordCorpus = instrumentChordCorpus;
+export const CHORD_CORPUS_SOURCE = CORPUS.source;
+
 export const INSTRUMENTS: Readonly<Record<FrettedInstrument, InstrumentDefinition>> = {
   guitar: { id: "guitar", tuning: ["E", "A", "D", "G", "B", "E"], openMidi: [40, 45, 50, 55, 59, 64] },
   ukulele: { id: "ukulele", tuning: ["G", "C", "E", "A"], openMidi: [67, 60, 64, 69] },
 };
 
+export function fretboardStartFret(voicing: Pick<InstrumentVoicing, "baseFret"> | null): number {
+  return voicing && voicing.baseFret >= 5 ? voicing.baseFret : 1;
+}
+
+function chordCorpusKey(chord: ParsedChord): string {
+  const pitches = [...new Set(chord.pitches)].sort((left, right) => left - right);
+  return `${chord.root}|${pitches.join(",")}|${chord.bassExplicit ? chord.bass : "-"}`;
+}
+
 function pitchAt(instrument: InstrumentDefinition, string: number, fret: number): number {
   return (instrument.openMidi[string] + fret) % 12;
-}
-
-function fingering(frets: readonly number[]): number[] {
-  const used = [...new Set(frets.filter((fret) => fret > 0))].sort((left, right) => left - right);
-  return frets.map((fret) => fret <= 0 ? 0 : Math.min(4, used.indexOf(fret) + 1));
-}
-
-function voicingKey(frets: readonly number[]): string {
-  return frets.join(",");
 }
 
 function lowestSoundingPitch(instrument: InstrumentDefinition, frets: readonly number[]): number | null {
@@ -46,66 +61,72 @@ function lowestSoundingPitch(instrument: InstrumentDefinition, frets: readonly n
   return Number.isFinite(lowestMidi) ? lowestMidi % 12 : null;
 }
 
-function collectVoicing(instrument: InstrumentDefinition, chord: ParsedChord, frets: number[]): InstrumentVoicing | null {
-  const sounding = frets.flatMap((fret, string) => fret < 0 ? [] : [pitchAt(instrument, string, fret)]);
-  const lowestPitch = lowestSoundingPitch(instrument, frets);
-  if (sounding.length < Math.min(3, chord.pitches.length) || (chord.bassExplicit && lowestPitch !== chord.bass)) return null;
+function corpusVoicing(
+  position: FrettedCorpusPosition,
+  instrument: InstrumentDefinition,
+  chord: ParsedChord,
+  sourceOrder: number,
+): InstrumentVoicing | null {
+  if (position.frets.length !== instrument.openMidi.length
+    || position.fingers.length !== instrument.openMidi.length
+    || position.frets.some((fret) => !Number.isInteger(fret) || fret < -1 || fret > 24)
+    || position.fingers.some((finger) => !Number.isInteger(finger) || finger < 0 || finger > 4)) return null;
+  const sounding = position.frets.flatMap((fret, string) => fret < 0 ? [] : [pitchAt(instrument, string, fret)]);
   const covered = new Set(sounding);
+  const lowestPitch = lowestSoundingPitch(instrument, position.frets);
+  if (covered.size < Math.min(3, chord.pitches.length)
+    || (chord.pitches.length <= 4 && !covered.has(chord.root))
+    || [...covered].some((pitch) => !chord.pitches.includes(pitch))
+    || (chord.bassExplicit && lowestPitch !== chord.bass)) return null;
   const omittedPitches = chord.pitches.filter((pitch) => !covered.has(pitch));
-  const requiredCoverage = Math.min(chord.pitches.length, instrument.openMidi.length);
-  if (covered.size < Math.min(3, requiredCoverage)) return null;
-  const usedFrets = frets.filter((fret) => fret > 0);
-  if (new Set(usedFrets).size > 4) return null;
+  const usedFrets = position.frets.filter((fret) => fret > 0);
   const baseFret = usedFrets.length ? Math.min(...usedFrets) : 1;
   const span = usedFrets.length ? Math.max(...usedFrets) - baseFret : 0;
-  const coverage: VoicingCoverage = omittedPitches.length === 0 ? "exact" : "adapted";
-  const score = (coverage === "exact" ? 1_000 : 300)
-    + (lowestPitch === chord.root ? 35 : 0)
-    + covered.size * 20
-    - omittedPitches.length * 45
-    - span * 12
-    - baseFret * 2
-    - frets.filter((fret) => fret < 0).length * 3;
-  return { frets: [...frets], fingers: fingering(frets), coverage, omittedPitches, baseFret, span, score };
+  return {
+    frets: [...position.frets],
+    fingers: [...position.fingers],
+    coverage: omittedPitches.length ? "adapted" : "exact",
+    omittedPitches,
+    baseFret,
+    span,
+    score: 10_000 - sourceOrder,
+  };
 }
 
-/**
- * Generate a bounded, validated voicing corpus from LV-Chordia pitch sets.
- * Every returned fret is playable, uses only chord tones, and honors the
- * detected slash bass. Rich chords are marked adapted when strings are scarce.
- */
+/** Return only published chords from the pinned chords-db corpus. */
 export function instrumentVoicings(label: string, instrumentId: FrettedInstrument, maximum = 12): InstrumentVoicing[] {
   const chord = parseChordLabel(label);
   if (!chord) return [];
   const instrument = INSTRUMENTS[instrumentId];
-  const allowed = new Set(chord.pitches);
-  const candidates = new Map<string, InstrumentVoicing>();
-  const fretWindows = [0, 1, 3, 5, 7, 9];
-  for (const windowStart of fretWindows) {
-    const windowEnd = windowStart === 0 ? 4 : windowStart + 4;
-    const options = instrument.openMidi.map((_, string) => {
-      const values = [-1];
-      if (allowed.has(pitchAt(instrument, string, 0))) values.push(0);
-      for (let fret = Math.max(1, windowStart); fret <= Math.min(12, windowEnd); fret += 1) {
-        if (allowed.has(pitchAt(instrument, string, fret))) values.push(fret);
-      }
-      return values;
-    });
-    const frets = Array<number>(instrument.openMidi.length).fill(-1);
-    const visit = (string: number): void => {
-      if (string === frets.length) {
-        const voicing = collectVoicing(instrument, chord, frets);
-        if (voicing) candidates.set(voicingKey(voicing.frets), voicing);
-        return;
-      }
-      for (const fret of options[string]) {
-        frets[string] = fret;
-        visit(string + 1);
-      }
-    };
-    visit(0);
-  }
-  return [...candidates.values()]
-    .sort((left, right) => right.score - left.score || left.baseFret - right.baseFret)
+  const positions = CORPUS.instruments[instrumentId][chordCorpusKey(chord)] ?? [];
+  return positions
+    .map((position, index) => corpusVoicing(position, instrument, chord, index))
+    .filter((position): position is InstrumentVoicing => position !== null)
     .slice(0, Math.max(1, maximum));
+}
+
+function keyboardPositions(pitches: readonly number[]): number[] {
+  let previous = -1;
+  return pitches.map((pitch) => {
+    let position = pitch;
+    while (position <= previous) position += 12;
+    previous = position;
+    return position;
+  });
+}
+
+/** Return only published piano positions from the same pinned corpus. */
+export function pianoVoicings(label: string): number[][] {
+  const chord = parseChordLabel(label);
+  if (!chord) return [];
+  const positions = CORPUS.instruments.piano[chordCorpusKey(chord)] ?? [];
+  return positions.flatMap((position) => {
+    if (!position.pitches.length
+      || position.pitches.some((pitch) => !Number.isInteger(pitch) || pitch < 0 || pitch > 11 || !chord.pitches.includes(pitch))) return [];
+    const covered = new Set(position.pitches);
+    if (covered.size < Math.min(3, chord.pitches.length)
+      || !covered.has(chord.root)
+      || (chord.bassExplicit && position.pitches[0] !== chord.bass)) return [];
+    return [keyboardPositions(position.pitches)];
+  });
 }

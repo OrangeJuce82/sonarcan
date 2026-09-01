@@ -152,7 +152,9 @@ The detailed waveform introduces downbeats at `1.5×` zoom and draws every beat
 and chord block once its viewport contains at most 30 seconds. Shorter tracks
 show those details while fitted in full. An independent UI magnet can
 snap A/B placement to the nearest detected beat. It does not synthesize
-subdivisions or alter playback timing, and `M` remains the metronome shortcut.
+subdivisions or alter playback timing. Its enabled state is a global user
+preference, not per-track practice state. Preference controls apply and save
+automatically when changed, and `M` remains the metronome shortcut.
 
 The metronome is synthesized directly in the CPAL callback. It performs no allocation, locking, or IPC. The user can choose an electronic sine burst, a woodblock made from short modal resonances, or a metallic sound made from inharmonic partials. Each timbre uses a higher pitch and gain for detected downbeats. Beat phase is derived from the detected beat timeline and current source position, which keeps the click aligned after seeks and A/B loop wraps. Playback speed changes the real-time spacing between clicks automatically while preserving alignment with the source waveform.
 
@@ -173,6 +175,8 @@ Training stops automatically at the end rate while the A/B loop remains active.
 The callback never waits for the UI to schedule an increment, so continuity is
 preserved. Enabled state, start/end rates, step, and loops per step are persisted
 per track. Global preferences only provide defaults for new/reset track settings.
+The Training dialog applies and persists each change immediately; its reset
+action restores these user defaults.
 
 ## End-of-track behavior
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyChordEdits, chordEditKey, chordEditKeyboardAction, chordSuggestions, updateChordEdits, validateChordEntry } from "./chordEditing.ts";
+import { applyChordEdits, centeredChordOptionScrollTop, chordEditKey, chordEditKeyboardAction, chordEditOptions, chordEditPointerAction, chordSuggestions, shouldSeekChordFromClick, updateChordEdits, validateChordEntry } from "./chordEditing.ts";
 import type { TimedChord } from "./types.ts";
 
 const chords: TimedChord[] = [
@@ -17,11 +17,40 @@ test("chord suggestions wait for a valid root and use the common Standard corpus
   assert.ok(chordSuggestions("Bbmaj").includes("Bbmaj7"));
 });
 
-test("Enter accepts a keyboard suggestion before it validates the chord", () => {
-  assert.equal(chordEditKeyboardAction("Enter", true), "acceptSuggestion");
-  assert.equal(chordEditKeyboardAction("Enter", false), "commit");
-  assert.equal(chordEditKeyboardAction("Escape", false), "cancel");
-  assert.equal(chordEditKeyboardAction("ArrowDown", false), null);
+test("the visible chord editor exposes every root in the selected spelling", () => {
+  const flatOptions = chordEditOptions("flat");
+  const sharpOptions = chordEditOptions("sharp");
+  assert.ok(flatOptions.includes("Db"));
+  assert.ok(flatOptions.includes("Bbm7"));
+  assert.ok(sharpOptions.includes("C#"));
+  assert.ok(sharpOptions.includes("A#m7"));
+  assert.ok(flatOptions.length > 200);
+});
+
+test("the chord editor can center its current option when it opens", () => {
+  assert.equal(centeredChordOptionScrollTop(0, 100, 140, 2_000), 0);
+  assert.equal(centeredChordOptionScrollTop(50, 100, 140, 2_000), 940);
+  assert.equal(centeredChordOptionScrollTop(99, 100, 140, 2_000), 1_860);
+  assert.equal(centeredChordOptionScrollTop(-1, 100, 140, 2_000), 0);
+});
+
+test("Enter validates the edit and Escape cancels it", () => {
+  assert.equal(chordEditKeyboardAction("Enter"), "commit");
+  assert.equal(chordEditKeyboardAction("Escape"), "cancel");
+  assert.equal(chordEditKeyboardAction("ArrowDown"), null);
+});
+
+test("a chord click seeks only with Alt", () => {
+  assert.equal(shouldSeekChordFromClick(false), false);
+  assert.equal(shouldSeekChordFromClick(true), true);
+});
+
+test("option clicks validate edits while outside clicks cancel them", () => {
+  assert.equal(chordEditPointerAction("option", 0, false), "commit");
+  assert.equal(chordEditPointerAction("option", 0, true), "commitAll");
+  assert.equal(chordEditPointerAction("outside", 0, false), "cancel");
+  assert.equal(chordEditPointerAction("editor", 0, false), null);
+  assert.equal(chordEditPointerAction("option", 1, false), null);
 });
 
 test("validated chord entries follow the selected accidental spelling", () => {
