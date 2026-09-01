@@ -48,7 +48,7 @@ test("the two-octave keyboard displays every chord tone only once", () => {
 });
 
 test("every chord template shipped with LV-Chordia is parseable", () => {
-  const directory = resolve("src-tauri/resources/chord-runtime/runtime/lib/python3.12/site-packages/lv_chordia/data");
+  const directory = resolve("src/lib/test-fixtures/lv-chordia");
   for (const dictionary of ["ismir2017", "submission", "full"]) {
     const labels = readFileSync(resolve(directory, `${dictionary}_chord_list.txt`), "utf8").trim().split(/\r?\n/);
     for (const label of labels) {

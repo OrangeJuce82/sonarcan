@@ -116,7 +116,7 @@ test("no-chord never produces an instrument position", () => {
 });
 
 test("every LV-Chordia Full template resolves on every instrument", () => {
-  const path = resolve("src-tauri/resources/chord-runtime/runtime/lib/python3.12/site-packages/lv_chordia/data/full_chord_list.txt");
+  const path = resolve("src/lib/test-fixtures/lv-chordia/full_chord_list.txt");
   const labels = readFileSync(path, "utf8").trim().split(/\r?\n/).filter((label) => !["N", "X"].includes(label));
   for (const label of labels) {
     assert.ok(instrumentVoicings(label, "guitar", 1).length, `missing guitar position for ${label}`);
