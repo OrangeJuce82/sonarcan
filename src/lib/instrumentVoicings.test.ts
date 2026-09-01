@@ -102,6 +102,7 @@ test("known invalid corpus entries are replaced by generated positions", () => {
 
 test("every chord offered by the editor has a guitar and ukulele position", () => {
   for (const label of chordEditOptions("sharp")) {
+    if (label === "N") continue;
     assert.ok(instrumentVoicings(label, "guitar", 1).length, `missing guitar position for ${label}`);
     assert.ok(instrumentVoicings(label, "ukulele", 1).length, `missing ukulele position for ${label}`);
     assert.ok(pianoVoicings(label).length, `missing piano position for ${label}`);

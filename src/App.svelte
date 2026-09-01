@@ -12,9 +12,9 @@
   import { ImportSearchCache } from "./lib/importSearchCache";
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
-  import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
+  import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleChordEditModeShortcut, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
   import { activeChordIndexAt, adjacentChordGridIndex, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
-  import { applyChordEdits, centeredChordOptionScrollTop, chordEditKey, chordEditKeyboardAction, chordEditOptions, chordEditPointerAction, chordSuggestions, shouldSeekChordFromClick, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
+  import { applyChordEdits, centeredChordOptionScrollTop, chordEditKey, chordEditKeyboardAction, chordEditOptions, chordEditPointerAction, chordGridKeyboardAction, chordSuggestions, shouldSeekChordFromClick, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
   import Icon from "./lib/Icon.svelte";
   import FretboardChord from "./lib/FretboardChord.svelte";
   import PianoChord from "./lib/PianoChord.svelte";
@@ -25,6 +25,7 @@
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { effectiveNavigationMode, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
+  import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
   import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
@@ -79,6 +80,7 @@
   let chordAccidentalMode: ChordAccidentalMode = "flat";
   let chordView: "timeline" | "repertoire" = "timeline";
   let chordSettingsVisible = false;
+  let chordEditMode = false;
   let chordEdits: ChordEdit[] = [];
   let selectedChordKey: string | null = null;
   let editingChordKey: string | null = null;
@@ -152,6 +154,7 @@
   const defaultMetronomeVolume = 0.55;
   let editingTrackId: string | null = null;
   let editingTrackTitle = "";
+  let editingTrackLocation: "header" | "playlist" | null = null;
   let draggedTrackId: string | null = null;
   let dropTrackId: string | null = null;
   let dropTrackIndex: number | null = null;
@@ -263,6 +266,35 @@
       node.focus();
       node.select();
     });
+  }
+
+  function bounceTrackTitle(node: HTMLButtonElement): { destroy: () => void } {
+    const title = node.querySelector<HTMLElement>("span");
+    const measure = (): void => {
+      if (!title) return;
+      const style = getComputedStyle(node);
+      const availableWidth = node.clientWidth
+        - Number.parseFloat(style.paddingLeft)
+        - Number.parseFloat(style.paddingRight);
+      const metrics = trackTitleBounceMetrics(availableWidth, title.scrollWidth);
+      node.classList.toggle("has-overflow", Boolean(metrics));
+      if (!metrics) {
+        node.style.removeProperty("--track-title-shift");
+        node.style.removeProperty("--track-title-duration");
+        return;
+      }
+      node.style.setProperty("--track-title-shift", `${-metrics.overflowPixels}px`);
+      node.style.setProperty("--track-title-duration", `${metrics.durationSeconds}s`);
+    };
+    const observer = new ResizeObserver(measure);
+    const contentObserver = new MutationObserver(measure);
+    observer.observe(node);
+    if (title) {
+      observer.observe(title);
+      contentObserver.observe(title, { childList: true, characterData: true, subtree: true });
+    }
+    queueMicrotask(measure);
+    return { destroy: () => { observer.disconnect(); contentObserver.disconnect(); } };
   }
 
   function helpTarget(target: EventTarget | null): HTMLElement | null {
@@ -425,18 +457,18 @@
     (event.currentTarget as HTMLButtonElement).focus({ preventScroll: true });
     selectChord(chord);
     changeNavigationMode("chord");
-    if (shouldSeekChordFromClick(event.altKey)) seek(chord.startSeconds);
+    if (shouldSeekChordFromClick(chordEditMode, event.altKey)) seek(chord.startSeconds);
   }
 
   function prepareChordMiddleClick(event: PointerEvent): void {
-    if (event.button !== 1) return;
+    if (!chordEditMode || event.button !== 1) return;
     event.preventDefault();
     event.stopPropagation();
     (event.currentTarget as HTMLButtonElement).focus({ preventScroll: true });
   }
 
   function beginChordEditFromMiddleClick(event: MouseEvent, chord: TimedChord): void {
-    if (event.button !== 1) return;
+    if (!chordEditMode || event.button !== 1) return;
     event.preventDefault();
     event.stopPropagation();
     (event.currentTarget as HTMLButtonElement).focus({ preventScroll: true });
@@ -444,6 +476,7 @@
   }
 
   function beginChordEdit(chord: TimedChord): void {
+    if (!chordEditMode) return;
     selectChord(chord);
     chordView = "timeline";
     editingChordKey = chordEditKey(chordMode, chord);
@@ -507,6 +540,33 @@
     chordEdits = [];
     cancelChordEdit();
     schedulePracticeSave(0);
+  }
+
+  function setChordEditMode(enabled: boolean): void {
+    if (chordEditMode === enabled) return;
+    chordEditMode = enabled;
+    if (enabled) {
+      chordView = "timeline";
+      repertoireKeyboardLabel = null;
+      return;
+    }
+    cancelChordEdit(true);
+  }
+
+  function toggleChordEditMode(): void {
+    if (!timelineChords.length) return;
+    setChordEditMode(!chordEditMode);
+  }
+
+  function toggleChordRepertoire(): void {
+    chordView = chordView === "timeline" ? "repertoire" : "timeline";
+    if (chordView === "repertoire") setChordEditMode(false);
+    repertoireKeyboardLabel = null;
+    chordScrollSuspended = false;
+    chordPointerInside = false;
+    chordFocusWithin = false;
+    chordProgrammaticScroll = false;
+    lastFollowedChordIndex = -1;
   }
 
   function refreshChordEditSuggestions(): void {
@@ -699,19 +759,20 @@
   }
 
   function handleChordKeydown(event: KeyboardEvent, chord: TimedChord): void {
-    if (event.key === "Enter") {
+    const action = chordGridKeyboardAction(chordEditMode, event.key);
+    if (!action) return;
+    if (action === "beginEdit") {
       event.preventDefault();
       event.stopPropagation();
       beginChordEdit(chord);
       return;
     }
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      moveChordGridSelection(event.key === "ArrowUp" ? -1 : 1);
+    if (action === "up" || action === "down") {
+      moveChordGridSelection(action === "up" ? -1 : 1);
     } else {
-      moveChordTimelineSelection(event.key === "ArrowLeft" ? -1 : 1);
+      moveChordTimelineSelection(action === "previous" ? -1 : 1, !chordEditMode);
     }
   }
 
@@ -751,7 +812,7 @@
     return timelineChords.findIndex((chord) => chordEditKey(chordMode, chord) === selectedChordKey);
   }
 
-  function focusChordAtIndex(targetIndex: number): void {
+  function focusChordAtIndex(targetIndex: number, seekPlayback = false): void {
     if (chordView !== "timeline" || !chordList || !timelineChords.length) return;
     const buttons = [...chordList.querySelectorAll<HTMLButtonElement>("button[data-chord-index]")];
     const target = buttons.find((button) => Number(button.dataset.chordIndex) === targetIndex);
@@ -760,16 +821,17 @@
 
     target.focus({ preventScroll: true });
     selectChord(chord);
+    if (seekPlayback) seek(chord.startSeconds);
   }
 
-  function moveChordTimelineSelection(direction: -1 | 1): void {
+  function moveChordTimelineSelection(direction: -1 | 1, seekPlayback = false): void {
     if (chordView !== "timeline" || !timelineChords.length) return;
     const selectedIndex = selectedChordIndex();
     const anchorIndex = selectedIndex >= 0 ? selectedIndex : activeChordIndex;
     const targetIndex = anchorIndex < 0
       ? (direction > 0 ? 0 : timelineChords.length - 1)
       : Math.max(0, Math.min(timelineChords.length - 1, anchorIndex + direction));
-    focusChordAtIndex(targetIndex);
+    focusChordAtIndex(targetIndex, seekPlayback);
   }
 
   function moveChordGridSelection(direction: -1 | 1): void {
@@ -850,6 +912,12 @@
         return;
       }
       if (document.querySelector("dialog[open]")) return;
+      if (shouldToggleChordEditModeShortcut(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleChordEditMode();
+        return;
+      }
       if (!shouldHandleGlobalShortcut(event)) return;
       const target = event.target as HTMLElement | null;
       const key = event.key.toLowerCase();
@@ -1255,6 +1323,7 @@
     stemNames = [...canonicalStemNames];
     stemPeaks = Array<number>(6).fill(0);
     editingTrackId = null;
+    editingTrackLocation = null;
     draggedTrackId = null;
     dropTrackId = null;
     dropTrackIndex = null;
@@ -1289,19 +1358,27 @@
     editingProjectName = false;
   }
 
-  function startTrackRename(track: TrackSummary): void {
+  function startTrackRename(track: TrackSummary, location: "header" | "playlist" = "playlist"): void {
     editingTrackId = track.id;
     editingTrackTitle = track.title;
+    editingTrackLocation = location;
   }
 
   function commitTrackRename(track: TrackSummary): void {
+    if (editingTrackId !== track.id) return;
     const name = editingTrackTitle.trim();
     editingTrackId = null;
+    editingTrackLocation = null;
     if (!project || !name || name === track.title) return;
     void run(async () => {
       project = await renameTrack(project!.packagePath, track.id, name);
       if (currentTrack?.id === track.id) currentTrack = project.tracks.find((item) => item.id === track.id) ?? null;
     });
+  }
+
+  function cancelTrackRename(): void {
+    editingTrackId = null;
+    editingTrackLocation = null;
   }
 
   function startTrackDrag(event: PointerEvent, trackId: string): void {
@@ -2897,10 +2974,10 @@
               <button class="drag-handle" aria-label={t("reorderSong")} data-tooltip={t("reorderSong")} onpointerdown={(event) => startTrackDrag(event, track.id)}><Icon name="grip-lines" size="12px" /></button>
               <button class="track-select" onclick={() => selectTrack(track)} aria-label={`${t("loadingTrack")} ${track.title}`}><span class="track-number">{#if track.id === loadingTrackId}<i class="mini-spinner" aria-label={t("loadingTrack")}></i>{:else}{String(index + 1).padStart(2, "0")}{/if}</span></button>
               <div class="track-info">
-                {#if editingTrackId === track.id}
-                  <input class="track-title-input" bind:value={editingTrackTitle} aria-label={t("trackName")} use:focusOnMount onblur={() => commitTrackRename(track)} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { editingTrackId = null; } }} />
+                {#if editingTrackId === track.id && editingTrackLocation === "playlist"}
+                  <input class="track-title-input" bind:value={editingTrackTitle} aria-label={t("trackName")} use:focusOnMount onblur={() => commitTrackRename(track)} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { event.preventDefault(); cancelTrackRename(); } }} />
                 {:else}
-                  <button class="track-title" onclick={() => startTrackRename(track)} data-tooltip={t("renameTrack")}>{track.title}</button>
+                  <button class="track-title" use:bounceTrackTitle onclick={() => startTrackRename(track, "playlist")} data-tooltip={t("renameTrack")}><span>{track.title}</span></button>
                 {/if}
                 <button class="track-meta" onclick={() => selectTrack(track)}>{track.format.toUpperCase()} · {track.sampleRate ? `${track.sampleRate} Hz` : t("unknownRate")}</button>
               </div>
@@ -2916,6 +2993,13 @@
     <section class="main-stage">
       {#if currentTrack}
       <div class="visualizer panel">
+        <div class="current-track-title-row">
+          {#if editingTrackId === currentTrack.id && editingTrackLocation === "header"}
+            <input class="current-track-title-input" bind:value={editingTrackTitle} aria-label={t("trackName")} use:focusOnMount onblur={() => commitTrackRename(currentTrack!)} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { event.preventDefault(); cancelTrackRename(); } }} />
+          {:else}
+            <button class="current-track-title" onclick={() => startTrackRename(currentTrack!, "header")} data-tooltip={t("renameTrack")}>{currentTrack.title}</button>
+          {/if}
+        </div>
         <div class="panel-title waveform-panel-title">
           <h2>{t("waveform")}</h2>
           <div class="waveform-header-center">
@@ -3185,9 +3269,12 @@
                 {#if chordsLoading}<span class="chord-title-loader" aria-label={t("analyzingChords")} data-tooltip={t("analyzingChords")}><i class="mini-spinner"></i></span>{/if}
               </div>
               <div class="chord-panel-actions">
+                <button disabled={!timelineChords.length} class:active={chordEditMode} aria-pressed={chordEditMode} aria-keyshortcuts="E" aria-label={t("chordEditMode")} data-tooltip={t("chordEditModeHelp")} onclick={toggleChordEditMode}><Icon name="pen" size="13px" /></button>
                 <button disabled={!chordEdits.length} aria-label={t("resetChordEdits")} data-tooltip={t("resetChordEdits")} onclick={resetChordEdits}><Icon name="rotate-left" size="13px" /></button>
-                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={() => { chordView = chordView === "timeline" ? "repertoire" : "timeline"; repertoireKeyboardLabel = null; chordScrollSuspended = false; chordPointerInside = false; chordFocusWithin = false; chordProgrammaticScroll = false; lastFollowedChordIndex = -1; }}><Icon name="book-open" size="13px" /></button>
+                <i class="chord-action-separator" aria-hidden="true"></i>
+                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={toggleChordRepertoire}><Icon name="book-open" size="13px" /></button>
                 <button class:active={chordAutoScrollEnabled} aria-pressed={chordAutoScrollEnabled} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="13px" /></button>
+                <i class="chord-action-separator" aria-hidden="true"></i>
                 <button class:active={chordSettingsVisible} aria-expanded={chordSettingsVisible} aria-controls="chord-settings-panel" aria-label={t("chordSettings")} data-tooltip={t("chordSettings")} onclick={() => chordSettingsVisible = !chordSettingsVisible}><Icon name="sliders" size="13px" /></button>
               </div>
             </div>
@@ -3268,7 +3355,7 @@
                           onclick={validateChordEditSuggestion}
                           onkeydown={handleChordEditKeydown}
                         >
-                          {#each chordEditSuggestionOptions as suggestion}<option value={suggestion}>{suggestion}</option>{/each}
+                          {#each chordEditSuggestionOptions as suggestion}<option value={suggestion}>{isNoChordLabel(suggestion) ? `— (${t("noChord")})` : suggestion}</option>{/each}
                         </select>
                       {/if}
                       <small>{displayTime(chord.startSeconds)}</small>
@@ -3281,9 +3368,9 @@
                       style={`--chord-color:${chordColor(chord.label, chord.strength, chordColorMode)}`}
                       data-chord-index={chordIndex}
                       aria-pressed={selectedChordKey === editKey}
-                      aria-keyshortcuts="Enter"
-                      aria-label={`${chordDisplayLabel(chord.label)}, ${displayTime(chord.startSeconds)}, ${t("showChordOnKeyboard")}`}
-                      data-tooltip={t("showChordOnKeyboard")}
+                      aria-keyshortcuts={chordEditMode ? "Enter" : undefined}
+                      aria-label={`${chordDisplayLabel(chord.label)}, ${displayTime(chord.startSeconds)}, ${t(chordEditMode ? "showChordOnKeyboard" : "chordSeekHelp")}`}
+                      data-tooltip={t(chordEditMode ? "showChordOnKeyboard" : "chordSeekHelp")}
                       title={`${displayTime(chord.startSeconds)}–${displayTime(chord.endSeconds)} · ${Math.round(chord.strength * 100)}%`}
                       onclick={(event) => selectChordFromButton(event, chord)}
                       onfocus={(event) => focusChordFromButton(event, chord)}
@@ -3439,33 +3526,54 @@
 
   {#if shortcutsVisible}
     <Modal title={t("shortcuts")} closeLabel={t("close")} wide close={() => shortcutsVisible = false}>
-      <dl class="shortcut-list" class:macos={shortcutPlatform === "macos"}>
-        <dt>{t("playPause")}</dt><dd><kbd>{shortcutKeys.space}</kbd></dd>
-        <dt>{t("previousNavigation")}</dt><dd><kbd>←</kbd></dd>
-        <dt>{t("nextNavigation")}</dt><dd><kbd>→</kbd></dd>
-        <dt>{t("changeNavigationMode")}</dt><dd><kbd>N</kbd></dd>
-        <dt>{t("changeInstrumentView")}</dt><dd><kbd>I</kbd></dd>
-        <dt>{t("moveA")}</dt><dd><kbd>A</kbd></dd>
-        <dt>{t("moveB")}</dt><dd><kbd>B</kbd></dd>
-        <dt>{t("toggleLoop")}</dt><dd><kbd>L</kbd></dd>
-        <dt>{t("clearLoop")}</dt><dd><kbd>Esc</kbd></dd>
-        <dt>{t("faster")}</dt><dd><kbd>T</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
-        <dt>{t("slower")}</dt><dd><kbd>T</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
-        <dt>{t("resetTempo")}</dt><dd><kbd>T</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
-        <dt>{t("pitchUp")}</dt><dd><kbd>P</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
-        <dt>{t("pitchDown")}</dt><dd><kbd>P</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
-        <dt>{t("resetPitch")}</dt><dd><kbd>P</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
-        <dt>{t("zoom")} +</dt><dd><kbd>Z</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
-        <dt>{t("zoom")} −</dt><dd><kbd>Z</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
-        <dt>{t("fitThirtySeconds")}</dt><dd><kbd>Z</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
-        <dt>{t("metronome")}</dt><dd><kbd>M</kbd></dd>
-        <dt>{t("metronomeSound")}</dt><dd><kbd>M</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>↓</kbd></dd>
-        <dt>{t("metronomeVolume")} +</dt><dd><kbd>M</kbd><span>+</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
-        <dt>{t("metronomeVolume")} −</dt><dd><kbd>M</kbd><span>+</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
-        <dt>{t("metronomeVolume")} · 55%</dt><dd><kbd>M</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
-        <dt>{t("showConsole")}</dt><dd><kbd>C</kbd></dd>
-        <dt>{t("showHelp")}</dt><dd><kbd>H</kbd></dd>
-      </dl>
+      <div class="shortcut-groups" class:macos={shortcutPlatform === "macos"}>
+        <section><h3>{t("transport")}</h3><dl class="shortcut-list">
+          <dt>{t("playPause")}</dt><dd><kbd>{shortcutKeys.space}</kbd></dd>
+        </dl></section>
+        <section><h3>{t("navigation")}</h3><dl class="shortcut-list">
+          <dt>{t("previousNavigation")}</dt><dd><kbd>←</kbd></dd>
+          <dt>{t("nextNavigation")}</dt><dd><kbd>→</kbd></dd>
+          <dt>{t("changeNavigationMode")}</dt><dd><kbd>N</kbd></dd>
+        </dl></section>
+        <section><h3>{t("loop")}</h3><dl class="shortcut-list">
+          <dt>{t("moveA")}</dt><dd><kbd>A</kbd></dd>
+          <dt>{t("moveB")}</dt><dd><kbd>B</kbd></dd>
+          <dt>{t("toggleLoop")}</dt><dd><kbd>L</kbd></dd>
+          <dt>{t("clearLoop")}</dt><dd><kbd>Esc</kbd></dd>
+        </dl></section>
+        <section><h3>{t("tempo")}</h3><dl class="shortcut-list">
+          <dt>{t("faster")}</dt><dd><kbd>T</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
+          <dt>{t("slower")}</dt><dd><kbd>T</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
+          <dt>{t("resetTempo")}</dt><dd><kbd>T</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
+        </dl></section>
+        <section><h3>{t("pitch")}</h3><dl class="shortcut-list">
+          <dt>{t("pitchUp")}</dt><dd><kbd>P</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
+          <dt>{t("pitchDown")}</dt><dd><kbd>P</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
+          <dt>{t("resetPitch")}</dt><dd><kbd>P</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
+        </dl></section>
+        <section><h3>{t("zoom")}</h3><dl class="shortcut-list">
+          <dt>{t("zoom")} +</dt><dd><kbd>Z</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
+          <dt>{t("zoom")} −</dt><dd><kbd>Z</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
+          <dt>{t("fitThirtySeconds")}</dt><dd><kbd>Z</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
+        </dl></section>
+        <section><h3>{t("metronome")}</h3><dl class="shortcut-list">
+          <dt>{t("metronome")}</dt><dd><kbd>M</kbd></dd>
+          <dt>{t("metronomeSound")}</dt><dd><kbd>M</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>↓</kbd></dd>
+          <dt>{t("metronomeVolume")} +</dt><dd><kbd>M</kbd><span>+</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
+          <dt>{t("metronomeVolume")} −</dt><dd><kbd>M</kbd><span>+</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
+          <dt>{t("metronomeVolume")} · 55%</dt><dd><kbd>M</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
+        </dl></section>
+        <section><h3>{t("instrumentView")}</h3><dl class="shortcut-list">
+          <dt>{t("changeInstrumentView")}</dt><dd><kbd>I</kbd></dd>
+        </dl></section>
+        <section><h3>{t("chords")}</h3><dl class="shortcut-list">
+          <dt>{t("chordEditMode")}</dt><dd><kbd>E</kbd></dd>
+        </dl></section>
+        <section><h3>{t("shortcutInterface")}</h3><dl class="shortcut-list">
+          <dt>{t("showConsole")}</dt><dd><kbd>C</kbd></dd>
+          <dt>{t("showHelp")}</dt><dd><kbd>H</kbd></dd>
+        </dl></section>
+      </div>
       <div class="modal-actions"><button onclick={() => shortcutsVisible = false}>{t("close")}</button></div>
     </Modal>
   {/if}

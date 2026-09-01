@@ -3,6 +3,8 @@
 export const additionalMessages = {
   es: {
     resetChordEdits: "Restaurar los acordes del análisis original",
+    chordEditMode: "Modo de edición de acordes", chordEditModeHelp: "Activar o desactivar la edición de acordes (E)", noChord: "Sin acorde",
+    shortcutInterface: "Interfaz",
     instrumentLabels: "Etiquetas del instrumento", noteNames: "Notas", chordDegrees: "Grados",
     tagline: "Sumérgete en la música.",
     noProject: "Preparando un proyecto temporal…",
@@ -306,6 +308,8 @@ export const additionalMessages = {
   },
   de: {
     resetChordEdits: "Akkorde der ursprünglichen Analyse wiederherstellen",
+    chordEditMode: "Akkord-Bearbeitungsmodus", chordEditModeHelp: "Akkordbearbeitung ein- oder ausschalten (E)", noChord: "Kein Akkord",
+    shortcutInterface: "Oberfläche",
     instrumentLabels: "Instrumentenbeschriftung", noteNames: "Noten", chordDegrees: "Stufen",
     tagline: "Tauche ein in die Musik.",
     noProject: "Vorbereiten eines temporären Projekts…",
@@ -609,6 +613,8 @@ export const additionalMessages = {
   },
   pt: {
     resetChordEdits: "Restaurar os acordes da análise original",
+    chordEditMode: "Modo de edição de acordes", chordEditModeHelp: "Ativar ou desativar a edição de acordes (E)", noChord: "Sem acorde",
+    shortcutInterface: "Interface",
     instrumentLabels: "Rótulos do instrumento", noteNames: "Notas", chordDegrees: "Graus",
     tagline: "Mergulhe na música.",
     noProject: "Preparando um projeto temporário…",
@@ -912,6 +918,8 @@ export const additionalMessages = {
   },
   it: {
     resetChordEdits: "Ripristina gli accordi dell’analisi originale",
+    chordEditMode: "Modalità modifica accordi", chordEditModeHelp: "Attiva o disattiva la modifica degli accordi (E)", noChord: "Nessun accordo",
+    shortcutInterface: "Interfaccia",
     instrumentLabels: "Etichette dello strumento", noteNames: "Note", chordDegrees: "Gradi",
     tagline: "Immergiti nella musica.",
     noProject: "Preparare un progetto temporaneo...",
@@ -1215,6 +1223,8 @@ export const additionalMessages = {
   },
   zh: {
     resetChordEdits: "恢复原始分析的和弦",
+    chordEditMode: "和弦编辑模式", chordEditModeHelp: "启用或停用和弦编辑（E）", noChord: "无和弦",
+    shortcutInterface: "界面",
     instrumentLabels: "乐器标签", noteNames: "音符", chordDegrees: "音级",
     tagline: "沉浸在音乐中。",
     noProject: "准备一个临时项目...",
@@ -1518,6 +1528,8 @@ export const additionalMessages = {
   },
   ja: {
     resetChordEdits: "元の解析のコードに戻す",
+    chordEditMode: "コード編集モード", chordEditModeHelp: "コード編集をオンまたはオフにします（E）", noChord: "コードなし",
+    shortcutInterface: "インターフェース",
     instrumentLabels: "楽器のラベル", noteNames: "音名", chordDegrees: "度数",
     tagline: "音楽の世界へ飛び込もう。",
     noProject: "一時的なプロジェクトを準備しています…",
@@ -1821,6 +1833,8 @@ export const additionalMessages = {
   },
   ko: {
     resetChordEdits: "원본 분석의 코드 복원",
+    chordEditMode: "코드 편집 모드", chordEditModeHelp: "코드 편집을 켜거나 끕니다(E)", noChord: "코드 없음",
+    shortcutInterface: "인터페이스",
     instrumentLabels: "악기 레이블", noteNames: "음표", chordDegrees: "음정",
     tagline: "음악 속으로 빠져보세요.",
     noProject: "임시 프로젝트 준비 중…",
@@ -2124,6 +2138,8 @@ export const additionalMessages = {
   },
   ar: {
     resetChordEdits: "استعادة أوتار التحليل الأصلي",
+    chordEditMode: "وضع تحرير الأوتار", chordEditModeHelp: "تشغيل تحرير الأوتار أو إيقافه (E)", noChord: "بدون وتر",
+    shortcutInterface: "الواجهة",
     instrumentLabels: "تسميات الآلة", noteNames: "النغمات", chordDegrees: "الدرجات",
     tagline: "انغمس في الموسيقى.",
     noProject: "إعداد مشروع مؤقت...",
@@ -2427,6 +2443,8 @@ export const additionalMessages = {
   },
   hi: {
     resetChordEdits: "मूल विश्लेषण के कॉर्ड पुनर्स्थापित करें",
+    chordEditMode: "कॉर्ड संपादन मोड", chordEditModeHelp: "कॉर्ड संपादन चालू या बंद करें (E)", noChord: "कोई कॉर्ड नहीं",
+    shortcutInterface: "इंटरफ़ेस",
     instrumentLabels: "वाद्य लेबल", noteNames: "स्वर", chordDegrees: "डिग्री",
     tagline: "संगीत में डूब जाएँ।",
     noProject: "एक अस्थायी प्रोजेक्ट तैयार किया जा रहा है...",
@@ -2730,6 +2748,8 @@ export const additionalMessages = {
   },
   id: {
     resetChordEdits: "Pulihkan akor dari analisis asli",
+    chordEditMode: "Mode edit akor", chordEditModeHelp: "Aktifkan atau nonaktifkan pengeditan akor (E)", noChord: "Tanpa akor",
+    shortcutInterface: "Antarmuka",
     instrumentLabels: "Label instrumen", noteNames: "Nada", chordDegrees: "Derajat",
     tagline: "Selami musiknya.",
     noProject: "Mempersiapkan proyek sementara…",

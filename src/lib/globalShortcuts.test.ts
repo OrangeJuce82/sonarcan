@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
+import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleChordEditModeShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
 
 function shortcutEvent(overrides: Partial<Parameters<typeof shouldHandleGlobalShortcut>[0]> = {}): Parameters<typeof shouldHandleGlobalShortcut>[0] {
   return {
@@ -80,6 +80,16 @@ test("parameter shortcuts are global over controls but preserve text entry", () 
   assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "p", target: range })), true);
   assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "z", target: textInput })), false);
   assert.equal(shouldHandleParameterShortcut(shortcutEvent({ key: "+", shiftKey: true })), true);
+});
+
+test("E toggles chord editing globally except during text entry", () => {
+  const button = Object.assign(new EventTarget(), { closest: () => null });
+  const select = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("select") ? ({}) : null });
+  const textInput = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("input:not") ? ({}) : null });
+  assert.equal(shouldToggleChordEditModeShortcut(shortcutEvent({ key: "e", target: button })), true);
+  assert.equal(shouldToggleChordEditModeShortcut(shortcutEvent({ key: "E", target: select })), true);
+  assert.equal(shouldToggleChordEditModeShortcut(shortcutEvent({ key: "e", target: textInput })), false);
+  assert.equal(shouldToggleChordEditModeShortcut(shortcutEvent({ key: "e", ctrlKey: true })), false);
 });
 
 test("M toggles the metronome on release only when no volume action was used", () => {

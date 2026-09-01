@@ -13,6 +13,7 @@ const NATURAL_PITCHES: Readonly<Record<string, number>> = { C: 0, D: 2, E: 4, F:
 
 export type ChordEditKeyboardAction = "cancel" | "commit";
 export type ChordEditPointerTarget = "editor" | "option" | "outside";
+export type ChordGridKeyboardAction = "beginEdit" | "next" | "previous" | "down" | "up";
 
 export function chordEditPointerAction(
   target: ChordEditPointerTarget,
@@ -25,8 +26,18 @@ export function chordEditPointerAction(
   return null;
 }
 
-export function shouldSeekChordFromClick(altKey: boolean): boolean {
-  return altKey;
+export function shouldSeekChordFromClick(editMode: boolean, altKey: boolean): boolean {
+  return !editMode || altKey;
+}
+
+export function chordGridKeyboardAction(editMode: boolean, key: string): ChordGridKeyboardAction | null {
+  if (key === "ArrowLeft") return "previous";
+  if (key === "ArrowRight") return "next";
+  if (!editMode) return null;
+  if (key === "ArrowUp") return "up";
+  if (key === "ArrowDown") return "down";
+  if (key === "Enter") return "beginEdit";
+  return null;
 }
 
 export function centeredChordOptionScrollTop(
@@ -84,12 +95,14 @@ export function normalizeChordEntry(value: string): string {
 
 export function validateChordEntry(value: string, accidentals: ChordAccidentalMode): string | null {
   const normalized = normalizeChordEntry(value);
+  if (normalized === "-" || normalized.toUpperCase() === "N") return "N";
   if (!parseChordLabel(normalized)) return null;
   return presentChordLabel(normalized, 0, accidentals);
 }
 
 export function chordSuggestions(value: string): string[] {
   const normalized = normalizeChordEntry(value);
+  if (normalized === "-" || normalized.toUpperCase() === "N") return ["N"];
   const match = /^([A-G])([#b]?)(.*)$/.exec(normalized);
   if (!match) return [];
   const natural = NATURAL_PITCHES[match[1]];
@@ -104,9 +117,9 @@ export function chordSuggestions(value: string): string[] {
 }
 
 export function chordEditOptions(accidentals: ChordAccidentalMode): string[] {
-  return Array.from({ length: 12 }, (_, pitch) => (
+  return ["N", ...Array.from({ length: 12 }, (_, pitch) => (
     COMMON_CHORD_TEMPLATES.map((template) => presentChordLabel(template, pitch, accidentals))
-  )).flat().filter((label, index, labels) => labels.indexOf(label) === index);
+  )).flat().filter((label, index, labels) => labels.indexOf(label) === index)];
 }
 
 export function updateChordEdits(

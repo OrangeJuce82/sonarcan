@@ -92,6 +92,10 @@ export function shouldHandleGlobalShortcut(event: ShortcutKeyboardEvent): boolea
     && !isTextEditingTarget(event.target);
 }
 
+export function shouldToggleChordEditModeShortcut(event: ShortcutKeyboardEvent): boolean {
+  return event.key.toLowerCase() === "e" && shouldHandleParameterShortcut(event);
+}
+
 export function shouldToggleMetronomeOnRelease(
   event: ShortcutKeyboardEvent,
   activeParameterShortcut: ParameterShortcut | null,
