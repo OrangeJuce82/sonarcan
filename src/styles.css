@@ -13,7 +13,9 @@
   --purple: #b78af0; --purple-text: #f0e3ff; --purple-bg: #281a38e8;
   --gold: #d9a64a; --gold-text: #ffd698; --gold-bg: #302619e8;
   --danger: #ef8b95; --danger-border: #8d3e49; --danger-bg: #30191d; --danger-soft: #3a2026;
-  --chord-tone-0: #55c5bd; --chord-tone-1: #68b7d0; --chord-tone-2: #839fda; --chord-tone-3: #a08cd8; --chord-tone-4: #bd82bd; --chord-tone-5: #d083a1; --chord-tone-6: #df917f; --chord-tone-7: #dca45f; --chord-tone-8: #cbb85f; --chord-tone-9: #a6bd6d; --chord-tone-10: #79be8b; --chord-tone-11: #5fc0a8;
+  --chord-ink: #081013;
+  --chord-tone-0: #55c5bd; --chord-tone-1: #5aa9cf; --chord-tone-2: #7488d8; --chord-tone-3: #9878d8; --chord-tone-4: #bf78cb; --chord-tone-5: #d477a8; --chord-tone-6: #dd7d89; --chord-tone-7: #db9564; --chord-tone-8: #d0bd61; --chord-tone-9: #a7c468; --chord-tone-10: #79c47a; --chord-tone-11: #5fc393;
+  --chord-score-0: #dd7d89; --chord-score-1: #dc8b72; --chord-score-2: #db9963; --chord-score-3: #d5aa60; --chord-score-4: #c7ba62; --chord-score-5: #aac36a; --chord-score-6: #87c578; --chord-score-7: #69c28f; --chord-score-8: #58c1a8; --chord-score-9: #55c5bd;
   --keyboard-white: #dce5e7; --keyboard-white-text: #43575d; --keyboard-black: #111b1f; --keyboard-black-text: #91a3a9;
   --panel-title: #aeb9be; --canvas: #0c1316; --canvas-border: #26343a; --meter-track: #10191d;
   --loading-bg: #18252a; --loading-highlight: #203137; --skeleton-label: #0b1215cc; --skeleton-shine: #b4fff744;
@@ -33,7 +35,9 @@
   --purple: #8050b4; --purple-text: #5d2d91; --purple-bg: #eee5f8;
   --gold: #97600a; --gold-text: #744707; --gold-bg: #f8edda;
   --danger: #b22f43; --danger-border: #cf8490; --danger-bg: #f9e4e7; --danger-soft: #f7e8ea;
-  --chord-tone-0: #17736e; --chord-tone-1: #34758c; --chord-tone-2: #526f9e; --chord-tone-3: #70649c; --chord-tone-4: #8b5d87; --chord-tone-5: #9c586e; --chord-tone-6: #a85f50; --chord-tone-7: #97600a; --chord-tone-8: #7e701e; --chord-tone-9: #607a35; --chord-tone-10: #3f8059; --chord-tone-11: #26806d;
+  --chord-ink: #10191d;
+  --chord-tone-0: #55c5bd; --chord-tone-1: #5aa9cf; --chord-tone-2: #7488d8; --chord-tone-3: #9878d8; --chord-tone-4: #bf78cb; --chord-tone-5: #d477a8; --chord-tone-6: #dd7d89; --chord-tone-7: #db9564; --chord-tone-8: #d0bd61; --chord-tone-9: #a7c468; --chord-tone-10: #79c47a; --chord-tone-11: #5fc393;
+  --chord-score-0: #dd7d89; --chord-score-1: #dc8b72; --chord-score-2: #db9963; --chord-score-3: #d5aa60; --chord-score-4: #c7ba62; --chord-score-5: #aac36a; --chord-score-6: #87c578; --chord-score-7: #69c28f; --chord-score-8: #58c1a8; --chord-score-9: #55c5bd;
   --keyboard-white: #f7fafb; --keyboard-white-text: #455a62; --keyboard-black: #26363c; --keyboard-black-text: #dce7e9;
   --panel-title: #455a62; --canvas: #f7f9fa; --canvas-border: #bdcbd0; --meter-track: #dce5e7;
   --loading-bg: #edf2f3; --loading-highlight: #dce8e9; --skeleton-label: #f7fafae8; --skeleton-shine: #43a9a333;
@@ -49,7 +53,7 @@
     --text: #182226; --text-strong: #26363c; --muted: #60747c; --muted-strong: #4f646c; --muted-soft: #5f7279; --border: #c8d2d6; --border-strong: #9dafb5; --divider: #dbe3e6;
     --app-glow: #d6e9e8; --header-bg: rgba(250,252,252,.98); --header-border: #c7d3d6; --header-text: #26363c; --header-muted: #5d7078; --header-hover: #e8f0f1; --project-hover: #f1f5f5; --button-bg: #fff; --button-border: #bdcbd0; --button-text: #26363c;
     --accent: #17736e; --accent-strong: #0b6864; --accent-bg: #d9f1ef; --accent-soft: #e4f3f1; --accent-border: #79aaa6; --purple: #8050b4; --purple-text: #5d2d91; --purple-bg: #eee5f8; --gold: #97600a; --gold-text: #744707; --gold-bg: #f8edda; --danger: #b22f43; --danger-border: #cf8490; --danger-bg: #f9e4e7; --danger-soft: #f7e8ea;
-    --chord-tone-0: #17736e; --chord-tone-1: #34758c; --chord-tone-2: #526f9e; --chord-tone-3: #70649c; --chord-tone-4: #8b5d87; --chord-tone-5: #9c586e; --chord-tone-6: #a85f50; --chord-tone-7: #97600a; --chord-tone-8: #7e701e; --chord-tone-9: #607a35; --chord-tone-10: #3f8059; --chord-tone-11: #26806d; --keyboard-white: #f7fafb; --keyboard-white-text: #455a62; --keyboard-black: #26363c; --keyboard-black-text: #dce7e9;
+    --chord-ink: #10191d; --chord-tone-0: #55c5bd; --chord-tone-1: #5aa9cf; --chord-tone-2: #7488d8; --chord-tone-3: #9878d8; --chord-tone-4: #bf78cb; --chord-tone-5: #d477a8; --chord-tone-6: #dd7d89; --chord-tone-7: #db9564; --chord-tone-8: #d0bd61; --chord-tone-9: #a7c468; --chord-tone-10: #79c47a; --chord-tone-11: #5fc393; --chord-score-0: #dd7d89; --chord-score-1: #dc8b72; --chord-score-2: #db9963; --chord-score-3: #d5aa60; --chord-score-4: #c7ba62; --chord-score-5: #aac36a; --chord-score-6: #87c578; --chord-score-7: #69c28f; --chord-score-8: #58c1a8; --chord-score-9: #55c5bd; --keyboard-white: #f7fafb; --keyboard-white-text: #455a62; --keyboard-black: #26363c; --keyboard-black-text: #dce7e9;
     --panel-title: #455a62; --canvas: #f7f9fa; --canvas-border: #bdcbd0; --meter-track: #dce5e7; --loading-bg: #edf2f3; --loading-highlight: #dce8e9; --skeleton-label: #f7fafae8; --skeleton-shine: #43a9a333;
     --shadow-panel: 0 12px 32px rgba(35,55,62,.11); --shadow-menu: 0 10px 28px rgba(35,55,62,.18); --shadow-modal: 0 24px 70px rgba(20,35,40,.28); --console-bg: #f7f9fa; --console-header: #eef3f4; --console-text: #344a52; --console-hover: #e8f0f1;
     --mixer-gap: #cbd6d9; --mixer-strip: #edf2f3; --mixer-strip-deep: #e2e9eb; --knob-edge: #9ba9ae; --knob-light: #f9fbfb; --knob-mid: #cbd5d8; --knob-dark: #8b999e;
@@ -190,11 +194,13 @@ button:disabled { opacity: .4; cursor: default; }
 .no-track-import { display: inline-flex; align-items: center; gap: 7px; padding: .78rem 1.05rem; }
 .visualizer { padding: 16px; min-height: 300px; }
 .waveform-chord-lane { position: relative; isolation: isolate; height: 31px; overflow: hidden; border: 1px solid var(--canvas-border); border-bottom: 0; background: var(--surface-deep); user-select: none; }
-.waveform-chord-lane button { position: absolute; z-index: 1; top: 3px; bottom: 3px; min-width: 1px; height: 24px; overflow: hidden; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--chord-color) 58%, var(--border)); border-radius: 4px; color: var(--chord-color); background: color-mix(in srgb, var(--chord-color) 12%, var(--surface)); font-size: .64rem; font-weight: 850; line-height: 1; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-.waveform-chord-lane button:hover:not(:disabled), .waveform-chord-lane button:focus-visible { z-index: 3; border-color: var(--chord-color); color: var(--text-strong); background: color-mix(in srgb, var(--chord-color) 24%, var(--surface)); }
+.waveform-chord-lane button { --chord-foreground: color-mix(in srgb, var(--chord-color) 25%, var(--chord-ink)); position: absolute; z-index: 1; top: 3px; bottom: 3px; min-width: 1px; height: 24px; overflow: hidden; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--chord-color) 58%, var(--chord-ink)); border-radius: 4px; color: var(--chord-foreground); background: var(--chord-color); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--chord-color) 50%, var(--chord-ink)); font-size: .64rem; font-weight: 850; line-height: 1; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.waveform-chord-lane button:hover:not(:disabled), .waveform-chord-lane button:focus-visible { z-index: 3; border-color: color-mix(in srgb, var(--chord-color) 42%, var(--chord-ink)); color: var(--chord-foreground); background: color-mix(in srgb, var(--chord-color) 90%, var(--chord-ink)); }
 .waveform-chord-lane button.selected { z-index: 3; outline: 1px solid var(--accent); outline-offset: -1px; }
-.waveform-chord-lane button.active { z-index: 2; border-color: var(--gold); color: var(--gold-text); background: color-mix(in srgb, var(--gold) 24%, var(--surface)); box-shadow: inset 0 -2px 0 var(--gold); }
-.waveform-chord-lane button.edited::after { content: ""; position: absolute; top: 3px; right: 3px; width: 3px; height: 3px; border-radius: 50%; background: var(--accent); }
+.waveform-chord-lane button.active { z-index: 2; border-color: var(--gold); color: var(--chord-foreground); background: var(--chord-color); box-shadow: inset 0 -3px 0 var(--gold); }
+.waveform-chord-lane button.edited::after { content: ""; position: absolute; top: 3px; right: 3px; width: 3px; height: 3px; border-radius: 50%; background: var(--chord-foreground); }
+.waveform-chord-lane button.no-chord, .waveform-chord-lane button.no-chord:hover:not(:disabled), .waveform-chord-lane button.no-chord:focus-visible { --chord-foreground: var(--muted); border-color: var(--border); color: var(--muted); background: transparent; box-shadow: none; }
+.waveform-chord-lane button.no-chord.active { border-color: var(--gold); box-shadow: inset 0 -2px 0 var(--gold); }
 .wave { position: relative; isolation: isolate; height: 205px; border-block: 1px solid #27343a; overflow: hidden; background: var(--canvas); touch-action: none; cursor: grab; user-select: none; }
 .wave.dragging { cursor: grabbing; }
 .wave svg, .overview-wave svg { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
@@ -333,7 +339,7 @@ button:disabled { opacity: .4; cursor: default; }
 .harmony-view-panel { grid-template-rows: auto minmax(0, 1fr); }
 .harmony-view-title { gap: 10px; }
 .harmony-view-tabs { display: flex; min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-deep); }
-.harmony-view-tabs button { min-width: max-content; height: 27px; padding: 4px 9px; border: 0; border-inline-end: 1px solid var(--border); border-radius: 0; color: var(--muted); background: transparent; font-size: .59rem; }
+.harmony-view-tabs button { display: inline-flex; align-items: center; gap: 5px; min-width: max-content; height: 27px; padding: 4px 9px; border: 0; border-inline-end: 1px solid var(--border); border-radius: 0; color: var(--muted); background: transparent; font-size: .59rem; }
 .harmony-view-tabs button:last-child { border-inline-end: 0; }
 .harmony-view-tabs button.active { color: var(--text-strong); background: var(--accent-bg); box-shadow: inset 0 -2px 0 var(--accent); }
 .stem-panel { min-height: 335px !important; overflow: hidden; }
@@ -415,12 +421,16 @@ button:disabled { opacity: .4; cursor: default; }
 .chord-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; }
 .chords { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); align-content: start; gap: 9px; width: 100%; max-width: 100%; min-height: 0; height: 100%; max-height: 245px; overflow-x: hidden; overflow-y: auto; padding: 2px 4px 8px 1px; overscroll-behavior: contain; scroll-behavior: smooth; scrollbar-gutter: stable; }
 .chord-timeline { padding-bottom: 150px; }
-.chords button, .chord-card { position: relative; display: grid; min-width: 0; padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; background: #0d1316; text-align: center; }
-.chords button b { color: var(--chord-color, #d7a74d); font-size: .9rem; }
-.chords button small, .chord-card small { color: var(--muted); font: .56rem/1.2 ui-monospace, SFMono-Regular, monospace; }
+.chords button, .chord-card { --chord-foreground: color-mix(in srgb, var(--chord-color) 25%, var(--chord-ink)); position: relative; display: grid; min-width: 0; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--chord-color) 58%, var(--chord-ink)); border-radius: 7px; color: var(--chord-foreground); background: var(--chord-color); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--chord-color) 50%, var(--chord-ink)); text-align: center; }
+.chords button:hover:not(:disabled), .chords button:focus-visible { border-color: color-mix(in srgb, var(--chord-color) 42%, var(--chord-ink)); color: var(--chord-foreground); background: color-mix(in srgb, var(--chord-color) 90%, var(--chord-ink)); }
+.chords button b { color: var(--chord-foreground); font-size: .9rem; }
+.chords button small, .chord-card small { color: color-mix(in srgb, var(--chord-ink) 78%, var(--chord-color)); font: .56rem/1.2 ui-monospace, SFMono-Regular, monospace; }
 .chords button.active { border-color: var(--gold); box-shadow: inset 0 -2px 0 var(--gold); }
-.chords button.edited::after { content: ""; position: absolute; top: 5px; right: 5px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 5px var(--accent); }
+.chords button.edited::after { content: ""; position: absolute; top: 5px; right: 5px; width: 4px; height: 4px; border-radius: 50%; background: var(--chord-foreground); box-shadow: 0 0 5px color-mix(in srgb, var(--chord-ink) 55%, transparent); }
 .chord-card.active { border-color: var(--gold); box-shadow: inset 0 -2px 0 var(--gold); }
+.chords button.no-chord, .chords button.no-chord:hover:not(:disabled), .chords button.no-chord:focus-visible, .chord-card.no-chord { --chord-foreground: var(--muted); border-color: var(--border); color: var(--muted); background: transparent; box-shadow: none; }
+.chords button.no-chord b, .chords button.no-chord small, .chord-card.no-chord small { color: var(--muted); }
+.chords button.no-chord.active, .chord-card.no-chord.active { border-color: var(--gold); box-shadow: inset 0 -2px 0 var(--gold); }
 .chord-editor { z-index: 2; gap: 4px; padding: 5px; border-color: var(--accent); }
 .chord-editor input { width: 100%; min-width: 0; height: 24px; padding: 2px 4px; border-color: color-mix(in srgb, var(--accent) 70%, var(--border)); border-radius: 4px; color: var(--text-strong); background: var(--surface-deep); font-size: .78rem; font-weight: 800; text-align: center; }
 .chord-editor input[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent); }
@@ -648,8 +658,8 @@ dt { color: #778b94; } dd { margin: 0; }
 .stem-channel-label { color: color-mix(in srgb, var(--stem-color) 55%, var(--text)); }
 .stem-channel-label input:not(:disabled):hover { border-color: var(--border-strong); background: var(--surface-soft); }
 .stem-channel-label input:focus { background: var(--surface-raised); }
-.chords button, .chord-card { background: var(--surface); }
-.chords button b { color: var(--chord-color, var(--gold)); }
+.chords button, .chord-card { color: var(--chord-foreground); background: var(--chord-color); }
+.chords button b { color: var(--chord-foreground); }
 .app-help-footer { color: var(--muted); box-shadow: 0 -5px 18px color-mix(in srgb, var(--text) 10%, transparent); }
 .app-console { border-top-color: var(--border-strong); color: var(--console-text); background: var(--console-bg); box-shadow: 0 -12px 34px color-mix(in srgb, var(--text) 20%, transparent); }
 .app-console > header { border-bottom-color: var(--border); background: var(--console-header); }

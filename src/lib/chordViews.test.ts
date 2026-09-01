@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, isNoChordLabel, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
@@ -16,12 +16,25 @@ test("the score filter is dynamic and does not relabel results", () => {
 
 test("no-chord is displayed as a neutral dash", () => {
   assert.equal(chordDisplayLabel("N"), "-");
+  assert.equal(chordDisplayLabel("-"), "-");
+  assert.equal(isNoChordLabel("N"), true);
+  assert.equal(isNoChordLabel("-"), true);
+  assert.equal(isNoChordLabel("C"), false);
   assert.equal(chordColor("N", 1, "score"), "var(--muted)");
 });
 
 test("root colors ignore chord quality", () => {
   assert.equal(chordColor("C", 1, "root"), chordColor("Cm", 0.2, "root"));
   assert.notEqual(chordColor("C", 1, "root"), chordColor("D", 1, "root"));
+});
+
+test("score colors use ten bounded semantic bands", () => {
+  assert.equal(chordColor("C", -1, "score"), "var(--chord-score-0)");
+  assert.equal(chordColor("C", 0.099, "score"), "var(--chord-score-0)");
+  assert.equal(chordColor("C", 0.1, "score"), "var(--chord-score-1)");
+  assert.equal(chordColor("C", 0.899, "score"), "var(--chord-score-8)");
+  assert.equal(chordColor("C", 0.9, "score"), "var(--chord-score-9)");
+  assert.equal(chordColor("C", 2, "score"), "var(--chord-score-9)");
 });
 
 test("all model modes share the selected accidental spelling", () => {

@@ -12,6 +12,7 @@ export interface ChordGridItem {
 }
 
 const ROOT_COLORS = Array.from({ length: 12 }, (_, pitch) => `var(--chord-tone-${pitch})`);
+const SCORE_COLORS = Array.from({ length: 10 }, (_, band) => `var(--chord-score-${band})`);
 const SHARP_PITCHES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 const FLAT_PITCHES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const;
 const NATURAL_PITCHES: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -189,17 +190,18 @@ export function chordViewportBlocks(
 }
 
 export function chordDisplayLabel(label: string): string {
-  return label === "N" ? "-" : label;
+  return isNoChordLabel(label) ? "-" : label;
+}
+
+export function isNoChordLabel(label: string): boolean {
+  return label === "N" || label === "-";
 }
 
 export function chordColor(label: string, strength: number, mode: ChordColorMode): string {
-  if (label === "N" || label === "-") return "var(--muted)";
+  if (isNoChordLabel(label)) return "var(--muted)";
   if (mode === "score") {
     const bounded = Math.max(0, Math.min(1, strength));
-    if (bounded < 0.5) {
-      return `color-mix(in srgb, var(--gold) ${(bounded * 200).toFixed(1)}%, var(--danger))`;
-    }
-    return `color-mix(in srgb, var(--accent) ${((bounded - 0.5) * 200).toFixed(1)}%, var(--gold))`;
+    return SCORE_COLORS[Math.min(SCORE_COLORS.length - 1, Math.floor(bounded * SCORE_COLORS.length))];
   }
   const match = /^(?<note>[A-G])(?<accidental>#|b)?/.exec(label);
   if (!match?.groups) return "#d7a74d";

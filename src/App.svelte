@@ -13,7 +13,7 @@
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
-  import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
+  import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
   import { applyChordEdits, centeredChordOptionScrollTop, chordEditKey, chordEditKeyboardAction, chordEditOptions, chordEditPointerAction, chordSuggestions, shouldSeekChordFromClick, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
   import Icon from "./lib/Icon.svelte";
   import FretboardChord from "./lib/FretboardChord.svelte";
@@ -2899,6 +2899,7 @@
                 type="button"
                 class:active={block.index === activeChordIndex}
                 class:edited={block.chord.edited}
+                class:no-chord={isNoChordLabel(block.chord.label)}
                 style={`--chord-color:${chordColor(block.chord.label, block.chord.strength, chordColorMode)};left:${block.leftPercent}%;width:${block.widthPercent}%`}
                 aria-label={`${chordDisplayLabel(block.chord.label)}, ${displayTime(block.chord.startSeconds)}, ${t("chordSeekHelp")}`}
                 aria-current={block.index === activeChordIndex ? "true" : undefined}
@@ -3179,6 +3180,7 @@
                     <div
                       class="chord-card chord-editor"
                       class:active={chordIndex === activeChordIndex}
+                      class:no-chord={isNoChordLabel(chord.label)}
                       style={`--chord-color:${chordColor(chord.label, chord.strength, chordColorMode)}`}
                       data-chord-index={chordIndex}
                       bind:this={chordEditContainer}
@@ -3216,6 +3218,7 @@
                     <button
                       class:active={chordIndex === activeChordIndex}
                       class:edited={chord.edited}
+                      class:no-chord={isNoChordLabel(chord.label)}
                       style={`--chord-color:${chordColor(chord.label, chord.strength, chordColorMode)}`}
                       data-chord-index={chordIndex}
                       aria-pressed={selectedChordKey === editKey}
@@ -3252,9 +3255,9 @@
         <div class="panel keyboard-panel harmony-view-panel">
           <div class="panel-title harmony-view-title">
             <div class="harmony-view-tabs" role="group" aria-label={t("instrumentView")}>
-              <button class:active={harmonyView === "piano"} aria-pressed={harmonyView === "piano"} onclick={() => harmonyView = "piano"}>{t("piano")}</button>
-              <button class:active={harmonyView === "guitar"} aria-pressed={harmonyView === "guitar"} onclick={() => harmonyView = "guitar"}>{t("guitar")}</button>
-              <button class:active={harmonyView === "ukulele"} aria-pressed={harmonyView === "ukulele"} onclick={() => harmonyView = "ukulele"}>{t("ukulele")}</button>
+              <button class:active={harmonyView === "piano"} aria-pressed={harmonyView === "piano"} onclick={() => harmonyView = "piano"}><Icon name="keyboard" size=".72rem" />{t("piano")}</button>
+              <button class:active={harmonyView === "guitar"} aria-pressed={harmonyView === "guitar"} onclick={() => harmonyView = "guitar"}><Icon name="guitar" size=".72rem" />{t("guitar")}</button>
+              <button class:active={harmonyView === "ukulele"} aria-pressed={harmonyView === "ukulele"} onclick={() => harmonyView = "ukulele"}><Icon name="guitar" size=".62rem" />{t("ukulele")}</button>
             </div>
             <strong class="keyboard-current-chord" style={`--chord-color:${activeInstrumentColor}`}>{chordDisplayLabel(activeChordLabel)}</strong>
           </div>
