@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { chordKeyboardPositions, parseChordLabel } from "./chordNotes.ts";
+import { chordDegreeLabel, chordKeyboardPositions, parseChordLabel } from "./chordNotes.ts";
 
 test("the keyboard spells the supported triads and extensions", () => {
   assert.deepEqual(parseChordLabel("Dm")?.pitchNames, ["D", "F", "A"]);
@@ -17,6 +17,21 @@ test("the keyboard keeps a slash bass distinct from the chord root", () => {
   assert.equal(chord?.root, 2);
   assert.equal(chord?.bass, 6);
   assert.deepEqual(chord?.pitchNames, ["D", "F#", "A", "C"]);
+});
+
+test("instrument labels can display chord degrees including an added slash bass", () => {
+  const chord = parseChordLabel("C7/Gb");
+  assert.ok(chord);
+  assert.deepEqual(chord.pitches.map((pitch) => chordDegreeLabel(chord, pitch)), ["b5", "1", "3", "5", "b7"]);
+});
+
+test("piano degree labels cover every chromatic key relative to the chord root", () => {
+  const chord = parseChordLabel("C");
+  assert.ok(chord);
+  assert.deepEqual(
+    Array.from({ length: 12 }, (_, pitch) => chordDegreeLabel(chord, pitch)),
+    ["1", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"],
+  );
 });
 
 test("the keyboard accepts flats and rejects unknown or absent chords", () => {

@@ -136,30 +136,6 @@ export function adjacentChordGridIndex(
     })[0]?.item.index ?? currentIndex;
 }
 
-export function nearestChordPosition(
-  chords: readonly TimedChord[],
-  positionSeconds: number,
-): number {
-  if (!chords.length || !Number.isFinite(positionSeconds)) return positionSeconds;
-  let low = 0;
-  let high = chords.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if ((chords[middle]?.startSeconds ?? 0) <= positionSeconds) low = middle + 1;
-    else high = middle;
-  }
-  const before = chords[low - 1];
-  const after = chords[low];
-  if (before && positionSeconds >= before.startSeconds && positionSeconds < before.endSeconds) {
-    return before.startSeconds;
-  }
-  if (!before) return after?.startSeconds ?? positionSeconds;
-  if (!after) return before.startSeconds;
-  const distanceFromBefore = Math.max(0, positionSeconds - before.endSeconds);
-  const distanceFromAfter = Math.max(0, after.startSeconds - positionSeconds);
-  return distanceFromBefore <= distanceFromAfter ? before.startSeconds : after.startSeconds;
-}
-
 export interface ChordViewportBlock {
   chord: TimedChord;
   index: number;

@@ -20,15 +20,13 @@ export function shortcutPlatformFor(platform: string, userAgent = ""): ShortcutP
 }
 
 export function shortcutKeyLabels(platform: ShortcutPlatform): {
-  alt: string;
   backspace: string;
   delete: string;
-  shift: string;
   space: string;
 } {
   return platform === "macos"
-    ? { alt: "⌥", backspace: "⌫", delete: "Fn ⌫", shift: "⇧", space: "Space" }
-    : { alt: "Alt", backspace: "Backspace", delete: "Del", shift: "Shift", space: "Space" };
+    ? { backspace: "⌫", delete: "Fn ⌫", space: "Space" }
+    : { backspace: "Backspace", delete: "Del", space: "Space" };
 }
 
 export function parameterShortcutForKey(key: string): ParameterShortcut | null {
@@ -103,17 +101,6 @@ export function shouldToggleMetronomeOnRelease(
     && parameterShortcutForKey(event.key) === "metronomeVolume"
     && !parameterActionUsed
     && shouldHandleParameterShortcut(event);
-}
-
-export function shouldHandleChordNavigationShortcut(event: ShortcutKeyboardEvent): boolean {
-  const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
-  return !event.isComposing
-    && event.altKey
-    && !event.ctrlKey
-    && !event.metaKey
-    && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-    && (!event.shiftKey || horizontal)
-    && !isTextEditingTarget(event.target);
 }
 
 export function shouldBlurFocusedSelect(

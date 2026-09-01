@@ -63,12 +63,16 @@ Essentiel and Complet expose the other native model views. The
 panel can filter the uncalibrated model score, color by score or root, show a
 consistent sharp or flat spelling, follow the playback pitch transposition, and
 switch to an alphabetical repertoire of unique chords.
-Shift-clicking either waveform view seeks to the nearest detected Beat This!
-beat when that analysis exists; otherwise it keeps the ordinary unsnapped seek.
-Option-clicking seeks to the nearest visible chord segment start when chord
-analysis exists, and takes precedence if both modifiers are held.
-Option plus Left or Right seeks to the previous or next visible chord segment
-boundary, and remains inactive while editing text.
+The audio header exposes one user navigation mode: Time, Beat, or Chord. Left
+and Right, the transport jump buttons, and waveform clicks share that mode.
+Time uses a configurable one-to-sixty-second step and defaults to ten seconds;
+Beat and Chord activate automatically when their analysis data becomes
+available and temporarily fall back to Time beforehand. `N` cycles the mode.
+The preference is global user state and is never stored in a project or track.
+Clicking a chord selects Chord navigation. Loop magnetism uses chord boundaries
+in Chord mode and Beat This! beats in Time or Beat mode, falling back to beats
+while chord data is unavailable. `I` cycles the piano, guitar, and ukulele
+views. Global shortcuts remain inactive while editing text.
 The detailed waveform places those same visible chord segments in a compact,
 clickable lane using the waveform viewport and playhead, so zooming, panning,
 automatic follow, chord filtering, edits, and transposition remain synchronized.
@@ -77,11 +81,18 @@ typed parser for its three-octave piano and validated guitar and ukulele
 positions.
 Piano chord tones and fretted-instrument fingering markers reuse the active
 chord color, with theme-aware mixing for readable labels and root emphasis.
-Piano, guitar, and ukulele positions come only from the pinned, MIT-licensed
-`chords-db` corpus. SonArcan validates every position against the parsed
-LV-Chordia tones and shows no position when the published corpus has no match;
-it never synthesizes an instrument fingering. Each instrument uses the same
-bounded position navigator.
+Piano, guitar, and ukulele positions prefer the pinned, MIT-licensed
+`chords-db` corpus. SonArcan validates every published position against the
+parsed LV-Chordia tones and rejects mismatched notes or slash basses. A bounded,
+deterministic fretboard search fills missing guitar and ukulele coverage with
+positions limited to chord tones and a four-fret hand window; unavoidable
+omissions and omitted slash basses remain explicit in the UI. Generated
+fingerings never claim a thumb-over technique. The complete horizontal
+fretboard remains a theory view and shows every chord tone independently of the
+selected playable position. Piano keeps validated corpus positions first and
+synthesizes a complete position when needed; an explicit slash bass is always
+placed alone below the full harmony so it remains the sounding bass. Each
+instrument keeps a bounded position navigator.
 `N` is retained in data and rendered as `-`.
 User chord corrections remain a separate, bounded per-track overlay keyed by
 LV-Chordia vocabulary and native segment times. They are persisted in project

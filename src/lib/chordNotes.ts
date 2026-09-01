@@ -49,6 +49,18 @@ export function degreeSemitones(degree: string): number | null {
   return base + accidental;
 }
 
+const CHROMATIC_DEGREES = ["1", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"] as const;
+
+export function chordDegreeLabel(chord: ParsedChord, pitch: number): string {
+  const interval = (pitch - chord.root + 120) % 12;
+  const degree = chord.degrees.find((candidate) => {
+    const semitones = degreeSemitones(candidate);
+    return semitones !== null && (semitones + 120) % 12 === interval;
+  });
+  if (degree) return degree;
+  return CHROMATIC_DEGREES[interval];
+}
+
 function splitBass(suffix: string): { quality: string; bassDegree: string | null } {
   let depth = 0;
   for (let index = suffix.length - 1; index >= 0; index -= 1) {

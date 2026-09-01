@@ -17,7 +17,8 @@ This document translates the useful interaction model observed in musician pract
 
 - play and pause;
 - seek by clicking or dragging the timeline;
-- configurable backward and forward jumps;
+- backward and forward navigation by a configurable time step, detected beat,
+  or visible chord boundary;
 - previous and next track;
 - volume;
 - apply the configured start rule consistently whenever a track loads.
@@ -92,7 +93,9 @@ The implemented Loop Trainer performs the first three operations directly in the
 | Action | Shortcut |
 |---|---|
 | Play or pause | Space |
-| Jump backward/forward five seconds | Left/Right Arrow |
+| Previous/next point in the active navigation mode | Left/Right Arrow |
+| Cycle Time, Beat, and Chord navigation | N |
+| Cycle piano, guitar, and ukulele views | I |
 | Set loop A/B | A / B |
 | Clear loop | Escape |
 | Toggle metronome | M |

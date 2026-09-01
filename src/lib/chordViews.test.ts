@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, isNoChordLabel, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
@@ -100,28 +100,6 @@ test("chord transport moves strictly between segments while playback advances", 
   assert.equal(adjacentChordTransportPosition(chords, 4.25, 1), 8);
   assert.equal(adjacentChordTransportPosition(chords, 8.03, -1), 4);
   assert.equal(adjacentChordTransportPosition(chords, 8.03, 1), 8);
-});
-
-test("Option waveform seeking chooses the start of the region under the pointer", () => {
-  const chords = [
-    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 4 },
-    { ...chord("Dm", 0.8), startSeconds: 4, endSeconds: 8 },
-    { ...chord("G", 0.8), startSeconds: 8, endSeconds: 12 },
-  ];
-  assert.equal(nearestChordPosition(chords, 2), 0);
-  assert.equal(nearestChordPosition(chords, 3.99), 0);
-  assert.equal(nearestChordPosition(chords, 4), 4);
-  assert.equal(nearestChordPosition(chords, 7.8), 4);
-  assert.equal(nearestChordPosition([], 7.8), 7.8);
-});
-
-test("Option waveform seeking falls back to the closest region across a gap", () => {
-  const chords = [
-    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 3 },
-    { ...chord("Dm", 0.8), startSeconds: 5, endSeconds: 8 },
-  ];
-  assert.equal(nearestChordPosition(chords, 4), 0);
-  assert.equal(nearestChordPosition(chords, 4.01), 5);
 });
 
 test("waveform chord blocks share its zoomed viewport and clip edge segments", () => {

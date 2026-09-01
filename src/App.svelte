@@ -12,8 +12,8 @@
   import { ImportSearchCache } from "./lib/importSearchCache";
   import { completedImportBatch } from "./lib/importCompletion";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
-  import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
-  import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, nearestChordPosition, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
+  import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
+  import { activeChordIndexAt, adjacentChordGridIndex, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
   import { applyChordEdits, centeredChordOptionScrollTop, chordEditKey, chordEditKeyboardAction, chordEditOptions, chordEditPointerAction, chordSuggestions, shouldSeekChordFromClick, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
   import Icon from "./lib/Icon.svelte";
   import FretboardChord from "./lib/FretboardChord.svelte";
@@ -22,9 +22,10 @@
   import Modal from "./lib/Modal.svelte";
   import Toaster from "./lib/Toaster.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
-  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, nearestDetectedBeat, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, transportJumpPosition, visiblePeaks, waveformSeekPosition, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { effectiveNavigationMode, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
-  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, MetronomeSound, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
+  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
@@ -90,6 +91,7 @@
   let chordEditSuggestionSelect: HTMLSelectElement | undefined;
   let chordEditWheelAccumulator = 0;
   let harmonyView: "piano" | "guitar" | "ukulele" = "piano";
+  let harmonyLabelMode: "notes" | "degrees" = "notes";
   let repertoireKeyboardLabel: string | null = null;
   let lastRepertoirePlaybackLabel: string | null = null;
   let chordList: HTMLElement | undefined;
@@ -121,7 +123,7 @@
   let stemStatusRequestActive = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, metronomeSound: "electronic", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, metronomeVolume: 0.55, metronomeSound: "electronic", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let preferences: UserPreferences = { ...defaultUserPreferences };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
@@ -201,6 +203,14 @@
   const displayTime = (value: number): string => preferences.timeDisplay === "precise" ? formatTimePrecise(value) : formatTime(value);
   const shortcutPlatform = shortcutPlatformFor(navigator.platform, navigator.userAgent);
   const shortcutKeys = shortcutKeyLabels(shortcutPlatform);
+  let activeNavigationMode: NavigationMode;
+  let navigationAnalysisPending: boolean;
+  let loopSnapAvailable: boolean;
+  $: activeNavigationMode = effectiveNavigationMode(preferences.navigationMode, chordAnalysis?.beats ?? [], timelineChords);
+  $: navigationAnalysisPending = activeNavigationMode !== preferences.navigationMode;
+  $: loopSnapAvailable = preferences.navigationMode === "chord"
+    ? Boolean(timelineChords.length || chordAnalysis?.beats.length)
+    : Boolean(chordAnalysis?.beats.length);
 
   function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -414,6 +424,7 @@
   function selectChordFromButton(event: MouseEvent, chord: TimedChord): void {
     (event.currentTarget as HTMLButtonElement).focus({ preventScroll: true });
     selectChord(chord);
+    changeNavigationMode("chord");
     if (shouldSeekChordFromClick(event.altKey)) seek(chord.startSeconds);
   }
 
@@ -688,10 +699,51 @@
   }
 
   function handleChordKeydown(event: KeyboardEvent, chord: TimedChord): void {
-    if (event.key !== "Enter") return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      beginChordEdit(chord);
+      return;
+    }
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    beginChordEdit(chord);
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      moveChordGridSelection(event.key === "ArrowUp" ? -1 : 1);
+    } else {
+      moveChordTimelineSelection(event.key === "ArrowLeft" ? -1 : 1);
+    }
+  }
+
+  function changeNavigationMode(mode: NavigationMode): void {
+    if (preferences.navigationMode === mode) return;
+    preferences = { ...preferences, navigationMode: mode };
+    void persistPreferences();
+  }
+
+  function cycleNavigationMode(): void {
+    const modes: NavigationMode[] = ["time", "beat", "chord"];
+    const index = modes.indexOf(preferences.navigationMode);
+    changeNavigationMode(modes[(index + 1) % modes.length] ?? "time");
+  }
+
+  function navigationModeLabel(mode: NavigationMode): string {
+    if (mode === "beat") return t("navigationBeat");
+    if (mode === "chord") return t("navigationChord");
+    return t("navigationTime");
+  }
+
+  function navigationDirectionLabel(direction: -1 | 1): string {
+    if (activeNavigationMode === "beat") return direction < 0 ? t("previousBeat") : t("nextBeat");
+    if (activeNavigationMode === "chord") return direction < 0 ? t("previousChord") : t("nextChord");
+    const template = direction < 0 ? t("navigationBackTime") : t("navigationForwardTime");
+    return template.replace("{seconds}", String(preferences.navigationTimeSeconds));
+  }
+
+  function cycleHarmonyView(): void {
+    const views: Array<typeof harmonyView> = ["piano", "guitar", "ukulele"];
+    const index = views.indexOf(harmonyView);
+    harmonyView = views[(index + 1) % views.length] ?? "piano";
   }
 
   function selectedChordIndex(): number {
@@ -798,18 +850,6 @@
         return;
       }
       if (document.querySelector("dialog[open]")) return;
-      if (shouldHandleChordNavigationShortcut(event) && project && timelineChords.length) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.shiftKey) {
-          seek(adjacentChordTransportPosition(timelineChords, currentSeconds, event.key === "ArrowLeft" ? -1 : 1));
-        } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-          moveChordGridSelection(event.key === "ArrowUp" ? -1 : 1);
-        } else {
-          moveChordTimelineSelection(event.key === "ArrowLeft" ? -1 : 1);
-        }
-        return;
-      }
       if (!shouldHandleGlobalShortcut(event)) return;
       const target = event.target as HTMLElement | null;
       const key = event.key.toLowerCase();
@@ -821,13 +861,21 @@
         event.preventDefault();
         if (!event.repeat) toggleHelp();
       }
+      else if (key === "n") {
+        event.preventDefault();
+        if (!event.repeat) cycleNavigationMode();
+      }
+      else if (key === "i") {
+        event.preventDefault();
+        if (!event.repeat) cycleHarmonyView();
+      }
       else if (target?.closest("button, a[href]") || !project) return;
       else if (key === "a") { event.preventDefault(); setLoopA(); }
       else if (key === "b") { event.preventDefault(); setLoopB(); }
       else if (key === "l") { event.preventDefault(); toggleLoop(); }
       else if (event.key === "Escape") { event.preventDefault(); clearLoop(); }
-      else if (event.key === "ArrowLeft") { event.preventDefault(); jump(-5, event.shiftKey); }
-      else if (event.key === "ArrowRight") { event.preventDefault(); jump(5, event.shiftKey); }
+      else if (event.key === "ArrowLeft") { event.preventDefault(); navigate(-1); }
+      else if (event.key === "ArrowRight") { event.preventDefault(); navigate(1); }
     };
     const handleKeyup = (event: KeyboardEvent): void => {
       if (parameterShortcutForKey(event.key) !== activeParameterShortcut) return;
@@ -1429,8 +1477,8 @@
     else if (id === "view:zoom_out") setWaveformZoom(waveformZoom / 1.5);
     else if (id === "view:zoom_reset") fitEntireWaveform();
     else if (id === "playback:toggle") togglePlayback();
-    else if (id === "playback:back") jump(-5);
-    else if (id === "playback:forward") jump(5);
+    else if (id === "playback:back") navigate(-1);
+    else if (id === "playback:forward") navigate(1);
     else if (id === "playback:set_a") setLoopA();
     else if (id === "playback:set_b") setLoopB();
     else if (id === "playback:clear_loop") clearLoop();
@@ -2118,8 +2166,15 @@
     schedulePracticeSave(0);
   }
 
-  function jump(seconds: number, preferBeat = false): void {
-    seek(transportJumpPosition(currentSeconds, seconds, chordAnalysis?.beats ?? [], preferBeat));
+  function navigate(direction: -1 | 1): void {
+    seek(navigationPosition(
+      preferences.navigationMode,
+      currentSeconds,
+      direction,
+      preferences.navigationTimeSeconds,
+      chordAnalysis?.beats ?? [],
+      timelineChords,
+    ));
   }
 
   function stopJumpHold(): void {
@@ -2129,18 +2184,17 @@
     jumpHoldRepeatTimer = undefined;
   }
 
-  function startJumpHold(event: PointerEvent, seconds: number): void {
+  function startJumpHold(event: PointerEvent, direction: -1 | 1): void {
     if (event.button !== 0) return;
     event.preventDefault();
     stopJumpHold();
     const target = event.currentTarget as HTMLButtonElement;
     target.focus();
     target.setPointerCapture(event.pointerId);
-    const preferBeat = event.shiftKey;
-    jump(seconds, preferBeat);
+    navigate(direction);
     jumpHoldDelayTimer = window.setTimeout(() => {
       jumpHoldDelayTimer = undefined;
-      jumpHoldRepeatTimer = window.setInterval(() => jump(seconds, preferBeat), 140);
+      jumpHoldRepeatTimer = window.setInterval(() => navigate(direction), 140);
     }, 400);
   }
 
@@ -2150,8 +2204,8 @@
     stopJumpHold();
   }
 
-  function keyboardJump(event: MouseEvent, seconds: number): void {
-    if (event.detail === 0) jump(seconds, event.shiftKey);
+  function keyboardJump(event: MouseEvent, direction: -1 | 1): void {
+    if (event.detail === 0) navigate(direction);
   }
 
   function toggleMetronome(): void {
@@ -2273,12 +2327,12 @@
 
   function snappedLoopTime(seconds: number): number {
     return loopSnapEnabled
-      ? nearestDetectedBeat(seconds, chordAnalysis?.beats ?? [])
+      ? snappedNavigationPosition(preferences.navigationMode, seconds, chordAnalysis?.beats ?? [], timelineChords)
       : seconds;
   }
 
   function toggleLoopSnap(): void {
-    if (!chordAnalysis?.beats.length) return;
+    if (!loopSnapAvailable) return;
     loopSnapEnabled = !loopSnapEnabled;
     preferences = { ...preferences, loopSnapEnabled };
     void persistPreferences();
@@ -2678,7 +2732,7 @@
       const bounds = target.getBoundingClientRect();
       const local = (event.clientX - bounds.left) / bounds.width;
       const position = (waveformStart + local / waveformZoom) * durationSeconds;
-      seek(modifiedWaveformSeekPosition(position, event.shiftKey, event.altKey));
+      seek(navigationSnappedSeekPosition(position));
     }
     waveformDragPointerId = null;
     dragMoved = false;
@@ -2732,7 +2786,7 @@
     const target = event.currentTarget as HTMLElement;
     if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
     viewportDrag = null;
-    if (completedDrag.mode === "move" && !completedDrag.moved) seekAndCenterOverview(ratio, event.shiftKey, event.altKey);
+    if (completedDrag.mode === "move" && !completedDrag.moved) seekAndCenterOverview(ratio);
   }
 
   function cancelViewportDrag(event: PointerEvent): void {
@@ -2744,16 +2798,16 @@
 
   function seekFromOverview(event: PointerEvent): void {
     if (event.button !== 0) return;
-    seekAndCenterOverview(overviewRatio(event), event.shiftKey, event.altKey);
+    seekAndCenterOverview(overviewRatio(event));
   }
 
-  function modifiedWaveformSeekPosition(position: number, preferBeat: boolean, preferChord: boolean): number {
-    if (preferChord && timelineChords.length) return nearestChordPosition(timelineChords, position);
-    return waveformSeekPosition(position, chordAnalysis?.beats ?? [], preferBeat);
+  function navigationSnappedSeekPosition(position: number): number {
+    if (activeNavigationMode === "time") return position;
+    return snappedNavigationPosition(preferences.navigationMode, position, chordAnalysis?.beats ?? [], timelineChords);
   }
 
-  function seekAndCenterOverview(ratio: number, preferBeat = false, preferChord = false): void {
-    const position = modifiedWaveformSeekPosition(ratio * durationSeconds, preferBeat, preferChord);
+  function seekAndCenterOverview(ratio: number): void {
+    const position = navigationSnappedSeekPosition(ratio * durationSeconds);
     seek(position);
     const span = 1 / waveformZoom;
     const positionRatio = durationSeconds > 0 ? position / durationSeconds : ratio;
@@ -2864,23 +2918,28 @@
       <div class="visualizer panel">
         <div class="panel-title waveform-panel-title">
           <h2>{t("waveform")}</h2>
-          <div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}</div>
+          <div class="waveform-header-center">
+            <div class="navigation-controls">
+              <label class="navigation-mode"><span>{t("navigation")}</span><select value={preferences.navigationMode} onchange={(event) => changeNavigationMode(event.currentTarget.value as NavigationMode)} aria-keyshortcuts="N"><option value="time">{t("navigationTime")} · {preferences.navigationTimeSeconds} {t("secondsShort")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option></select></label>
+              <button
+                type="button"
+                class="follow-playhead"
+                class:active={followPlayhead}
+                class:suspended={followPlayhead && waveformFollowSuspended}
+                aria-label={t("followPlayhead")}
+                aria-pressed={followPlayhead}
+                data-tooltip={t("followPlayhead")}
+                onclick={toggleWaveformFollow}
+              ><Icon name="arrows-to-dot" size="13px" /></button>
+            </div>
+            {#if navigationAnalysisPending}<small>{navigationModeLabel(preferences.navigationMode)} · {t("navigationPending")}</small>{/if}
+            <div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}</div>
+          </div>
           <span class="zoom-status">
             <span>{t("zoom")}: <strong>{waveformZoom.toFixed(1)}×</strong></span>
             <button type="button" class="zoom-preset fit-all" aria-label={t("fitEntireTrack")} data-tooltip={t("fitEntireTrack")} onclick={fitEntireWaveform}><Icon name="arrows-left-right-to-line" size="14px" /></button>
             <i class="zoom-separator" aria-hidden="true"></i>
             <button type="button" class="zoom-preset fit-thirty" aria-label={t("fitThirtySeconds")} data-tooltip={t("fitThirtySeconds")} onclick={fitThirtySecondWaveform}><Icon name="stopwatch" size="12px" /><small>30</small></button>
-            <i class="zoom-separator" aria-hidden="true"></i>
-            <button
-              type="button"
-              class="follow-playhead"
-              class:active={followPlayhead}
-              class:suspended={followPlayhead && waveformFollowSuspended}
-              aria-label={t("followPlayhead")}
-              aria-pressed={followPlayhead}
-              data-tooltip={t("followPlayhead")}
-              onclick={toggleWaveformFollow}
-            ><Icon name="arrows-to-dot" size="13px" /></button>
           </span>
         </div>
         {#if waveformChordBlocks.length}
@@ -2904,7 +2963,7 @@
                 aria-label={`${chordDisplayLabel(block.chord.label)}, ${displayTime(block.chord.startSeconds)}, ${t("chordSeekHelp")}`}
                 aria-current={block.index === activeChordIndex ? "true" : undefined}
                 title={`${chordDisplayLabel(block.chord.label)} · ${displayTime(block.chord.startSeconds)}–${displayTime(block.chord.endSeconds)}`}
-                onclick={() => seek(block.chord.startSeconds)}
+                onclick={() => { changeNavigationMode("chord"); seek(block.chord.startSeconds); }}
               >{chordDisplayLabel(block.chord.label)}</button>
             {/each}
           </div>
@@ -2951,7 +3010,7 @@
             {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
           {/if}
         </div>
-        <div class="waveform-help">{t("waveformHelp")} · ⇧ beat · ⌥ {t("chords")}</div>
+        <div class="waveform-help">{t("waveformHelp")} · {t("waveformNavigationHelp")}</div>
         <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheel={(event) => navigateWaveformWithWheel(event, true)} onpointerdown={seekFromOverview}>
           {#if waveformLoading}<div class="overview-skeleton"><svg viewBox={`0 0 ${loadingWave.length} 60`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={30 - height * 27} y2={30 + height * 27}></line>{/each}</svg><i></i></div>
           {:else if overviewPeaks.length > 0}
@@ -2993,11 +3052,11 @@
         <div class="waveform-transport-row">
           <span aria-hidden="true"></span>
           <div class="transport-center">
-            <button class="seek-button" disabled={audioLoading} aria-label={t("back5")} data-tooltip={t("back5Hold")} onpointerdown={(event) => startJumpHold(event, -5)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, -5)}><Icon name="backward" size="14px" /></button>
+            <button class="seek-button" disabled={audioLoading} aria-label={navigationDirectionLabel(-1)} data-tooltip={`${navigationDirectionLabel(-1)} · ${t("holdToRepeat")}`} onpointerdown={(event) => startJumpHold(event, -1)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, -1)}><Icon name="backward" size="14px" /></button>
             <button disabled={audioLoading} class="round" aria-label={t("previous")} data-tooltip={t("previous")} onclick={() => moveTrack(-1)}><Icon name="backward-step" size="15px" /></button>
             <button disabled={audioLoading} class="play" class:loading={audioLoading} aria-label={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} data-tooltip={audioLoading ? t("loadingAudio") : isPlaying ? t("pause") : t("play")} onclick={togglePlayback}>{#if audioLoading}<i class="button-spinner"></i>{:else}<Icon name={isPlaying ? "pause" : "play"} size="15px" />{/if}</button>
             <button disabled={audioLoading} class="round" aria-label={t("next")} data-tooltip={t("next")} onclick={() => moveTrack(1)}><Icon name="forward-step" size="15px" /></button>
-            <button class="seek-button" disabled={audioLoading} aria-label={t("forward5")} data-tooltip={t("forward5Hold")} onpointerdown={(event) => startJumpHold(event, 5)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, 5)}><Icon name="forward" size="14px" /></button>
+            <button class="seek-button" disabled={audioLoading} aria-label={navigationDirectionLabel(1)} data-tooltip={`${navigationDirectionLabel(1)} · ${t("holdToRepeat")}`} onpointerdown={(event) => startJumpHold(event, 1)} onpointerup={finishJumpHold} onpointercancel={finishJumpHold} onlostpointercapture={stopJumpHold} onclick={(event) => keyboardJump(event, 1)}><Icon name="forward" size="14px" /></button>
           </div>
           <div class="end-behavior" role="group" aria-label={t("endBehavior")}>
             <button class:active={endBehavior === "restart"} aria-pressed={endBehavior === "restart"} aria-label={t("restartAtEnd")} data-tooltip={t("restartAtEnd")} onclick={() => changeEndBehavior("restart")}><Icon name="rotate-left" size="13px" /></button>
@@ -3015,7 +3074,7 @@
             <button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button>
             <i class="control-separator" aria-hidden="true"></i>
             <button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="rotate-left" size="11px" /></button>
-            <button class:active={loopSnapEnabled} disabled={!chordAnalysis?.beats.length} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={t("loopSnapHelp")}><Icon name="magnet" size="12px" /></button>
+            <button class:active={loopSnapEnabled} disabled={!loopSnapAvailable} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={preferences.navigationMode === "chord" ? t("loopSnapChordHelp") : t("loopSnapBeatHelp")}><Icon name="magnet" size="12px" /></button>
           </div>
         </div>
         <div class="practice-center-controls">
@@ -3245,7 +3304,7 @@
                     style={`--chord-color:${chordColor(label, Math.max(...displayedChords.filter((chord) => chord.label === label).map((chord) => chord.strength)), chordColorMode)}`}
                     aria-label={`${label}, ${t("showChordOnKeyboard")}`}
                     data-tooltip={t("showChordOnKeyboard")}
-                    onclick={() => repertoireKeyboardLabel = label}
+                    onclick={() => { repertoireKeyboardLabel = label; changeNavigationMode("chord"); }}
                   ><b>{label}</b></button>
                 {/each}
               </div>
@@ -3254,15 +3313,23 @@
         </div>
         <div class="panel keyboard-panel harmony-view-panel">
           <div class="panel-title harmony-view-title">
-            <div class="harmony-view-tabs" role="group" aria-label={t("instrumentView")}>
+            <div class="harmony-view-tabs" role="group" aria-label={t("instrumentView")} aria-keyshortcuts="I">
               <button class:active={harmonyView === "piano"} aria-pressed={harmonyView === "piano"} onclick={() => harmonyView = "piano"}><Icon name="keyboard" size=".72rem" />{t("piano")}</button>
               <button class:active={harmonyView === "guitar"} aria-pressed={harmonyView === "guitar"} onclick={() => harmonyView = "guitar"}><Icon name="guitar" size=".72rem" />{t("guitar")}</button>
               <button class:active={harmonyView === "ukulele"} aria-pressed={harmonyView === "ukulele"} onclick={() => harmonyView = "ukulele"}><Icon name="guitar" size=".62rem" />{t("ukulele")}</button>
             </div>
-            <strong class="keyboard-current-chord" style={`--chord-color:${activeInstrumentColor}`}>{chordDisplayLabel(activeChordLabel)}</strong>
+            <strong
+              class="keyboard-current-chord"
+              class:no-chord={isNoChordLabel(activeChordLabel)}
+              style={`--chord-color:${activeInstrumentColor}`}
+            >{chordDisplayLabel(activeChordLabel)}</strong>
+            <div class="harmony-label-mode" role="group" aria-label={t("instrumentLabels")}>
+              <button class:active={harmonyLabelMode === "notes"} aria-pressed={harmonyLabelMode === "notes"} onclick={() => harmonyLabelMode = "notes"}>{t("noteNames")}</button>
+              <button class:active={harmonyLabelMode === "degrees"} aria-pressed={harmonyLabelMode === "degrees"} onclick={() => harmonyLabelMode = "degrees"}>{t("chordDegrees")}</button>
+            </div>
           </div>
           {#if harmonyView === "piano"}
-            <PianoChord label={activeHarmonyLabel} accessibleLabel={t("chordKeyboard")} accidentals={chordAccidentalMode} positionLabel={t("voicingPosition")} unavailableLabel={t("noVoicing")} chordColor={activeInstrumentColor} />
+            <PianoChord label={activeHarmonyLabel} accessibleLabel={t("chordKeyboard")} accidentals={chordAccidentalMode} positionLabel={t("voicingPosition")} unavailableLabel={t("noVoicing")} emptyLabel={t("noChords")} labelMode={harmonyLabelMode} chordColor={activeInstrumentColor} />
           {:else}
             <FretboardChord
               label={activeHarmonyLabel}
@@ -3270,9 +3337,13 @@
               accidentals={chordAccidentalMode}
               accessibleLabel={t(harmonyView)}
               positionLabel={t("voicingPosition")}
+              exactLabel={t("exactVoicing")}
               adaptedLabel={t("adaptedVoicing")}
               unavailableLabel={t("noVoicing")}
+              emptyLabel={t("noChords")}
               omittedLabel={t("omittedNotes")}
+              bassOmittedLabel={t("bassOmitted")}
+              labelMode={harmonyLabelMode}
               chordColor={activeInstrumentColor}
             />
           {/if}
@@ -3359,7 +3430,7 @@
       <div class="preferences-grid" onchange={autosavePreferences}>
         <section><h3>{t("appearance")}</h3><label>{t("language")}<select value={preferences.language} onchange={(event) => { event.stopPropagation(); changeLanguage(event.currentTarget.value as Language); }}>{#each languageOptions as option}<option value={option.value}>{option.label}</option>{/each}</select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
-        <section><h3>{t("practiceDefaults")}</h3><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
+        <section><h3>{t("practiceDefaults")}</h3><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option></select></label><label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section><h3>{t("audio")}</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
       </div>
       <div class="modal-actions"><button onclick={resetUserPreferences}>{t("resetPreferences")}</button></div>
@@ -3370,16 +3441,10 @@
     <Modal title={t("shortcuts")} closeLabel={t("close")} wide close={() => shortcutsVisible = false}>
       <dl class="shortcut-list" class:macos={shortcutPlatform === "macos"}>
         <dt>{t("playPause")}</dt><dd><kbd>{shortcutKeys.space}</kbd></dd>
-        <dt>{t("back5")}</dt><dd><kbd>←</kbd></dd>
-        <dt>{t("forward5")}</dt><dd><kbd>→</kbd></dd>
-        <dt>{t("jump")} · beat ←</dt><dd><kbd>{shortcutKeys.shift}</kbd><span>+</span><kbd>←</kbd></dd>
-        <dt>{t("jump")} · beat →</dt><dd><kbd>{shortcutKeys.shift}</kbd><span>+</span><kbd>→</kbd></dd>
-        <dt>{t("chords")} ←</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>←</kbd></dd>
-        <dt>{t("chords")} →</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>→</kbd></dd>
-        <dt>{t("chords")} ↑</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>↑</kbd></dd>
-        <dt>{t("chords")} ↓</dt><dd><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>↓</kbd></dd>
-        <dt>{t("jump")} · {t("chords")} ←</dt><dd><kbd>{shortcutKeys.shift}</kbd><span>+</span><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>←</kbd></dd>
-        <dt>{t("jump")} · {t("chords")} →</dt><dd><kbd>{shortcutKeys.shift}</kbd><span>+</span><kbd>{shortcutKeys.alt}</kbd><span>+</span><kbd>→</kbd></dd>
+        <dt>{t("previousNavigation")}</dt><dd><kbd>←</kbd></dd>
+        <dt>{t("nextNavigation")}</dt><dd><kbd>→</kbd></dd>
+        <dt>{t("changeNavigationMode")}</dt><dd><kbd>N</kbd></dd>
+        <dt>{t("changeInstrumentView")}</dt><dd><kbd>I</kbd></dd>
         <dt>{t("moveA")}</dt><dd><kbd>A</kbd></dd>
         <dt>{t("moveB")}</dt><dd><kbd>B</kbd></dd>
         <dt>{t("toggleLoop")}</dt><dd><kbd>L</kbd></dd>

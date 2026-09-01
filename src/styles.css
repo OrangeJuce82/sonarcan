@@ -239,9 +239,14 @@ button:disabled { opacity: .4; cursor: default; }
 .loop-handle.selected { box-shadow: 0 0 0 2px #e8ffff66, 0 4px 16px #0008; }
 .loop-handle.overview { top: 0; width: 28px; min-width: 28px; height: 58px; transform: translateX(-14px); padding: 0; border-radius: 0; background: #281a38dd; }
 .loop-handle.overview::after { display: none; }
-.waveform-panel-title { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.waveform-panel-title { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, auto) minmax(0, 1fr); }
 .waveform-panel-title h2 { justify-self: start; }
-.waveform-panel-title .load-states { justify-self: center; }
+.waveform-header-center { display: grid; justify-items: center; gap: 3px; justify-self: center; }
+.navigation-controls { display: flex; align-items: center; gap: 6px; }
+.navigation-mode { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: .65rem; font-weight: 750; }
+.navigation-mode select { min-width: 118px; height: 25px; padding: 2px 24px 2px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface); font-size: .65rem; font-weight: 750; }
+.waveform-header-center > small { color: var(--gold); font-size: .55rem; line-height: 1; }
+.waveform-header-center .load-states { justify-self: center; }
 .waveform-panel-title .zoom-status { justify-self: end; }
 .zoom-status { display: flex; align-items: center; gap: 6px; }
 .zoom-status > span:first-child { min-width: 72px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
@@ -335,13 +340,19 @@ button:disabled { opacity: .4; cursor: default; }
 .harmony-grid > .panel { min-height: 245px; }
 .keyboard-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .keyboard-panel .panel-title { margin-bottom: 10px; }
-.keyboard-current-chord { color: var(--chord-color, var(--gold)); font-size: .9rem; font-weight: 800; line-height: 1; }
+.keyboard-current-chord { --chord-foreground: color-mix(in srgb, var(--chord-color) 25%, var(--chord-ink)); display: inline-grid; place-items: center; min-width: 40px; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--chord-color) 58%, var(--chord-ink)); border-radius: 5px; color: var(--chord-foreground); background: var(--chord-color); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--chord-color) 50%, var(--chord-ink)); font-size: .9rem; font-weight: 850; line-height: 1; }
+.keyboard-current-chord.no-chord { --chord-foreground: var(--muted); border-color: var(--border); color: var(--muted); background: transparent; box-shadow: none; }
 .harmony-view-panel { grid-template-rows: auto minmax(0, 1fr); }
-.harmony-view-title { gap: 10px; }
+.harmony-view-title { display: flex; justify-content: space-between; gap: 10px; }
 .harmony-view-tabs { display: flex; min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-deep); }
 .harmony-view-tabs button { display: inline-flex; align-items: center; gap: 5px; min-width: max-content; height: 27px; padding: 4px 9px; border: 0; border-inline-end: 1px solid var(--border); border-radius: 0; color: var(--muted); background: transparent; font-size: .59rem; }
 .harmony-view-tabs button:last-child { border-inline-end: 0; }
 .harmony-view-tabs button.active { color: var(--text-strong); background: var(--accent-bg); box-shadow: inset 0 -2px 0 var(--accent); }
+.harmony-label-mode { display: inline-flex; align-items: center; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-deep); }
+.harmony-label-mode button { min-width: 54px; height: 27px; padding: 4px 8px; border: 0; border-inline-end: 1px solid var(--border); border-radius: 0; color: var(--muted); background: transparent; font-size: .58rem; font-weight: 750; }
+.harmony-label-mode button:last-child { border-inline-end: 0; }
+.harmony-label-mode button.active { color: var(--text-strong); background: var(--accent-bg); box-shadow: inset 0 -2px 0 var(--accent); }
+.harmony-view-title .keyboard-current-chord { flex: 0 0 auto; margin-inline: auto; }
 .stem-panel { min-height: 335px !important; overflow: hidden; }
 .stem-panel-title { min-height: 34px; }
 .stem-header-actions { display: flex; align-items: center; gap: 8px; }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleChordNavigationShortcut, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
+import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
 
 function shortcutEvent(overrides: Partial<Parameters<typeof shouldHandleGlobalShortcut>[0]> = {}): Parameters<typeof shouldHandleGlobalShortcut>[0] {
   return {
@@ -32,18 +32,6 @@ test("Space toggles playback over controls but not while entering text", () => {
   assert.equal(shouldHandlePlayPauseShortcut(shortcutEvent({ key: " ", target: select })), true);
   assert.equal(shouldHandlePlayPauseShortcut(shortcutEvent({ key: " ", target: input })), false);
   assert.equal(shouldHandlePlayPauseShortcut(shortcutEvent({ key: "Enter", target: button })), false);
-});
-
-test("Option plus an arrow navigates chords outside editing controls", () => {
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowLeft" })), true);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowRight" })), true);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowUp" })), true);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowDown" })), true);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: false, key: "ArrowRight" })), false);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowLeft", shiftKey: true })), true);
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowUp", shiftKey: true })), false);
-  const input = Object.assign(new EventTarget(), { closest: () => ({}) });
-  assert.equal(shouldHandleChordNavigationShortcut(shortcutEvent({ altKey: true, key: "ArrowLeft", target: input })), false);
 });
 
 test("global shortcuts ignore composition and command modifiers", () => {
@@ -111,10 +99,10 @@ test("shortcut labels follow macOS, Windows, and Linux keyboards", () => {
   assert.equal(shortcutPlatformFor("Win32"), "windows");
   assert.equal(shortcutPlatformFor("Linux x86_64"), "linux");
   assert.deepEqual(shortcutKeyLabels("macos"), {
-    alt: "⌥", backspace: "⌫", delete: "Fn ⌫", shift: "⇧", space: "Space",
+    backspace: "⌫", delete: "Fn ⌫", space: "Space",
   });
   assert.deepEqual(shortcutKeyLabels("windows"), {
-    alt: "Alt", backspace: "Backspace", delete: "Del", shift: "Shift", space: "Space",
+    backspace: "Backspace", delete: "Del", space: "Space",
   });
 });
 

@@ -17,11 +17,9 @@ import {
   shouldApplyAudioStatus,
   shouldApplyAudioStatusPosition,
   trackLoadPosition,
-  transportJumpPosition,
   visiblePeaks,
   waveformViewportForWindow,
   waveformWheelAxis,
-  waveformSeekPosition,
   waveformShowsDetail,
   zoomWaveformViewport,
 } from "./presentation.ts";
@@ -129,25 +127,6 @@ test("loop boundaries snap to the nearest detected Beat This! beat", () => {
   assert.equal(nearestDetectedBeat(0.66, beats), 0.91);
   assert.equal(nearestDetectedBeat(2.2, beats), 1.96);
   assert.equal(nearestDetectedBeat(0.7, []), 0.7);
-});
-
-test("Shift waveform seeking snaps only when detected beats are available", () => {
-  const beats = [0.4, 0.91, 1.43, 1.96];
-  assert.equal(waveformSeekPosition(1.2, beats, true), 1.43);
-  assert.equal(waveformSeekPosition(1.2, beats, false), 1.2);
-  assert.equal(waveformSeekPosition(1.2, [], true), 1.2);
-});
-
-test("transport jumps to adjacent beats only when Shift navigation is available", () => {
-  const beats = [0.4, 0.91, 1.43, 1.96];
-  assert.equal(transportJumpPosition(1.1, -5, beats, true), 0.91);
-  assert.equal(transportJumpPosition(1.1, 5, beats, true), 1.43);
-  assert.equal(transportJumpPosition(1.43, -5, beats, true), 0.91);
-  assert.equal(transportJumpPosition(1.43, 5, beats, true), 1.96);
-  assert.equal(transportJumpPosition(0.1, -5, beats, true), 0.1);
-  assert.equal(transportJumpPosition(2.1, 5, beats, true), 2.1);
-  assert.equal(transportJumpPosition(10, -5, [], true), 5);
-  assert.equal(transportJumpPosition(10, 5, beats, false), 15);
 });
 
 test("waveform viewport movement preserves its span and stays in bounds", () => {

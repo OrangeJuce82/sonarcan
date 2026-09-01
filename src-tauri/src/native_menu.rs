@@ -211,16 +211,16 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             "playback:back",
             tr(
                 selected_language,
-                "Jump Back 5 Seconds",
-                "Reculer de 5 secondes",
+                "Previous Navigation Point",
+                "Repère de navigation précédent",
             ),
         )
         .text(
             "playback:forward",
             tr(
                 selected_language,
-                "Jump Forward 5 Seconds",
-                "Avancer de 5 secondes",
+                "Next Navigation Point",
+                "Repère de navigation suivant",
             ),
         )
         .separator()

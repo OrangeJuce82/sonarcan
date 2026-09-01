@@ -25,6 +25,8 @@ pub struct UserPreferences {
     pub default_pitch_semitones: f64,
     pub loop_load_position: LoopLoadPosition,
     pub loop_snap_enabled: bool,
+    pub navigation_mode: NavigationMode,
+    pub navigation_time_seconds: u32,
     pub default_trainer_start_rate: f64,
     pub default_trainer_repetitions: u32,
     pub default_trainer_increment: f64,
@@ -82,6 +84,14 @@ pub enum LoopLoadPosition {
     LoopStart,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NavigationMode {
+    Time,
+    Beat,
+    Chord,
+}
+
 impl Default for UserPreferences {
     fn default() -> Self {
         Self {
@@ -101,6 +111,8 @@ impl Default for UserPreferences {
             default_pitch_semitones: 0.0,
             loop_load_position: LoopLoadPosition::Beginning,
             loop_snap_enabled: true,
+            navigation_mode: NavigationMode::Time,
+            navigation_time_seconds: 10,
             default_trainer_start_rate: 0.5,
             default_trainer_repetitions: 1,
             default_trainer_increment: 0.05,
@@ -156,6 +168,7 @@ fn validate(value: &mut UserPreferences) {
     value.metronome_volume = value.metronome_volume.clamp(0.0, 1.0);
     value.default_playback_rate = value.default_playback_rate.clamp(0.5, 2.0);
     value.default_pitch_semitones = value.default_pitch_semitones.clamp(-12.0, 12.0);
+    value.navigation_time_seconds = value.navigation_time_seconds.clamp(1, 60);
     value.default_trainer_start_rate = value.default_trainer_start_rate.clamp(0.5, 1.99);
     value.default_trainer_target_rate = value
         .default_trainer_target_rate
@@ -185,6 +198,8 @@ mod tests {
         assert_eq!(preferences.default_trainer_repetitions, 1);
         assert_eq!(preferences.loop_load_position, LoopLoadPosition::Beginning);
         assert!(preferences.loop_snap_enabled);
+        assert_eq!(preferences.navigation_mode, NavigationMode::Time);
+        assert_eq!(preferences.navigation_time_seconds, 10);
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
     }
 
@@ -216,6 +231,38 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert!(preferences.loop_snap_enabled);
+    }
+
+    #[test]
+    fn older_preferences_use_ten_second_time_navigation() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("navigationMode");
+        stored
+            .as_object_mut()
+            .unwrap()
+            .remove("navigationTimeSeconds");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(preferences.navigation_mode, NavigationMode::Time);
+        assert_eq!(preferences.navigation_time_seconds, 10);
+    }
+
+    #[test]
+    fn navigation_time_is_kept_within_the_supported_range() {
+        let mut too_short = UserPreferences {
+            navigation_time_seconds: 0,
+            ..UserPreferences::default()
+        };
+        validate(&mut too_short);
+        assert_eq!(too_short.navigation_time_seconds, 1);
+
+        let mut too_long = UserPreferences {
+            navigation_time_seconds: 120,
+            ..UserPreferences::default()
+        };
+        validate(&mut too_long);
+        assert_eq!(too_long.navigation_time_seconds, 60);
     }
 
     #[test]

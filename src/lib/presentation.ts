@@ -330,45 +330,6 @@ export function nearestDetectedBeat(
   return positionSeconds - before <= after - positionSeconds ? before : after;
 }
 
-export function waveformSeekPosition(
-  positionSeconds: number,
-  beats: readonly number[],
-  preferBeat: boolean,
-): number {
-  return preferBeat && beats.length
-    ? nearestDetectedBeat(positionSeconds, beats)
-    : positionSeconds;
-}
-
-export function transportJumpPosition(
-  positionSeconds: number,
-  seconds: number,
-  beats: readonly number[],
-  preferBeat: boolean,
-): number {
-  if (!preferBeat || !beats.length || !Number.isFinite(positionSeconds)) {
-    return positionSeconds + seconds;
-  }
-
-  let low = 0;
-  let high = beats.length;
-  if (seconds < 0) {
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if ((beats[middle] ?? 0) < positionSeconds) low = middle + 1;
-      else high = middle;
-    }
-    return beats[low - 1] ?? positionSeconds;
-  }
-
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if ((beats[middle] ?? 0) <= positionSeconds) low = middle + 1;
-    else high = middle;
-  }
-  return beats[low] ?? positionSeconds;
-}
-
 export function isDetectedBeatActive(
   positionSeconds: number,
   beats: readonly number[],
