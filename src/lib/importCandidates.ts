@@ -17,10 +17,10 @@ export function deduplicateImportCandidates(candidates: ImportCandidate[]): Impo
   });
 }
 
-export function defaultImportSelection(groups: ImportCandidateGroup[]): Set<string> {
+export function defaultImportSelection(groups: ImportCandidateGroup[], autoSelectBestMatch = false): Set<string> {
   return new Set(groups.flatMap((group) => {
     if (group.query === null) return group.candidates.map((candidate) => candidate.input);
-    return group.candidates.length === 1 ? [group.candidates[0].input] : [];
+    return group.candidates.length === 1 || autoSelectBestMatch ? group.candidates.slice(0, 1).map((candidate) => candidate.input) : [];
   }));
 }
 
@@ -28,15 +28,17 @@ export function reconcileImportSelection(
   previousSelection: ReadonlySet<string>,
   previousGroups: ImportCandidateGroup[],
   nextGroups: ImportCandidateGroup[],
+  autoSelectBestMatch = false,
 ): Set<string> {
   const previousCandidates = new Set(previousGroups.flatMap((group) => group.candidates.map((candidate) => candidate.input)));
   const nextCandidates = new Set(nextGroups.flatMap((group) => group.candidates.map((candidate) => candidate.input)));
   const selection = new Set([...previousSelection].filter((input) => nextCandidates.has(input)));
 
   for (const group of nextGroups) {
-    const shouldSelectNewCandidate = group.query === null || group.candidates.length === 1;
+    const shouldSelectNewCandidate = group.query === null || group.candidates.length === 1 || autoSelectBestMatch;
     if (!shouldSelectNewCandidate) continue;
-    for (const candidate of group.candidates) {
+    const candidates = group.query !== null && autoSelectBestMatch ? group.candidates.slice(0, 1) : group.candidates;
+    for (const candidate of candidates) {
       if (!previousCandidates.has(candidate.input)) selection.add(candidate.input);
     }
   }

@@ -75,6 +75,8 @@ pub struct ImportCandidate {
     pub title: String,
     pub detail: String,
     pub kind: CandidateKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_score: Option<f64>,
 }
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -820,6 +822,7 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                 } else {
                     CandidateKind::Video
                 },
+                match_score: None,
             };
             if seen.insert(analysis_candidate_key(&candidate)) {
                 candidates.push(candidate);
@@ -847,6 +850,7 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                     } else {
                         CandidateKind::Search
                     },
+                    match_score: None,
                 };
                 if seen.insert(analysis_candidate_key(&candidate)) {
                     candidates.push(candidate);

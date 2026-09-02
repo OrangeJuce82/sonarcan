@@ -35,6 +35,18 @@ test("selects a single search result but never preselects several results", () =
   ];
 
   assert.deepEqual([...defaultImportSelection(groups)], [local.input, one.input]);
+  assert.deepEqual([...defaultImportSelection(groups, true)], [local.input, one.input, two.input]);
+});
+
+test("auto-selection chooses only the first newly ranked search result", () => {
+  const best = { input: "https://youtu.be/best", title: "Best", detail: "Artist", kind: "video" } as const;
+  const other = { input: "https://youtu.be/other", title: "Other", detail: "Channel", kind: "video" } as const;
+  const next: ImportCandidateGroup[] = [
+    { id: "search:song", query: "artist song", searchIndex: 1, candidates: [best, other] },
+  ];
+
+  assert.deepEqual([...reconcileImportSelection(new Set(), [], next, true)], [best.input]);
+  assert.deepEqual([...reconcileImportSelection(new Set(), [], next, false)], []);
 });
 
 test("preserves explicit choices when unchanged searches move or new searches are added", () => {

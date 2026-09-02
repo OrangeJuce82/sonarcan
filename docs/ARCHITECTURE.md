@@ -200,9 +200,15 @@ Local paths and remote sources enter one Rust-owned background queue. Each queue
 
 The application never reads or monitors the system clipboard. Text enters the
 Import Center only through an explicit paste or drop initiated by the user.
-Plain-text YouTube searches are resolved into groups of at most five candidates;
-each group keeps its original query visible. A group containing one result is
-selected, while a group containing several results starts with no selection.
+Plain-text YouTube searches inspect up to ten metadata-only results and resolve
+them into groups of the five most relevant candidates; each group keeps its
+original query visible. A bounded local heuristic ranks title and channel
+similarity, recognizes an explicit `artist - title` query, modestly favors
+verified/official and popular sources, and penalizes unrequested covers, live
+versions, remixes, karaoke, reactions, and tutorials. The UI exposes the score
+as a relevance indicator rather than a calibrated probability. By default the
+best candidate is selected automatically; a global user preference can disable
+that behavior, in which case only a group containing one result is selected.
 No download begins until the user confirms the current selection. The eventual
 `yt-dlp` fallback for an explicitly submitted unresolved search is `ytsearch1`.
 Text edits are debounced, and normalized query results plus in-flight requests

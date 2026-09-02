@@ -24,6 +24,8 @@ const MAX_QUERY_BYTES: usize = 180;
 const MAX_STDOUT_BYTES: usize = 512 * 1024;
 const MAX_STDERR_BYTES: usize = 32 * 1024;
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
+const SEARCH_RESULT_COUNT: usize = 10;
+const PUBLISHED_RESULT_COUNT: usize = 5;
 
 #[derive(Clone, Default)]
 pub struct YoutubeSearchService {
@@ -91,10 +93,10 @@ impl YoutubeSearchService {
                 "--flat-playlist",
                 "--dump-json",
                 "--playlist-end",
-                "5",
+                "10",
                 "--",
             ])
-            .arg(format!("ytsearch5:{query}"))
+            .arg(format!("ytsearch{SEARCH_RESULT_COUNT}:{query}"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -232,28 +234,208 @@ fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<BoundedOutput
 }
 
 fn parse_candidates(stdout: &[u8], query: &str) -> Vec<ImportCandidate> {
-    String::from_utf8_lossy(stdout)
+    let mut candidates = String::from_utf8_lossy(stdout)
         .lines()
-        .filter_map(|line| {
+        .enumerate()
+        .filter_map(|(search_index, line)| {
             let value: serde_json::Value = serde_json::from_str(line).ok()?;
             let id = value.get("id")?.as_str()?;
-            let title = value
-                .get("title")
-                .and_then(|value| value.as_str())
-                .unwrap_or(query);
-            let channel = value
-                .get("channel")
-                .or_else(|| value.get("uploader"))
-                .and_then(|value| value.as_str())
-                .unwrap_or("YouTube");
-            Some(ImportCandidate {
-                input: format!("https://www.youtube.com/watch?v={id}"),
-                title: title.into(),
-                detail: channel.into(),
-                kind: CandidateKind::Video,
-            })
+            if id.is_empty()
+                || id.len() > 64
+                || !id.bytes().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, b'-' | b'_')
+                })
+            {
+                return None;
+            }
+            let title = bounded_text(
+                value
+                    .get("title")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(query),
+                256,
+            );
+            let channel = bounded_text(
+                value
+                    .get("channel")
+                    .or_else(|| value.get("uploader"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("YouTube"),
+                160,
+            );
+            let views = value.get("view_count").and_then(|value| value.as_u64());
+            let verified = value
+                .get("channel_is_verified")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let score = relevance_score(query, &title, &channel, views, verified, search_index);
+            Some((
+                score,
+                ImportCandidate {
+                    input: format!("https://www.youtube.com/watch?v={id}"),
+                    title,
+                    detail: channel,
+                    kind: CandidateKind::Video,
+                    match_score: Some(score),
+                },
+            ))
         })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        right
+            .0
+            .partial_cmp(&left.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    candidates
+        .into_iter()
+        .take(PUBLISHED_RESULT_COUNT)
+        .map(|(_, candidate)| candidate)
         .collect()
+}
+
+fn bounded_text(value: &str, maximum_characters: usize) -> String {
+    value.chars().take(maximum_characters).collect()
+}
+
+fn relevance_score(
+    query: &str,
+    title: &str,
+    channel: &str,
+    views: Option<u64>,
+    verified: bool,
+    search_index: usize,
+) -> f64 {
+    let query_tokens = tokens(query);
+    let title_tokens = tokens(title);
+    let channel_tokens = tokens(channel);
+    let mut combined_tokens = title_tokens.clone();
+    combined_tokens.extend(channel_tokens.iter().cloned());
+
+    let combined_match = token_recall(&query_tokens, &combined_tokens);
+    let title_match = token_recall(&query_tokens, &title_tokens);
+    let channel_match = token_recall(&query_tokens, &channel_tokens);
+    let structured = split_artist_and_title(query);
+    let normalized_channel = channel.to_lowercase();
+    let official = verified
+        || ["official", "vevo", "topic"]
+            .iter()
+            .any(|marker| normalized_channel.contains(marker));
+    let popularity = views
+        .map(|count| ((count as f64 + 1.0).log10() / 9.0).clamp(0.0, 1.0))
+        .unwrap_or(0.0);
+    let position_hint = (1.0 - search_index as f64 / SEARCH_RESULT_COUNT as f64).max(0.0);
+
+    let mut score = if let Some((artist, expected_title)) = structured {
+        0.46 * token_recall(&tokens(expected_title), &title_tokens)
+            + 0.32 * token_recall(&tokens(artist), &channel_tokens)
+            + 0.12 * combined_match
+            + 0.05 * f64::from(official)
+            + 0.03 * popularity
+            + 0.02 * position_hint
+    } else {
+        0.55 * combined_match
+            + 0.20 * title_match
+            + 0.13 * channel_match
+            + 0.06 * f64::from(official)
+            + 0.04 * popularity
+            + 0.02 * position_hint
+    };
+
+    const VERSION_MARKERS: &[&str] = &[
+        "cover",
+        "karaoke",
+        "tutorial",
+        "reaction",
+        "remix",
+        "nightcore",
+        "sped",
+        "slowed",
+        "live",
+        "instrumental",
+    ];
+    let mismatch_count = VERSION_MARKERS
+        .iter()
+        .filter(|marker| {
+            !query_tokens.iter().any(|token| token == **marker)
+                && title_tokens.iter().any(|token| token == **marker)
+        })
+        .count();
+    score -= (mismatch_count as f64 * 0.12).min(0.36);
+    score.clamp(0.01, 0.99)
+}
+
+fn split_artist_and_title(query: &str) -> Option<(&str, &str)> {
+    [" - ", " – ", " — "]
+        .iter()
+        .find_map(|separator| query.split_once(separator))
+        .filter(|(artist, title)| !artist.trim().is_empty() && !title.trim().is_empty())
+}
+
+fn tokens(value: &str) -> Vec<String> {
+    value
+        .to_lowercase()
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .filter(|token| {
+            !matches!(
+                *token,
+                "the" | "a" | "an" | "and" | "official" | "audio" | "video" | "hd" | "4k"
+            )
+        })
+        .take(32)
+        .map(|token| token.chars().take(64).collect())
+        .collect()
+}
+
+fn token_recall(expected: &[String], actual: &[String]) -> f64 {
+    if expected.is_empty() {
+        return 0.0;
+    }
+    expected
+        .iter()
+        .map(|expected_token| {
+            actual
+                .iter()
+                .map(|actual_token| token_similarity(expected_token, actual_token))
+                .fold(0.0, f64::max)
+        })
+        .sum::<f64>()
+        / expected.len() as f64
+}
+
+fn token_similarity(left: &str, right: &str) -> f64 {
+    if left == right {
+        return 1.0;
+    }
+    let longest = left.chars().count().max(right.chars().count());
+    if longest < 4 {
+        return 0.0;
+    }
+    let distance = levenshtein(left, right);
+    let similarity = 1.0 - distance as f64 / longest as f64;
+    if similarity >= 0.72 {
+        similarity
+    } else {
+        0.0
+    }
+}
+
+fn levenshtein(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (left_index, left_character) in left.chars().enumerate() {
+        let mut current = vec![left_index + 1];
+        for (right_index, right_character) in right.iter().enumerate() {
+            current.push(
+                (current[right_index] + 1)
+                    .min(previous[right_index + 1] + 1)
+                    .min(previous[right_index] + usize::from(left_character != *right_character)),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }
 
 #[cfg(test)]
@@ -271,6 +453,31 @@ not json
         assert_eq!(candidates[0].input, "https://www.youtube.com/watch?v=abc");
         assert_eq!(candidates[0].title, "Song");
         assert_eq!(candidates[0].detail, "Artist");
+        assert!(candidates[0].match_score.is_some());
+    }
+
+    #[test]
+    fn ranks_an_artist_channel_above_an_unrequested_cover() {
+        let output = br#"{"id":"cover","title":"Enjoy the Silence cover","channel":"Random Guitar","view_count":9000000}
+{"id":"official","title":"Enjoy the Silence","channel":"Depeche Mode","channel_is_verified":true,"view_count":1000}
+"#;
+        let candidates = parse_candidates(output, "Depeche Mode - Enjoy the Silence");
+
+        assert_eq!(
+            candidates[0].input,
+            "https://www.youtube.com/watch?v=official"
+        );
+        assert!(candidates[0].match_score > candidates[1].match_score);
+    }
+
+    #[test]
+    fn publishes_only_the_five_highest_scoring_results() {
+        let output = (0..10)
+            .map(|index| format!(r#"{{"id":"{index}","title":"Song {index}","channel":"Artist"}}"#))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert_eq!(parse_candidates(output.as_bytes(), "Artist Song").len(), 5);
     }
 
     #[test]

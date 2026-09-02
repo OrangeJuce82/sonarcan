@@ -14,6 +14,7 @@ pub struct UserPreferences {
     pub time_display: TimeDisplay,
     pub toast_duration_seconds: u32,
     pub concurrent_downloads: usize,
+    pub youtube_auto_select_best_match: bool,
     pub conversion_format: ConversionFormat,
     pub sample_rate: SampleRatePreference,
     pub channels: ChannelPreference,
@@ -101,6 +102,7 @@ impl Default for UserPreferences {
             time_display: TimeDisplay::Simple,
             toast_duration_seconds: 3,
             concurrent_downloads: 3,
+            youtube_auto_select_best_match: true,
             conversion_format: ConversionFormat::Mp3,
             sample_rate: SampleRatePreference::Preserve,
             channels: ChannelPreference::Stereo,
@@ -194,6 +196,7 @@ mod tests {
     fn training_defaults_match_the_product_contract() {
         let preferences = UserPreferences::default();
         assert_eq!(preferences.toast_duration_seconds, 3);
+        assert!(preferences.youtube_auto_select_best_match);
         assert_eq!(preferences.time_display, TimeDisplay::Simple);
         assert_eq!(preferences.default_trainer_start_rate, 0.5);
         assert_eq!(preferences.default_trainer_target_rate, 1.0);
@@ -244,6 +247,19 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert!(preferences.loop_snap_enabled);
+    }
+
+    #[test]
+    fn older_preferences_auto_select_the_best_youtube_match() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored
+            .as_object_mut()
+            .unwrap()
+            .remove("youtubeAutoSelectBestMatch");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert!(preferences.youtube_auto_select_best_match);
     }
 
     #[test]
