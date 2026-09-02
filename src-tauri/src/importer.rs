@@ -25,6 +25,8 @@ use crate::{
     project, python_runtime,
 };
 
+const YOUTUBE_OUTPUT_TEMPLATE: &str = "%(playlist_index&{} - |)s%(title).180B.%(ext)s";
+
 #[derive(Clone)]
 pub(crate) struct YtDlpCommand {
     executable: PathBuf,
@@ -77,6 +79,10 @@ pub struct ImportCandidate {
     pub kind: CandidateKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_id: Option<String>,
 }
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -487,12 +493,7 @@ fn download_remote(
             "-P",
         ])
         .arg(&staging);
-    command.args([
-        "-o",
-        "%(playlist_index&{} - |)s%(title).180B [%(id)s].%(ext)s",
-        "-x",
-        "--audio-format",
-    ]);
+    command.args(["-o", YOUTUBE_OUTPUT_TEMPLATE, "-x", "--audio-format"]);
     command.arg(match preferences.conversion_format {
         ConversionFormat::Wav => "wav",
         ConversionFormat::Flac => "flac",
@@ -823,6 +824,8 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                     CandidateKind::Video
                 },
                 match_score: None,
+                thumbnail_url: None,
+                video_id: None,
             };
             if seen.insert(analysis_candidate_key(&candidate)) {
                 candidates.push(candidate);
@@ -851,6 +854,8 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                         CandidateKind::Search
                     },
                     match_score: None,
+                    thumbnail_url: None,
+                    video_id: None,
                 };
                 if seen.insert(analysis_candidate_key(&candidate)) {
                     candidates.push(candidate);
@@ -1063,6 +1068,15 @@ mod tests {
             youtube_download_target("https://youtu.be/example"),
             "https://youtu.be/example"
         );
+    }
+
+    #[test]
+    fn youtube_download_names_never_append_the_video_identifier() {
+        assert_eq!(
+            YOUTUBE_OUTPUT_TEMPLATE,
+            "%(playlist_index&{} - |)s%(title).180B.%(ext)s"
+        );
+        assert!(!YOUTUBE_OUTPUT_TEMPLATE.contains("%(id)"));
     }
 
     #[test]

@@ -121,7 +121,9 @@ Playback now uses the dedicated Rust/CPAL engine. The earlier webview media prot
 
 Project manifests are untrusted input. A stored media path is canonicalized and
 must resolve to a regular file below the package's `Audio` directory before audio
-read or deletion. This also prevents symlink and traversal escapes.
+read or deletion. Containment uses filesystem identity when macOS preserves
+different Unicode spellings for the same canonical path, while continuing to
+prevent symlink and traversal escapes.
 
 When no recent project can be restored, the Rust project service immediately
 creates a randomly named `.sac` package below the operating system's temporary
@@ -144,6 +146,15 @@ close requests are intercepted while the active project remains temporary, and
 the UI offers Save and Quit, Quit Without Saving Elsewhere, or Cancel. Choosing
 to quit without promotion leaves the temporary package available for the next
 startup, subject to normal operating-system temporary-file cleanup.
+
+The native Open dialog selects `.sac` packages as documents rather than exposing
+their internal directories. On macOS, that package selection is the complete
+authorization interaction: SonArcan verifies that the package is writable and
+that its manifest and every referenced audio file are readable before activation,
+and reports a failure directly without opening a second folder picker. Save As
+similarly verifies that its selected parent is writable before copying.
+Cancellation and failed verification are shown as actionable toasts, and a failed
+copy removes only the destination package that SonArcan created for that operation.
 
 Activating another project invalidates every in-flight track load before clearing
 the waveform, transport, loop, tempo, spectrum, stem, and meter state. The audio
@@ -202,11 +213,26 @@ The application never reads or monitors the system clipboard. Text enters the
 Import Center only through an explicit paste or drop initiated by the user.
 Plain-text YouTube searches inspect up to ten metadata-only results and resolve
 them into groups of the five most relevant candidates; each group keeps its
-original query visible. A bounded local heuristic ranks title and channel
-similarity, recognizes an explicit `artist - title` query, modestly favors
-verified/official and popular sources, and penalizes unrequested covers, live
-versions, remixes, karaoke, reactions, and tutorials. The UI exposes the score
-as a relevance indicator rather than a calibrated probability. By default the
+original query visible. Search results display a lazy YouTube thumbnail from a
+single CSP-allowlisted origin. Thumbnail URLs are constructed only from the
+validated video identifier, and a trailing bracketed identifier is removed from
+the title only when it exactly matches that same identifier. The identifier is
+shown as a separate link; selecting it asks Rust to construct and open the fixed
+YouTube watch URL, while the thumbnail itself remains non-interactive. The
+download output template deliberately omits the video identifier so it cannot
+leak from the staging filename into the imported track title; playlist indices
+continue to keep batch filenames distinct. A bounded local heuristic compares case-insensitive
+word tokens so punctuation and artist/title order do not distort otherwise exact
+matches. For an explicit `artist - title` query, the artist may match either the
+video title or its channel. The verified-channel field emitted by the pinned
+`yt-dlp` search represents both YouTube's verification check and its Official
+Artist Channel music-note badge; it outweighs the much weaker textual hints in
+channel names such as “Official”, “VEVO”, or “Topic”. Verification, popularity,
+and search position remain limited to a small tie-break contribution. Unrequested
+covers, live versions, remixes, karaoke, reactions, and tutorials remain penalized. Results
+whose titles differ only by case, punctuation, spacing, or presentation markers
+such as “Official Audio” collapse to the highest-ranked candidate. The UI exposes
+the score as a relevance indicator rather than a calibrated probability. By default, the
 best candidate is selected automatically; a global user preference can disable
 that behavior, in which case only a group containing one result is selected.
 No download begins until the user confirms the current selection. The eventual

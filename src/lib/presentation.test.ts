@@ -18,6 +18,7 @@ import {
   shouldApplyAudioStatusPosition,
   trackLoadPosition,
   visiblePeaks,
+  waveformShowsChords,
   waveformViewportForWindow,
   waveformWheelAxis,
   waveformShowsDetail,
@@ -119,6 +120,12 @@ test("waveform details appear whenever the visible window fits thirty seconds", 
   assert.equal(waveformShowsDetail(90, 3), true);
   assert.equal(waveformShowsDetail(20, 1), true);
   assert.equal(waveformShowsDetail(120, 3.9), false);
+});
+
+test("waveform chords appear at a sixty-second window without changing the detail threshold", () => {
+  assert.equal(waveformShowsChords(120, 2), true);
+  assert.equal(waveformShowsChords(120, 1.9), false);
+  assert.equal(waveformShowsDetail(120, 2), false);
 });
 
 test("loop boundaries snap to the nearest detected Beat This! beat", () => {

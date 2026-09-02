@@ -58,6 +58,7 @@ export function shouldApplyAudioStatusPosition(
 
 export const WAVEFORM_MAX_ZOOM = 128;
 export const DEFAULT_WAVEFORM_WINDOW_SECONDS = 30;
+export const WAVEFORM_CHORD_WINDOW_SECONDS = 60;
 const WAVEFORM_DOWNBEAT_ZOOM = 1.5;
 
 export function waveformShowsDetail(
@@ -70,6 +71,10 @@ export function waveformShowsDetail(
     && Number.isFinite(zoom)
     && zoom > 0
     && durationSeconds / zoom <= maximumVisibleSeconds + 0.000_001;
+}
+
+export function waveformShowsChords(durationSeconds: number, zoom: number): boolean {
+  return waveformShowsDetail(durationSeconds, zoom, WAVEFORM_CHORD_WINDOW_SECONDS);
 }
 
 export function defaultLoopBounds(

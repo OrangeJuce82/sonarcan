@@ -8,6 +8,7 @@ mod chord_export;
 mod error;
 mod ffmpeg;
 mod importer;
+mod loudness;
 mod native_menu;
 mod native_menu_translations;
 mod preferences;
@@ -160,6 +161,16 @@ fn open_project(app: AppHandle, package_path: PathBuf) -> Result<ProjectSummary,
 }
 
 #[tauri::command]
+fn verify_project_access(package_path: PathBuf) -> Result<(), AppError> {
+    project::verify_project_access(&package_path)
+}
+
+#[tauri::command]
+fn verify_project_destination_access(destination: PathBuf) -> Result<(), AppError> {
+    project::verify_destination_access(&destination)
+}
+
+#[tauri::command]
 fn import_audio(
     project_path: PathBuf,
     source_paths: Vec<PathBuf>,
@@ -284,6 +295,7 @@ fn save_preferences(
     let engine = app.state::<audio_engine::AudioEngine>();
     engine.set_volume(saved.master_volume);
     engine.set_music_volume(saved.music_volume);
+    engine.set_loudness_normalization(saved.loudness_normalization);
     let metronome_enabled = engine.status().metronome_enabled;
     engine.set_metronome(
         metronome_enabled,
@@ -428,6 +440,25 @@ fn open_external_link(target: String) -> Result<(), AppError> {
             ))
         }
     };
+    open_url_in_browser(url)
+}
+
+#[tauri::command]
+fn open_youtube_video(video_id: String) -> Result<(), AppError> {
+    if video_id.is_empty()
+        || video_id.len() > 64
+        || !video_id
+            .bytes()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, b'-' | b'_'))
+    {
+        return Err(AppError::BackgroundTask(
+            "YouTube video identifier is invalid".into(),
+        ));
+    }
+    open_url_in_browser(&format!("https://www.youtube.com/watch?v={video_id}"))
+}
+
+fn open_url_in_browser(url: &str) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = std::process::Command::new("open");
@@ -516,6 +547,11 @@ fn audio_set_volume(engine: State<'_, audio_engine::AudioEngine>, volume: f32) {
 #[tauri::command]
 fn audio_set_music_volume(engine: State<'_, audio_engine::AudioEngine>, volume: f32) {
     engine.set_music_volume(volume);
+}
+
+#[tauri::command]
+fn audio_set_loudness_normalization(engine: State<'_, audio_engine::AudioEngine>, enabled: bool) {
+    engine.set_loudness_normalization(enabled);
 }
 
 #[tauri::command]
@@ -750,6 +786,8 @@ pub fn run() {
             initialize_project,
             take_open_project_request,
             open_project,
+            verify_project_access,
+            verify_project_destination_access,
             import_audio,
             rename_project,
             rename_track,
@@ -780,6 +818,7 @@ pub fn run() {
             push_frontend_log,
             reveal_project,
             open_external_link,
+            open_youtube_video,
             audio_load,
             audio_preload,
             audio_play,
@@ -788,6 +827,7 @@ pub fn run() {
             audio_set_loop,
             audio_set_volume,
             audio_set_music_volume,
+            audio_set_loudness_normalization,
             audio_set_playback_rate,
             audio_set_pitch,
             audio_set_beat_timeline,

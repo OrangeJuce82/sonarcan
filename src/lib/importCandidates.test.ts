@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { deduplicateImportCandidates, defaultImportSelection, normalizeImportQuery, reconcileImportSelection } from "./importCandidates.ts";
+import { deduplicateImportCandidates, defaultImportSelection, importRelevanceLevel, importRelevancePercent, normalizeImportQuery, reconcileImportSelection } from "./importCandidates.ts";
 import type { ImportCandidateGroup } from "./importCandidates.ts";
 import type { ImportCandidate } from "./types.ts";
 
@@ -63,4 +63,14 @@ test("preserves explicit choices when unchanged searches move or new searches ar
 
   assert.deepEqual([...reconcileImportSelection(new Set([chosen.input]), previous, next)], [chosen.input, newOnly.input]);
   assert.equal(normalizeImportQuery("  Beatles   Imagine "), "beatles imagine");
+});
+
+test("maps import relevance to the requested color thresholds", () => {
+  assert.deepEqual(
+    [0, 0.244, 0.25, 0.494, 0.5, 0.744, 0.75, 0.994, 1].map(importRelevanceLevel),
+    [0, 0, 1, 1, 2, 2, 3, 3, 4],
+  );
+  assert.equal(importRelevancePercent(-1), 0);
+  assert.equal(importRelevancePercent(2), 100);
+  assert.equal(importRelevancePercent(Number.NaN), 0);
 });

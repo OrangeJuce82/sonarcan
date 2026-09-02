@@ -53,10 +53,24 @@ into a newly selected directory, and never runs on the audio callback.
 
 The music volume is applied to whichever musical source is active: the original
 audio or the six-stem mix. The metronome is added afterwards, then the master
-volume is applied as the final gain to the combined signal. Master, music,
+volume is applied to the combined signal. Master, music,
 mute/unmute, stem gain/pan, and stem mute/solo changes use a 40 ms callback-side
 ramp to avoid clicks and zipper noise. The ramp keeps the real-time path
 allocation-free and lock-free.
+
+Each decoded track is analyzed outside the callback with BS.1770 K-weighting,
+absolute and relative gating, and an oversampled peak estimate. The persistent
+PCM cache stores the resulting integrated loudness and peak values alongside
+the source identity. Loudness normalization is enabled by default, targets
+−16 LUFS, and is capped so the normalized track does not exceed −1 dBFS. It is
+applied non-destructively to the original audio or active stem mix before the
+music-volume control; the canonical imported media is never rewritten.
+
+The master control uses 100% as unity gain and ranges from 0% to 200% (+6 dB).
+After music, metronome, and master gain are combined, a stereo-linked safety
+limiter with a −1 dBFS ceiling and 120 ms release replaces hard clipping. Its
+state and frame scratch space are allocated with the stream, and the callback
+publishes only a scalar reduction indicator for the UI.
 
 Interactive seeks are coalesced by the UI to at most one in-flight IPC request,
 while the position readout continues to follow the pointer immediately. Each
@@ -66,8 +80,10 @@ or send a discontinuous sample step to the output device; the transition uses
 only buffers allocated when the stream is created.
 
 The bounded `AudioStatus` snapshot exposes the decaying master peak and
-independent left/right output peaks for the UI meters. These scalar values are
-the only output-level data crossing IPC; raw audio never leaves the engine.
+independent left/right output peaks for the UI meters. Meter levels are measured
+after the limiter and calibrated so its −1 dBFS ceiling is the top of the UI
+scale. These scalar values are the only output-level data crossing IPC; raw
+audio never leaves the engine.
 
 Python, uv, worker dependencies, and the model revision are pinned in the worker project and `stem_contract.rs`. Updating any of them requires regenerating the lockfile and runtime, changing the cache revision when output compatibility changes, and repeating separation parity and performance tests.
 

@@ -1,7 +1,7 @@
 //! Fast, bounded yt-dlp metadata search supervision.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{self, Read},
     process::{Child, Stdio},
     sync::{
@@ -248,12 +248,15 @@ fn parse_candidates(stdout: &[u8], query: &str) -> Vec<ImportCandidate> {
             {
                 return None;
             }
-            let title = bounded_text(
-                value
-                    .get("title")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or(query),
-                256,
+            let title = clean_youtube_title(
+                &bounded_text(
+                    value
+                        .get("title")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or(query),
+                    256,
+                ),
+                id,
             );
             let channel = bounded_text(
                 value
@@ -277,6 +280,8 @@ fn parse_candidates(stdout: &[u8], query: &str) -> Vec<ImportCandidate> {
                     detail: channel,
                     kind: CandidateKind::Video,
                     match_score: Some(score),
+                    thumbnail_url: Some(format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")),
+                    video_id: Some(id.to_owned()),
                 },
             ))
         })
@@ -287,11 +292,25 @@ fn parse_candidates(stdout: &[u8], query: &str) -> Vec<ImportCandidate> {
             .partial_cmp(&left.0)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    let mut seen_titles = HashSet::new();
     candidates
         .into_iter()
+        .filter(|(_, candidate)| {
+            let normalized_title = tokens(&candidate.title).join("\u{1f}");
+            normalized_title.is_empty() || seen_titles.insert(normalized_title)
+        })
         .take(PUBLISHED_RESULT_COUNT)
         .map(|(_, candidate)| candidate)
         .collect()
+}
+
+fn clean_youtube_title(title: &str, video_id: &str) -> String {
+    let suffix = format!(" [{video_id}]");
+    title
+        .strip_suffix(&suffix)
+        .unwrap_or(title)
+        .trim()
+        .to_owned()
 }
 
 fn bounded_text(value: &str, maximum_characters: usize) -> String {
@@ -314,32 +333,40 @@ fn relevance_score(
 
     let combined_match = token_recall(&query_tokens, &combined_tokens);
     let title_match = token_recall(&query_tokens, &title_tokens);
+    let title_precision = token_recall(&title_tokens, &query_tokens);
     let channel_match = token_recall(&query_tokens, &channel_tokens);
     let structured = split_artist_and_title(query);
     let normalized_channel = channel.to_lowercase();
-    let official = verified
-        || ["official", "vevo", "topic"]
-            .iter()
-            .any(|marker| normalized_channel.contains(marker));
+    let official_name_hint = ["official", "vevo", "topic"]
+        .iter()
+        .any(|marker| normalized_channel.contains(marker));
     let popularity = views
         .map(|count| ((count as f64 + 1.0).log10() / 9.0).clamp(0.0, 1.0))
         .unwrap_or(0.0);
     let position_hint = (1.0 - search_index as f64 / SEARCH_RESULT_COUNT as f64).max(0.0);
 
+    // yt-dlp maps both YouTube's verification check and Official Artist Channel
+    // music-note badge to `channel_is_verified` in flat search results.
+    let metadata_score = 0.03 * f64::from(verified)
+        + 0.005 * f64::from(official_name_hint)
+        + 0.01 * popularity
+        + 0.005 * position_hint;
     let mut score = if let Some((artist, expected_title)) = structured {
-        0.46 * token_recall(&tokens(expected_title), &title_tokens)
-            + 0.32 * token_recall(&tokens(artist), &channel_tokens)
-            + 0.12 * combined_match
-            + 0.05 * f64::from(official)
-            + 0.03 * popularity
-            + 0.02 * position_hint
+        let artist_tokens = tokens(artist);
+        let artist_match = token_recall(&artist_tokens, &title_tokens)
+            .max(token_recall(&artist_tokens, &channel_tokens));
+        0.42 * token_recall(&tokens(expected_title), &title_tokens)
+            + 0.24 * artist_match
+            + 0.17 * title_match
+            + 0.07 * combined_match
+            + 0.05 * title_precision
+            + metadata_score
     } else {
-        0.55 * combined_match
-            + 0.20 * title_match
-            + 0.13 * channel_match
-            + 0.06 * f64::from(official)
-            + 0.04 * popularity
-            + 0.02 * position_hint
+        0.58 * title_match
+            + 0.24 * title_precision
+            + 0.10 * combined_match
+            + 0.03 * channel_match
+            + metadata_score
     };
 
     const VERSION_MARKERS: &[&str] = &[
@@ -373,19 +400,39 @@ fn split_artist_and_title(query: &str) -> Option<(&str, &str)> {
 }
 
 fn tokens(value: &str) -> Vec<String> {
-    value
-        .to_lowercase()
-        .split(|character: char| !character.is_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .filter(|token| {
-            !matches!(
-                *token,
-                "the" | "a" | "an" | "and" | "official" | "audio" | "video" | "hd" | "4k"
-            )
-        })
-        .take(32)
-        .map(|token| token.chars().take(64).collect())
-        .collect()
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut current_characters = 0;
+    for character in value.to_lowercase().chars() {
+        if character.is_alphanumeric() {
+            if current_characters < 64 {
+                current.push(character);
+                current_characters += 1;
+            }
+        } else if !matches!(character, '\'' | '’' | '‘' | 'ʼ') {
+            push_token(&mut result, &mut current);
+            current_characters = 0;
+            if result.len() == 32 {
+                return result;
+            }
+        }
+    }
+    push_token(&mut result, &mut current);
+    result
+}
+
+fn push_token(result: &mut Vec<String>, current: &mut String) {
+    if !current.is_empty()
+        && !matches!(
+            current.as_str(),
+            "official" | "audio" | "video" | "hd" | "4k"
+        )
+        && result.len() < 32
+    {
+        result.push(std::mem::take(current));
+    } else {
+        current.clear();
+    }
 }
 
 fn token_recall(expected: &[String], actual: &[String]) -> f64 {
@@ -453,7 +500,28 @@ not json
         assert_eq!(candidates[0].input, "https://www.youtube.com/watch?v=abc");
         assert_eq!(candidates[0].title, "Song");
         assert_eq!(candidates[0].detail, "Artist");
+        assert_eq!(
+            candidates[0].thumbnail_url.as_deref(),
+            Some("https://i.ytimg.com/vi/abc/mqdefault.jpg")
+        );
+        assert_eq!(candidates[0].video_id.as_deref(), Some("abc"));
         assert!(candidates[0].match_score.is_some());
+    }
+
+    #[test]
+    fn removes_only_a_trailing_bracketed_copy_of_the_video_id() {
+        assert_eq!(
+            clean_youtube_title("Bold as Love [9qIunneAx6Y]", "9qIunneAx6Y"),
+            "Bold as Love"
+        );
+        assert_eq!(
+            clean_youtube_title("Bold as Love [Live]", "9qIunneAx6Y"),
+            "Bold as Love [Live]"
+        );
+        assert_eq!(
+            clean_youtube_title("[9qIunneAx6Y] Bold as Love", "9qIunneAx6Y"),
+            "[9qIunneAx6Y] Bold as Love"
+        );
     }
 
     #[test]
@@ -468,6 +536,93 @@ not json
             "https://www.youtube.com/watch?v=official"
         );
         assert!(candidates[0].match_score > candidates[1].match_score);
+    }
+
+    #[test]
+    fn exact_title_matches_ignore_case_and_punctuation() {
+        let score = relevance_score("The Pot", "tHE, pOT!", "Unrelated channel", None, false, 9);
+
+        assert!(score > 0.9);
+    }
+
+    #[test]
+    fn apostrophes_have_no_effect_on_an_exact_match() {
+        let score = relevance_score(
+            "Guns N' Roses - Don't Cry",
+            "GUNS N ROSES — DONT CRY",
+            "Guns N' Roses",
+            None,
+            false,
+            9,
+        );
+
+        assert!(score > 0.9);
+    }
+
+    #[test]
+    fn artist_and_title_order_does_not_distort_relevance() {
+        let canonical = relevance_score(
+            "Tool - The Pot",
+            "TOOL - The Pot (Official Audio)",
+            "Tool",
+            Some(1_000_000),
+            true,
+            0,
+        );
+        let reversed = relevance_score(
+            "Tool - The Pot",
+            "The Pot - TOOL",
+            "Tool",
+            Some(1_000_000),
+            true,
+            0,
+        );
+
+        assert!(canonical > 0.95);
+        assert!(reversed > 0.95);
+        assert!((canonical - reversed).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_verified_artist_badge_outweighs_an_official_word_in_the_channel_name() {
+        let verified = relevance_score(
+            "Tool - The Pot",
+            "Tool - The Pot",
+            "Tool",
+            Some(1_000_000),
+            true,
+            0,
+        );
+        let claimed = relevance_score(
+            "Tool - The Pot",
+            "Tool - The Pot",
+            "Tool Official Uploads",
+            Some(1_000_000),
+            false,
+            0,
+        );
+
+        assert!(verified > claimed);
+    }
+
+    #[test]
+    fn collapses_titles_that_differ_only_by_case_punctuation_or_presentation_markers() {
+        let output =
+            br#"{"id":"mirror","title":"tool  the pot (Official Audio)","channel":"Mirror"}
+{"id":"official","title":"Tool - The Pot","channel":"Tool","channel_is_verified":true}
+{"id":"reversed","title":"The Pot - TOOL","channel":"Tool"}
+"#;
+        let candidates = parse_candidates(output, "Tool - The Pot");
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(
+            candidates[0].input,
+            "https://www.youtube.com/watch?v=official"
+        );
+        assert_eq!(
+            candidates[1].input,
+            "https://www.youtube.com/watch?v=reversed"
+        );
     }
 
     #[test]

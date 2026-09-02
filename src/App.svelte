@@ -3,9 +3,10 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
-  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState } from "./lib/backend";
+  import { handleWindowCloseRequest, projectOpenDialogOptions } from "./lib/applicationLifecycle";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
   import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
-  import { deduplicateImportCandidates, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
+  import { deduplicateImportCandidates, importRelevanceLevel, importRelevancePercent, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
   import { shouldConfirmDialogOnEnter } from "./lib/dialogKeyboard";
   import { droppedAudioPaths } from "./lib/importPaths";
@@ -22,7 +23,7 @@
   import Modal from "./lib/Modal.svelte";
   import Toaster from "./lib/Toaster.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
-  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { effectiveNavigationMode, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
@@ -42,12 +43,15 @@
   let durationSeconds = 0;
   let playbackRate = 1;
   let pitchSemitones = 0;
-  let volume = 0.8;
+  let volume = 1;
   let musicVolume = 1;
-  let volumeBeforeMute = 0.8;
+  let volumeBeforeMute = 1;
   let masterPeak = 0;
   let masterPeakLeft = 0;
   let masterPeakRight = 0;
+  let limiterReduction = 0;
+  let normalizationGain = 1;
+  let integratedLufs: number | null = null;
   let loopEnabled = false;
   let loopA: number | null = null;
   let loopB: number | null = null;
@@ -133,7 +137,7 @@
   let stemGenerationStarting = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, youtubeAutoSelectBestMatch: true, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 0.8, musicVolume: 1, metronomeVolume: 0.55, metronomeSound: "electronic", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, youtubeAutoSelectBestMatch: true, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 1, musicVolume: 1, loudnessNormalization: true, metronomeVolume: 0.55, metronomeSound: "electronic", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let preferences: UserPreferences = { ...defaultUserPreferences };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
@@ -159,6 +163,8 @@
   let importBatches: ImportBatch[] = [];
   const importDismissTimers = new Map<string, number>();
   const masterMeterLevels = [8, 7, 6, 5, 4, 3, 2, 1] as const;
+  const defaultMasterVolume = 1;
+  const defaultMusicVolume = 1;
   const defaultMetronomeVolume = 0.55;
   let editingTrackId: string | null = null;
   let editingTrackTitle = "";
@@ -276,6 +282,12 @@
     });
   }
 
+  function disableTextareaAutocorrect(node: HTMLTextAreaElement): void {
+    // WebKit supports this attribute on textareas even though it is absent from
+    // Svelte's current textarea typings.
+    node.setAttribute("autocorrect", "off");
+  }
+
   function bounceTrackTitle(node: HTMLButtonElement): { destroy: () => void } {
     const title = node.querySelector<HTMLElement>("span");
     const measure = (): void => {
@@ -354,7 +366,7 @@
   $: effectiveChords = applyChordEdits(decodedChords, chordEdits, chordMode);
   $: displayedChords = visibleChords(presentChordSequence(effectiveChords, pitchSemitones, chordAccidentalMode), chordMinimumStrength);
   $: timelineChords = chordTimeline(displayedChords);
-  $: waveformChordBlocks = waveformShowsDetail(durationSeconds, waveformZoom)
+  $: waveformChordBlocks = waveformShowsChords(durationSeconds, waveformZoom)
     ? chordViewportBlocks(timelineChords, durationSeconds, waveformZoom, waveformStart)
     : [];
   $: repertoireLabels = chordRepertoire(displayedChords);
@@ -1012,9 +1024,7 @@
     window.addEventListener("pointercancel", finishPlaylistDrag);
     window.addEventListener("pointerdown", handleWindowPointerDown);
     void appWindow.onCloseRequested((event) => {
-      if (!project?.temporary) return;
-      event.preventDefault();
-      closePromptVisible = true;
+      handleWindowCloseRequest(event, () => void requestApplicationExit());
     }).then((stop) => unlistenClose = stop);
     void appWindow.onDragDropEvent((event) => {
       const position = "position" in event.payload ? event.payload.position : undefined;
@@ -1131,6 +1141,7 @@
       await setApplicationLanguage(language);
       await audioSetVolume(volume);
       await audioSetMusicVolume(musicVolume);
+      await audioSetLoudnessNormalization(preferences.loudnessNormalization);
       await audioSetMetronome(false, metronomeVolume, metronomeSound);
     } catch {
       applyTheme();
@@ -1153,6 +1164,7 @@
     void setApplicationLanguage(language);
     void audioSetVolume(volume);
     void audioSetMusicVolume(musicVolume);
+    void audioSetLoudnessNormalization(preferences.loudnessNormalization);
     void audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
   }
 
@@ -1163,6 +1175,11 @@
 
   function resetUserPreferences(): void {
     preferences = { ...defaultUserPreferences };
+    autosavePreferences();
+  }
+
+  function resetPreferenceVolume(key: "masterVolume" | "musicVolume" | "metronomeVolume"): void {
+    preferences = { ...preferences, [key]: defaultUserPreferences[key] };
     autosavePreferences();
   }
 
@@ -1201,7 +1218,11 @@
     try {
       const initialized = await initializeProject();
       if (project) return;
-      await activateProject(initialized.project);
+      if (await ensureProjectAccess(initialized.project.packagePath)) {
+        await activateProject(initialized.project);
+      } else {
+        await activateProject(await createTemporaryProject());
+      }
       if (initialized.unavailableProjectPath) {
         notify("warn", t("previousProjectUnavailable"), t("temporaryProjectCreated"));
       }
@@ -1216,6 +1237,7 @@
     await run(async () => {
       window.clearTimeout(practiceSaveTimer);
       if (!await persistCurrentPracticeState()) return;
+      if (!await ensureProjectAccess(packagePath)) return;
       await activateProject(await openProject(packagePath));
     });
   }
@@ -1241,8 +1263,9 @@
 
   function loadProject(): void {
     void run(async () => {
-      const packagePath = await open({ directory: true, multiple: false, title: t("openProject") });
+      const packagePath = await open(projectOpenDialogOptions(t("openProject")));
       if (!packagePath) return;
+      if (!await ensureProjectAccess(packagePath)) return;
       window.clearTimeout(practiceSaveTimer);
       if (!await persistCurrentPracticeState()) return;
       await activateProject(await openProject(packagePath));
@@ -1251,10 +1274,31 @@
 
   function openRecent(packagePath: string): void {
     void run(async () => {
+      if (!await ensureProjectAccess(packagePath)) return;
       window.clearTimeout(practiceSaveTimer);
       if (!await persistCurrentPracticeState()) return;
       await activateProject(await openProject(packagePath));
     });
+  }
+
+  async function ensureProjectAccess(packagePath: string): Promise<boolean> {
+    try {
+      await verifyProjectAccess(packagePath);
+      return true;
+    } catch (error) {
+      notify("error", t("operationFailed"), errorText(error));
+      return false;
+    }
+  }
+
+  async function ensureProjectDestinationAccess(destination: string): Promise<boolean> {
+    try {
+      await verifyProjectDestinationAccess(destination);
+      return true;
+    } catch (error) {
+      notify("error", t("operationFailed"), errorText(error));
+      return false;
+    }
   }
 
   async function activateProject(nextProject: ProjectSummary): Promise<void> {
@@ -1299,7 +1343,7 @@
     playbackRate = preferences.defaultPlaybackRate;
     pitchSemitones = preferences.defaultPitchSemitones;
     volume = preferences.masterVolume;
-    volumeBeforeMute = volume > 0 ? volume : 0.8;
+    volumeBeforeMute = volume > 0 ? volume : 1;
     masterPeak = 0;
     masterPeakLeft = 0;
     masterPeakRight = 0;
@@ -1493,6 +1537,7 @@
       filters: [{ name: t("openProject"), extensions: ["sac"] }],
     });
     if (!destination) return false;
+    if (!await ensureProjectDestinationAccess(destination)) return false;
     const sourcePackagePath = project.packagePath;
     const selectedTrackId = currentTrack?.id;
     project = await saveProjectAs(project.packagePath, destination);
@@ -1866,6 +1911,16 @@
     });
   }
 
+  function openImportVideo(videoId: string): void {
+    void openYoutubeVideo(videoId).catch((error) => {
+      notify("error", t("linkOpenError"), errorText(error));
+    });
+  }
+
+  function hideBrokenThumbnail(event: Event): void {
+    if (event.currentTarget instanceof HTMLImageElement) event.currentTarget.hidden = true;
+  }
+
   function selectTrack(
     track: TrackSummary,
     options: { autoplay?: boolean } = {},
@@ -1901,7 +1956,7 @@
     playbackRate = track.practice.playbackRate;
     pitchSemitones = track.practice.pitchSemitones ?? 0;
     volume = preferences.masterVolume;
-    volumeBeforeMute = volume > 0 ? volume : 0.8;
+    volumeBeforeMute = volume > 0 ? volume : 1;
     loopEnabled = track.practice.loopEnabled ?? (track.practice.loopASeconds !== null && track.practice.loopBSeconds !== null);
     const loopBounds = defaultLoopBounds(track.practice.loopASeconds, track.practice.loopBSeconds, durationSeconds);
     loopA = loopBounds.a;
@@ -2554,8 +2609,14 @@
     schedulePracticeSave(0);
   }
 
+  function masterVolumeColor(value: number): string {
+    if (value <= 1) return "var(--accent)";
+    const dangerPercent = Math.round(Math.max(0, Math.min(1, value - 1)) * 100);
+    return `color-mix(in srgb, var(--gold) ${100 - dangerPercent}%, var(--danger) ${dangerPercent}%)`;
+  }
+
   function changeVolume(value: number): void {
-    volume = Math.max(0, Math.min(1, value));
+    volume = Math.max(0, Math.min(2, value));
     if (volume > 0) volumeBeforeMute = volume;
     void audioSetVolume(volume);
     preferences = { ...preferences, masterVolume: volume };
@@ -2731,6 +2792,9 @@
       masterPeak = status.outputPeak;
       masterPeakLeft = status.outputPeakLeft;
       masterPeakRight = status.outputPeakRight;
+      limiterReduction = status.limiterReduction;
+      normalizationGain = status.normalizationGain;
+      integratedLufs = status.integratedLufs;
       stemPeaks = status.stemPeaks;
       if (status.endedGeneration !== endedGeneration) {
         endedGeneration = status.endedGeneration;
@@ -3029,13 +3093,13 @@
 
 <svelte:head><title>SonArcan</title></svelte:head>
 
-<main class="shell" class:console-open={consoleVisible} class:help-open={helpVisible}>
+<main class="shell" class:console-open={consoleVisible} class:help-open={helpVisible} spellcheck="false">
   <header class="topbar">
     <div class="project-header">
       {#if project}
         <div class="project-name-wrap">
           {#if editingProjectName}
-            <input class="project-name-input" bind:value={projectNameDraft} aria-label={t("projectName")} use:focusOnMount onblur={commitProjectName} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") cancelProjectName(); }} />
+            <input class="project-name-input" bind:value={projectNameDraft} aria-label={t("projectName")} autocorrect="off" use:focusOnMount onblur={commitProjectName} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") cancelProjectName(); }} />
           {:else}
             <button class="project-name" data-tooltip={t("projectName")} onclick={renameCurrentProject}>{project.name}</button>
           {/if}
@@ -3070,7 +3134,7 @@
       </button>
       <button class="header-icon-link" aria-label={t("preferences")} data-tooltip={t("preferences")} onclick={() => preferencesVisible = true}><Icon name="gear" size="15px" /></button>
       <span class="header-separator" aria-hidden="true"></span>
-      <div class="master-output" aria-label={t("masterVolume")}>
+      <div class="master-output" class:boosted={volume > 1} style={`--master-volume-color: ${masterVolumeColor(volume)}`} aria-label={t("masterVolume")}>
         <button class="master-mute" class:muted={volume === 0} onclick={toggleMute} aria-label={volume > 0 ? t("mute") : t("unmute")} data-tooltip={volume > 0 ? t("mute") : t("unmute")}>
           {#if volume > 0}
             <Icon name="volume-high" size="15px" />
@@ -3078,9 +3142,9 @@
             <Icon name="volume-xmark" size="15px" />
           {/if}
         </button>
-        <input aria-label={t("masterVolume")} type="range" min="0" max="1" step="0.01" value={volume} oninput={(event) => changeVolume(Number(event.currentTarget.value))} />
+        <input aria-label={t("masterVolume")} type="range" min="0" max="2" step="0.01" value={volume} oninput={(event) => changeVolume(Number(event.currentTarget.value))} ondblclick={() => changeVolume(defaultMasterVolume)} />
         <output>{Math.round(volume * 100)}%</output>
-        <div class="master-meter" role="meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeak * 100)}>
+        <div class="master-meter" class:limiting={limiterReduction > 0.001} data-tooltip={limiterReduction > 0.001 ? `Limiter −${(-20 * Math.log10(1 - limiterReduction)).toFixed(1)} dB` : preferences.loudnessNormalization && integratedLufs !== null ? `${t("loudnessNormalization")} ${20 * Math.log10(normalizationGain) >= 0 ? "+" : ""}${(20 * Math.log10(normalizationGain)).toFixed(1)} dB · ${integratedLufs.toFixed(1)} LUFS` : undefined} role="meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeak * 100)}>
           {#each masterMeterLevels as level}<i class:active={masterPeak * masterMeterLevels.length >= level}></i>{/each}
         </div>
       </div>
@@ -3110,7 +3174,7 @@
               <button class="track-select" onclick={() => selectTrack(track)} aria-label={`${t("loadingTrack")} ${track.title}`}><span class="track-number">{#if track.id === loadingTrackId}<i class="mini-spinner" aria-label={t("loadingTrack")}></i>{:else}{String(index + 1).padStart(2, "0")}{/if}</span></button>
               <div class="track-info">
                 {#if editingTrackId === track.id && editingTrackLocation === "playlist"}
-                  <input class="track-title-input" bind:value={editingTrackTitle} aria-label={t("trackName")} use:focusOnMount onblur={() => commitTrackRename(track)} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { event.preventDefault(); cancelTrackRename(); } }} />
+                  <input class="track-title-input" bind:value={editingTrackTitle} aria-label={t("trackName")} autocorrect="off" use:focusOnMount onblur={() => commitTrackRename(track)} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { event.preventDefault(); cancelTrackRename(); } }} />
                 {:else}
                   <button class="track-title" use:bounceTrackTitle onclick={() => startTrackRename(track, "playlist")} data-tooltip={t("renameTrack")}><span>{track.title}</span></button>
                 {/if}
@@ -3130,7 +3194,7 @@
       <div class="visualizer panel">
         <div class="current-track-title-row">
           {#if editingTrackId === currentTrack.id && editingTrackLocation === "header"}
-            <input class="current-track-title-input" bind:value={editingTrackTitle} aria-label={t("trackName")} use:focusOnMount onblur={() => commitTrackRename(currentTrack!)} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { event.preventDefault(); cancelTrackRename(); } }} />
+            <input class="current-track-title-input" bind:value={editingTrackTitle} aria-label={t("trackName")} autocorrect="off" use:focusOnMount onblur={() => commitTrackRename(currentTrack!)} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { event.preventDefault(); cancelTrackRename(); } }} />
           {:else}
             <button class="current-track-title" onclick={() => startTrackRename(currentTrack!, "header")} data-tooltip={t("renameTrack")}>{currentTrack.title}</button>
           {/if}
@@ -3283,7 +3347,7 @@
               <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}><Icon name="forward-step" size="13px" /></button>
               <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}><Icon name="stop" size="13px" /></button>
             </div>
-            <label class="metronome-volume transport-volume" data-tooltip={t("musicVolumeHelp")}><Icon name="volume-high" size="11px" /><input aria-label={t("musicVolume")} type="range" min="0" max="1" step="0.01" value={musicVolume} oninput={(event) => changeMusicVolume(Number(event.currentTarget.value))} /></label>
+            <label class="metronome-volume transport-volume" data-tooltip={t("musicVolumeHelp")}><Icon name="volume-high" size="11px" /><input aria-label={t("musicVolume")} type="range" min="0" max="1" step="0.01" value={musicVolume} oninput={(event) => changeMusicVolume(Number(event.currentTarget.value))} ondblclick={() => changeMusicVolume(defaultMusicVolume)} /></label>
           </div>
         </div>
       </div>
@@ -3324,7 +3388,7 @@
             <div class="metronome-control">
               <button class:active={metronomeEnabled} class:beating={metronomeBeating} disabled={!chordAnalysis?.beats.length} aria-pressed={metronomeEnabled} aria-label={t("metronome")} data-tooltip={t("metronomeHelp")} onclick={toggleMetronome}><Icon name="metronome" size="14px" /></button>
               <select class="metronome-sound" aria-label={t("metronomeSound")} data-tooltip={t("metronomeSound")} value={metronomeSound} onchange={(event) => changeMetronomeSound(event.currentTarget.value)}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select>
-              <label class="metronome-volume" data-tooltip={t("metronomeVolume")}><Icon name="volume-high" size="11px" /><input aria-label={t("metronomeVolume")} type="range" min="0" max="1" step="0.01" value={metronomeVolume} oninput={(event) => changeMetronomeVolume(Number(event.currentTarget.value))} /></label>
+              <label class="metronome-volume" data-tooltip={t("metronomeVolume")}><Icon name="volume-high" size="11px" /><input aria-label={t("metronomeVolume")} type="range" min="0" max="1" step="0.01" value={metronomeVolume} oninput={(event) => changeMetronomeVolume(Number(event.currentTarget.value))} ondblclick={() => changeMetronomeVolume(defaultMetronomeVolume)} /></label>
             </div>
           </div>
         </div>
@@ -3374,7 +3438,7 @@
                     <button disabled={!stems.enabled} class:muted={stemMix[index].muted} aria-pressed={stemMix[index].muted} aria-label={`${t("mute")} ${stemDisplayName(index)}`} onclick={() => updateStem(index, { muted: !stemMix[index].muted })}>M</button>
                     <button disabled={!stems.enabled} class:soloed={stemMix[index].soloed} aria-pressed={stemMix[index].soloed} aria-label={`${t("solo")} ${stemDisplayName(index)}`} onclick={() => updateStem(index, { soloed: !stemMix[index].soloed })}>S</button>
                   </div>
-                  <label class="stem-channel-label"><span>{String(position + 1).padStart(2, "0")} ·</span><input disabled={!stems.enabled} aria-label={t("stemName")} title={t("renameStem")} maxlength="40" value={stemDisplayName(index)} onchange={(event) => { renameStem(index, event.currentTarget.value); event.currentTarget.value = stemDisplayName(index); }} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label>
+                  <label class="stem-channel-label"><span>{String(position + 1).padStart(2, "0")} ·</span><input disabled={!stems.enabled} aria-label={t("stemName")} title={t("renameStem")} maxlength="40" autocorrect="off" value={stemDisplayName(index)} onchange={(event) => { renameStem(index, event.currentTarget.value); event.currentTarget.value = stemDisplayName(index); }} onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label>
                 </section>
               {/each}
             </div>
@@ -3475,6 +3539,7 @@
                         bind:value={chordEditValue}
                         maxlength="96"
                         spellcheck="false"
+                        autocorrect="off"
                         autocomplete="off"
                         aria-label={`${t("chords")}: ${chordDisplayLabel(chord.label)}`}
                         aria-invalid={chordEditInvalid}
@@ -3656,7 +3721,7 @@
         <section><h3>{t("appearance")}</h3><label>{t("language")}<select value={preferences.language} onchange={(event) => { event.stopPropagation(); changeLanguage(event.currentTarget.value as Language); }}>{#each languageOptions as option}<option value={option.value}>{option.label}</option>{/each}</select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("importSettings")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("youtubeAutoSelectBestMatch")}<input type="checkbox" bind:checked={preferences.youtubeAutoSelectBestMatch} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
         <section><h3>{t("practiceDefaults")}</h3><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option></select></label><label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
-        <section><h3>{t("audio")}</h3><label>{t("masterVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.masterVolume} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
+        <section><h3>{t("audio")}</h3><label>{t("masterVolume")}<input class="master-volume-preference" type="range" min="0" max="2" step="0.01" bind:value={preferences.masterVolume} style={`--master-volume-color: ${masterVolumeColor(preferences.masterVolume)}`} ondblclick={() => resetPreferenceVolume("masterVolume")} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} ondblclick={() => resetPreferenceVolume("musicVolume")} /></label><label>{t("loudnessNormalization")}<input type="checkbox" bind:checked={preferences.loudnessNormalization} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} ondblclick={() => resetPreferenceVolume("metronomeVolume")} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
       </div>
       <div class="modal-actions"><button onclick={resetUserPreferences}>{t("resetPreferences")}</button></div>
     </Modal>
@@ -3724,7 +3789,7 @@
             <button onclick={chooseImportFiles}>{t("addFiles")}</button>
           </div>
         </div>
-        <textarea bind:this={importTextarea} class:drop-active={importDropActive} bind:value={importText} oninput={scheduleImportAnalysis} ondragover={(event) => { event.preventDefault(); importDropActive = true; }} ondragleave={() => importDropActive = false} ondrop={(event) => { event.preventDefault(); importDropActive = false; const text = event.dataTransfer?.getData("text/plain"); if (text) { importText = [importText, text].filter(Boolean).join("\n"); void analyzeImports(); } }} placeholder={t("importPlaceholder")}></textarea>
+        <textarea bind:this={importTextarea} use:disableTextareaAutocorrect class:drop-active={importDropActive} bind:value={importText} oninput={scheduleImportAnalysis} ondragover={(event) => { event.preventDefault(); importDropActive = true; }} ondragleave={() => importDropActive = false} ondrop={(event) => { event.preventDefault(); importDropActive = false; const text = event.dataTransfer?.getData("text/plain"); if (text) { importText = [importText, text].filter(Boolean).join("\n"); void analyzeImports(); } }} placeholder={t("importPlaceholder")}></textarea>
         <div class="import-analysis-state">
           {#if importAnalyzing && importSearchTotal > 0}
             <div class="import-search-progress" aria-live="polite">
@@ -3742,7 +3807,23 @@
               <section class="candidate-group" class:loading={importPendingGroupIds.has(group.id)}>
                   <header><span data-tooltip={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`}><Icon name={group.query === null ? "file" : "magnifying-glass"} label={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`} size="13px" /></span>{#if group.query}<strong>{group.query}</strong>{/if}{#if importActiveGroupIds.has(group.id)}<i class="mini-spinner"></i>{:else if importPendingGroupIds.has(group.id)}<small>{t("queued")}</small>{/if}</header>
                 {#if group.candidates.length}
-                  <div class="candidate-list">{#each group.candidates as candidate}<button class:selected={selectedImports.has(candidate.input)} aria-pressed={selectedImports.has(candidate.input)} onclick={() => toggleImport(candidate.input)}><i>{selectedImports.has(candidate.input) ? "✓" : ""}</i><span><strong>{candidate.title}</strong><small>{candidate.detail}{candidate.matchScore === undefined ? "" : ` · ${t("youtubeMatchScore")} ${Math.round(candidate.matchScore * 100)} %`}</small></span></button>{/each}</div>
+                  <div class="candidate-list">
+                    {#each group.candidates as candidate}
+                      <div class="candidate-row" class:selected={selectedImports.has(candidate.input)} class:has-thumbnail={candidate.thumbnailUrl !== undefined}>
+                        <button class="candidate-select-target" aria-label={candidate.title} aria-pressed={selectedImports.has(candidate.input)} onclick={() => toggleImport(candidate.input)}></button>
+                        <span class="candidate-check" aria-hidden="true"><i>{selectedImports.has(candidate.input) ? "✓" : ""}</i></span>
+                        {#if candidate.thumbnailUrl}<span class="candidate-thumbnail"><Icon name="music" size="15px" /><img src={candidate.thumbnailUrl} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror={hideBrokenThumbnail} /></span>{/if}
+                        <div class="candidate-copy">
+                          <strong class="candidate-title">{candidate.title}</strong>
+                          <div class="candidate-meta">
+                            <span class="candidate-detail">{candidate.detail}</span>
+                            {#if candidate.matchScore !== undefined}<span class="candidate-separator" aria-hidden="true">•</span><span class={`candidate-score relevance-${importRelevanceLevel(candidate.matchScore)}`}>{t("youtubeMatchScore")} {importRelevancePercent(candidate.matchScore)} %</span>{/if}
+                            {#if candidate.videoId}<span class="candidate-separator" aria-hidden="true">•</span><button class="candidate-video-link" aria-label={`${candidate.title} · YouTube ${candidate.videoId}`} data-tooltip={candidate.input} onclick={() => openImportVideo(candidate.videoId!)}><span class="candidate-youtube-icon"><Icon name="youtube" size="13px" /></span>{candidate.videoId}</button>{/if}
+                          </div>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
                 {:else if importGroupErrors.has(group.id)}<p class="candidate-group-error">{importGroupErrors.get(group.id)}</p>
                 {:else if importPendingGroupIds.has(group.id)}<div class="candidate-group-wait"><i></i><i></i><i></i></div>
                 {:else}<div class="candidate-group-empty">{t("noSourcesFound")}</div>{/if}

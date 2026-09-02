@@ -297,6 +297,36 @@ pub fn open_project(package_path: &Path) -> Result<ProjectSummary, AppError> {
     Ok(summary(package_path.to_path_buf(), manifest))
 }
 
+pub fn verify_project_access(package_path: &Path) -> Result<(), AppError> {
+    let manifest = load(package_path)?;
+    for track in &manifest.tracks {
+        let media_path = validated_media_path(package_path, &track.source_path)?;
+        fs::File::open(&media_path).map_err(|error| AppError::io(media_path, error))?;
+    }
+    verify_directory_write_access(package_path)
+}
+
+pub fn verify_destination_access(destination: &Path) -> Result<(), AppError> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| AppError::InvalidProjectDestination(destination.to_path_buf()))?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|error| AppError::io(parent, error))?;
+    verify_directory_write_access(&canonical_parent)
+}
+
+fn verify_directory_write_access(directory: &Path) -> Result<(), AppError> {
+    let probe = directory.join(format!(".sonarcan-access-{}.tmp", Uuid::new_v4()));
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .map_err(|error| AppError::io(&probe, error))?;
+    fs::remove_file(&probe).map_err(|error| AppError::io(&probe, error))?;
+    Ok(())
+}
+
 pub fn import_audio(
     package_path: &Path,
     source_paths: &[PathBuf],
@@ -692,16 +722,23 @@ pub fn save_as_to(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    copy_directory(&source_package, &destination)?;
-    manifest.name = name.to_owned();
-    manifest.id = Uuid::new_v4();
-    manifest.created_at = Utc::now();
-    manifest.updated_at = manifest.created_at;
-    for (track, relative) in manifest.tracks.iter_mut().zip(relative_media_paths) {
-        track.source_path = destination.join(relative);
+    fs::create_dir(&destination).map_err(|error| AppError::io(&destination, error))?;
+    let result = (|| {
+        copy_directory_contents(&source_package, &destination)?;
+        manifest.name = name.to_owned();
+        manifest.id = Uuid::new_v4();
+        manifest.created_at = Utc::now();
+        manifest.updated_at = manifest.created_at;
+        for (track, relative) in manifest.tracks.iter_mut().zip(relative_media_paths) {
+            track.source_path = destination.join(relative);
+        }
+        save(&destination, &manifest)?;
+        Ok(summary(destination.clone(), manifest))
+    })();
+    if result.is_err() && destination.exists() {
+        let _ = fs::remove_dir_all(&destination);
     }
-    save(&destination, &manifest)?;
-    Ok(summary(destination, manifest))
+    result
 }
 
 fn load(package_path: &Path) -> Result<ProjectManifest, AppError> {
@@ -747,12 +784,45 @@ fn validated_media_path(package_path: &Path, source_path: &Path) -> Result<PathB
     let media_path = source_path
         .canonicalize()
         .map_err(|error| AppError::io(source_path, error))?;
-    if !media_path.starts_with(&audio_directory) || !media_path.is_file() {
+    let Some(relative_path) = relative_path_within(&media_path, &audio_directory) else {
+        return Err(AppError::TrackMediaOutsideProject(
+            source_path.to_path_buf(),
+        ));
+    };
+    if !media_path.is_file() {
         return Err(AppError::TrackMediaOutsideProject(
             source_path.to_path_buf(),
         ));
     }
-    Ok(media_path)
+    Ok(audio_directory.join(relative_path))
+}
+
+fn relative_path_within(path: &Path, directory: &Path) -> Option<PathBuf> {
+    if let Ok(relative) = path.strip_prefix(directory) {
+        return Some(relative.to_path_buf());
+    }
+
+    // macOS treats canonically equivalent Unicode path components as the same
+    // filesystem object, while realpath(3) preserves the spelling supplied by
+    // its caller. Compare ancestor identities so an NFC/NFD difference cannot
+    // turn a valid package media path into a false escape. Canonicalizing `path`
+    // first still prevents symlinks and `..` from crossing the boundary.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory_metadata = fs::metadata(directory).ok()?;
+        for ancestor in path.ancestors().skip(1) {
+            let metadata = fs::metadata(ancestor).ok()?;
+            if metadata.dev() == directory_metadata.dev()
+                && metadata.ino() == directory_metadata.ino()
+            {
+                return path.strip_prefix(ancestor).ok().map(Path::to_path_buf);
+            }
+        }
+    }
+
+    None
 }
 
 fn save(package_path: &Path, manifest: &ProjectManifest) -> Result<(), AppError> {
@@ -799,8 +869,7 @@ fn sanitize_package_name(name: &str) -> String {
     sanitized.trim().replace(' ', "-")
 }
 
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), AppError> {
-    fs::create_dir(destination).map_err(|error| AppError::io(destination, error))?;
+fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), AppError> {
     let entries = fs::read_dir(source).map_err(|error| AppError::io(source, error))?;
     for entry in entries {
         let entry = entry.map_err(|error| AppError::io(source, error))?;
@@ -810,7 +879,9 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), AppError> {
             .file_type()
             .map_err(|error| AppError::io(&source_path, error))?;
         if file_type.is_dir() {
-            copy_directory(&source_path, &destination_path)?;
+            fs::create_dir(&destination_path)
+                .map_err(|error| AppError::io(&destination_path, error))?;
+            copy_directory_contents(&source_path, &destination_path)?;
         } else if file_type.is_file() {
             fs::copy(&source_path, &destination_path)
                 .map_err(|error| AppError::io(&destination_path, error))?;
@@ -838,16 +909,17 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
     let chord_edits_valid = state.chord_edits.len() <= 4_096
         && state.chord_edits.iter().all(|edit| {
             let label = edit.label.trim();
-            let label_valid = !label.is_empty()
-                && label.len() <= 96
-                && matches!(label.as_bytes().first(), Some(b'A'..=b'G'))
-                && label.chars().all(|character| {
-                    character.is_ascii_alphanumeric()
-                        || matches!(
-                            character,
-                            '#' | 'b' | '/' | '(' | ')' | ',' | '*' | '+' | '-' | ':'
-                        )
-                });
+            let label_valid = label == "N"
+                || (!label.is_empty()
+                    && label.len() <= 96
+                    && matches!(label.as_bytes().first(), Some(b'A'..=b'G'))
+                    && label.chars().all(|character| {
+                        character.is_ascii_alphanumeric()
+                            || matches!(
+                                character,
+                                '#' | 'b' | '/' | '(' | ')' | ',' | '*' | '+' | '-' | ':'
+                            )
+                    }));
             edit.start_seconds.is_finite()
                 && edit.end_seconds.is_finite()
                 && edit.start_seconds >= 0.0
@@ -864,7 +936,7 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
         || state.position_seconds < 0.0
         || !(0.5..=2.0).contains(&state.playback_rate)
         || !(-12.0..=12.0).contains(&state.pitch_semitones)
-        || !(0.0..=1.0).contains(&state.volume)
+        || !(0.0..=2.0).contains(&state.volume)
         || !(0.0..=1.0).contains(&state.metronome_volume)
         || !(1..=99).contains(&state.trainer_repetitions)
         || !(0.5..2.0).contains(&state.trainer_start_rate)
@@ -1070,6 +1142,60 @@ mod tests {
     }
 
     #[test]
+    fn verifies_manifest_and_media_access_for_a_packaged_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "Accessible").unwrap();
+        let wave_path = temp.path().join("tone.wav");
+        fs::write(&wave_path, minimal_pcm_wave()).unwrap();
+        import_audio(&project.package_path, &[wave_path]).unwrap();
+
+        verify_project_access(&project.package_path).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn accepts_equivalent_unicode_spellings_of_the_project_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let decomposed_package = temp.path().join("Sce\u{300}ne.sac");
+        let composed_package = temp.path().join("Sc\u{e8}ne.sac");
+        let project = create_project_at(&decomposed_package).unwrap();
+        let wave_path = temp.path().join("tone.wav");
+        fs::write(&wave_path, minimal_pcm_wave()).unwrap();
+        let imported = import_audio(&project.package_path, &[wave_path]).unwrap();
+        let track_id = imported.tracks[0].id;
+        let imported_file_name = imported.tracks[0]
+            .source_path
+            .file_name()
+            .unwrap()
+            .to_owned();
+
+        let mut manifest = load(&decomposed_package).unwrap();
+        manifest.tracks[0].source_path = composed_package.join("Audio").join(&imported_file_name);
+        save(&decomposed_package, &manifest).unwrap();
+
+        verify_project_access(&decomposed_package).unwrap();
+        assert_eq!(
+            track_media_path(&decomposed_package, track_id).unwrap(),
+            decomposed_package
+                .canonicalize()
+                .unwrap()
+                .join("Audio")
+                .join(imported_file_name)
+        );
+    }
+
+    #[test]
+    fn verifies_destination_access_without_leaving_a_probe_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("Saved.sac");
+
+        verify_destination_access(&destination).unwrap();
+
+        let entries = fs::read_dir(temp.path()).unwrap().count();
+        assert_eq!(entries, 0);
+    }
+
+    #[test]
     fn refuses_to_save_a_project_inside_itself() {
         let temp = tempfile::tempdir().unwrap();
         let project = create_project(temp.path(), "Recursive Copy").unwrap();
@@ -1260,10 +1386,33 @@ mod tests {
         };
         assert_eq!(reopened.tracks[0].practice, expected);
 
+        let supported_boundaries = PracticeState {
+            volume: 2.0,
+            chord_edits: vec![ChordEdit {
+                mode: ChordEditMode::Standard,
+                start_seconds: 0.0,
+                end_seconds: 0.0005,
+                label: "N".into(),
+            }],
+            ..state.clone()
+        };
+        update_practice_state(&project.package_path, track_id, supported_boundaries).unwrap();
+        let reopened = open_project(&project.package_path).unwrap();
+        assert_eq!(reopened.tracks[0].practice.chord_edits[0].label, "N");
+
         let mut invalid_chord_edit = state.clone();
         invalid_chord_edit.chord_edits[0].label = "<script>".into();
         assert!(matches!(
             update_practice_state(&project.package_path, track_id, invalid_chord_edit),
+            Err(AppError::InvalidPracticeState(_))
+        ));
+
+        let invalid_volume = PracticeState {
+            volume: 2.01,
+            ..state.clone()
+        };
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, invalid_volume),
             Err(AppError::InvalidPracticeState(_))
         ));
 

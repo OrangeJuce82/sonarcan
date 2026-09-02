@@ -34,6 +34,9 @@ export async function openProject(packagePath: string): Promise<ProjectSummary> 
   return invoke<ProjectSummary>("open_project", { packagePath });
 }
 
+export const verifyProjectAccess = (packagePath: string): Promise<void> => invoke("verify_project_access", { packagePath });
+export const verifyProjectDestinationAccess = (destination: string): Promise<void> => invoke("verify_project_destination_access", { destination });
+
 export async function importAudio(projectPath: string, sourcePaths: string[]): Promise<ProjectSummary> {
   if (!isTauri()) {
     throw new Error("Audio import requires the Tauri desktop runtime.");
@@ -110,6 +113,7 @@ export const audioSeek = (seconds: number): Promise<boolean> => invoke("audio_se
 export const audioSetLoop = (aSeconds: number | null, bSeconds: number | null): Promise<void> => invoke("audio_set_loop", { aSeconds, bSeconds });
 export const audioSetVolume = (volume: number): Promise<void> => invoke("audio_set_volume", { volume });
 export const audioSetMusicVolume = (volume: number): Promise<void> => invoke("audio_set_music_volume", { volume });
+export const audioSetLoudnessNormalization = (enabled: boolean): Promise<void> => invoke("audio_set_loudness_normalization", { enabled });
 export const audioSetPlaybackRate = (rate: number): Promise<void> => invoke("audio_set_playback_rate", { rate });
 export const audioSetPitch = (semitones: number): Promise<void> => invoke("audio_set_pitch", { semitones });
 export const audioSetBeatTimeline = (beats: number[], downbeats: number[]): Promise<void> => invoke("audio_set_beat_timeline", { beats, downbeats });
@@ -140,6 +144,7 @@ export const logsSnapshot = (): Promise<AppLogEntry[]> => invoke("logs_snapshot"
 export const pushFrontendLog = (level: string, message: string): Promise<void> => invoke("push_frontend_log", { level, message });
 export const revealProject = (packagePath: string): Promise<void> => invoke("reveal_project", { packagePath });
 export const openExternalLink = (target: "github" | "donate"): Promise<void> => invoke("open_external_link", { target });
+export const openYoutubeVideo = (videoId: string): Promise<void> => invoke("open_youtube_video", { videoId });
 
 export async function diagnostics(): Promise<DiagnosticsSnapshot> {
   if (!isTauri()) {

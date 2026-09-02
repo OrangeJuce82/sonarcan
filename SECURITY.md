@@ -9,10 +9,14 @@ permissions, or exhaust resources without a bound.
 ## Required controls
 
 - Keep Tauri capabilities least-privileged and the CSP closed to remote scripts.
-  The asset protocol stays disabled while the webview does not load media files.
-- Canonicalize project media before reads or deletions and verify that it remains
-  below the project's `Audio` directory. Symlinks and `..` components must not
-  bypass this boundary.
+  Remote images are limited to YouTube's fixed thumbnail origin, and the asset
+  protocol stays disabled while the webview does not load media files.
+- Browser links for search results receive only a validated YouTube video
+  identifier; Rust constructs the fixed HTTPS watch URL before opening it.
+- Canonicalize project media before reads or deletions and verify by filesystem
+  identity that it remains below the project's `Audio` directory. This preserves
+  equivalent Unicode path spellings on macOS while preventing symlinks and `..`
+  components from bypassing the boundary.
 - Use direct process invocation with separate arguments and `--` before user
   values. Never interpolate user input into a shell command.
 - Use HTTPS, verify downloaded executables or models against pinned hashes or a
@@ -26,6 +30,12 @@ permissions, or exhaust resources without a bound.
 - Create temporary projects with unpredictable package names below the platform
   temporary directory. Canonicalize Save As parents and reject destinations
   nested inside the source package to prevent recursive copies or path escapes.
+- On macOS, the native document picker grants access to the selected `.sac`
+  package. Verify read/write access to that package and read access to every
+  referenced media file before opening it; never request its parent directory as
+  a second authorization step. Verify Save As parents with a uniquely named
+  create/remove probe before copying, and remove an incomplete destination
+  package if the copy cannot finish.
 - Keep `package-lock.json` and `Cargo.lock` committed and review dependency graph
   changes explicitly.
 

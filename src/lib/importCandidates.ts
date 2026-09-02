@@ -7,6 +7,22 @@ export interface ImportCandidateGroup {
   candidates: ImportCandidate[];
 }
 
+export type ImportRelevanceLevel = 0 | 1 | 2 | 3 | 4;
+
+export function importRelevancePercent(score: number): number {
+  if (!Number.isFinite(score)) return 0;
+  return Math.round(Math.max(0, Math.min(1, score)) * 100);
+}
+
+export function importRelevanceLevel(score: number): ImportRelevanceLevel {
+  const percent = importRelevancePercent(score);
+  if (percent >= 100) return 4;
+  if (percent >= 75) return 3;
+  if (percent >= 50) return 2;
+  if (percent >= 25) return 1;
+  return 0;
+}
+
 export function deduplicateImportCandidates(candidates: ImportCandidate[]): ImportCandidate[] {
   const seen = new Set<string>();
   return candidates.filter((candidate) => {

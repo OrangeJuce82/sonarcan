@@ -23,7 +23,12 @@ use symphonia::core::{
 };
 use tracing::info;
 
-use crate::{error::AppError, spectrum, stem_contract::STEM_COUNT};
+use crate::{
+    error::AppError,
+    loudness::{self, LoudnessAnalysis},
+    spectrum,
+    stem_contract::STEM_COUNT,
+};
 
 const NO_LOOP: u64 = u64::MAX;
 const CROSSFADE_SECONDS: f64 = 0.010;
@@ -37,7 +42,9 @@ const MAX_DSP_PREROLL_FRAMES: usize = 65_536;
 const MAX_BEATS: usize = 262_144;
 const MAX_DOWNBEATS: usize = 65_536;
 const MAX_BEAT_POSITION_SECONDS: f64 = 24.0 * 60.0 * 60.0;
-const PCM_CACHE_MAGIC: &[u8; 8] = b"SACPCM01";
+const PCM_CACHE_MAGIC: &[u8; 8] = b"SACPCM02";
+const LIMITER_CEILING: f32 = 0.891_250_9;
+const LIMITER_RELEASE_SECONDS: f64 = 0.12;
 type StemChannelGains = [[f32; 2]; STEM_COUNT];
 
 #[derive(Debug)]
@@ -54,8 +61,14 @@ pub(crate) struct StemSet {
 
 struct CachedAudio {
     audio: Arc<DecodedAudio>,
+    loudness: LoudnessAnalysis,
     file_size: u64,
     modified: Option<SystemTime>,
+}
+
+struct DecodedWithLoudness {
+    audio: Arc<DecodedAudio>,
+    loudness: LoudnessAnalysis,
 }
 
 #[derive(Default)]
@@ -83,6 +96,9 @@ struct SharedState {
     loop_waiting_for_a: AtomicBool,
     volume_bits: AtomicU32,
     music_volume_bits: AtomicU32,
+    loudness_normalization_enabled: AtomicBool,
+    normalization_gain_bits: AtomicU32,
+    integrated_lufs_bits: AtomicU32,
     playback_rate_bits: AtomicU64,
     pitch_semitones_bits: AtomicU32,
     beat_timeline: ArcSwapOption<BeatTimeline>,
@@ -101,6 +117,7 @@ struct SharedState {
     output_peak_bits: AtomicU32,
     output_peak_left_bits: AtomicU32,
     output_peak_right_bits: AtomicU32,
+    limiter_reduction_bits: AtomicU32,
 }
 
 #[derive(Clone, Copy)]
@@ -170,6 +187,9 @@ pub struct AudioStatus {
     pub output_peak: f32,
     pub output_peak_left: f32,
     pub output_peak_right: f32,
+    pub normalization_gain: f32,
+    pub integrated_lufs: Option<f32>,
+    pub limiter_reduction: f32,
     pub stems_enabled: bool,
     pub stem_peaks: [f32; STEM_COUNT],
     pub playback_rate: f64,
@@ -269,8 +289,11 @@ impl AudioEngine {
             loop_b: AtomicU64::new(NO_LOOP),
             loop_cycle_armed: AtomicBool::new(false),
             loop_waiting_for_a: AtomicBool::new(false),
-            volume_bits: AtomicU32::new(0.8_f32.to_bits()),
+            volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -289,6 +312,7 @@ impl AudioEngine {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         });
         let thread_state = Arc::clone(&shared);
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -336,7 +360,15 @@ impl AudioEngine {
         self.shared.playing.store(false, Ordering::Release);
         self.shared.stems.store(None);
         self.shared.beat_timeline.store(None);
-        self.shared.audio.store(Some(decoded));
+        self.shared.normalization_gain_bits.store(
+            decoded.loudness.normalization_gain().to_bits(),
+            Ordering::Release,
+        );
+        self.shared.integrated_lufs_bits.store(
+            decoded.loudness.integrated_lufs.to_bits(),
+            Ordering::Release,
+        );
+        self.shared.audio.store(Some(decoded.audio));
         if let Ok(mut loaded_path) = self.loaded_path.lock() {
             *loaded_path = Some(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()));
         }
@@ -350,10 +382,10 @@ impl AudioEngine {
     }
 
     pub(crate) fn decoded_for_analysis(&self, path: &Path) -> Result<Arc<DecodedAudio>, AppError> {
-        self.cached_or_decode(path)
+        self.cached_or_decode(path).map(|decoded| decoded.audio)
     }
 
-    fn cached_or_decode(&self, path: &Path) -> Result<Arc<DecodedAudio>, AppError> {
+    fn cached_or_decode(&self, path: &Path) -> Result<DecodedWithLoudness, AppError> {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let metadata = path
             .metadata()
@@ -368,8 +400,9 @@ impl AudioEngine {
                 if let Some(entry) = cache.entries.get(&path) {
                     if entry.file_size == source_size && entry.modified == modified {
                         let audio = Arc::clone(&entry.audio);
+                        let loudness = entry.loudness;
                         touch_cache_entry(&mut cache.recent, &path);
-                        return Ok(audio);
+                        return Ok(DecodedWithLoudness { audio, loudness });
                     }
                 }
                 if !cache.loading.contains(&path) {
@@ -388,6 +421,11 @@ impl AudioEngine {
             Ok(cached)
         } else {
             decode(&path).map(|decoded| {
+                let loudness = loudness::analyze(
+                    &decoded.samples,
+                    decoded.channels,
+                    decoded.sample_rate,
+                );
                 let cache_audio = Arc::new(decoded);
                 info!(path = %path.display(), elapsed_ms = load_started.elapsed().as_millis(), "decoded compressed audio");
                 let write_audio = Arc::clone(&cache_audio);
@@ -400,10 +438,14 @@ impl AudioEngine {
                             source_size,
                             modified,
                             &write_audio,
+                            loudness,
                         );
                     })
                     .ok();
-                cache_audio
+                DecodedWithLoudness {
+                    audio: cache_audio,
+                    loudness,
+                }
             })
         };
         let mut cache =
@@ -498,7 +540,13 @@ impl AudioEngine {
     pub fn set_volume(&self, volume: f32) {
         self.shared
             .volume_bits
-            .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
+            .store(volume.clamp(0.0, 2.0).to_bits(), Ordering::Release);
+    }
+
+    pub fn set_loudness_normalization(&self, enabled: bool) {
+        self.shared
+            .loudness_normalization_enabled
+            .store(enabled, Ordering::Release);
     }
 
     pub fn set_music_volume(&self, volume: f32) {
@@ -655,6 +703,8 @@ impl AudioEngine {
 
     pub fn status(&self) -> AudioStatus {
         let audio = self.shared.audio.load_full();
+        let integrated_lufs =
+            f32::from_bits(self.shared.integrated_lufs_bits.load(Ordering::Relaxed));
         let (position_seconds, duration_seconds) = audio.as_ref().map_or((0.0, 0.0), |audio| {
             (
                 f64::from_bits(self.shared.position_bits.load(Ordering::Acquire))
@@ -676,6 +726,19 @@ impl AudioEngine {
             ),
             output_peak_right: f32::from_bits(
                 self.shared.output_peak_right_bits.load(Ordering::Relaxed),
+            ),
+            normalization_gain: if self
+                .shared
+                .loudness_normalization_enabled
+                .load(Ordering::Acquire)
+            {
+                f32::from_bits(self.shared.normalization_gain_bits.load(Ordering::Relaxed))
+            } else {
+                1.0
+            },
+            integrated_lufs: integrated_lufs.is_finite().then_some(integrated_lufs),
+            limiter_reduction: f32::from_bits(
+                self.shared.limiter_reduction_bits.load(Ordering::Relaxed),
             ),
             stems_enabled: self.shared.stems_enabled.load(Ordering::Acquire),
             stem_peaks: std::array::from_fn(|index| {
@@ -720,14 +783,15 @@ fn finish_decode_load(
     path: &Path,
     source_size: u64,
     modified: Option<SystemTime>,
-    decoded: Result<Arc<DecodedAudio>, AppError>,
-) -> Result<Arc<DecodedAudio>, AppError> {
+    decoded: Result<DecodedWithLoudness, AppError>,
+) -> Result<DecodedWithLoudness, AppError> {
     cache.loading.remove(path);
-    let audio = decoded?;
+    let decoded = decoded?;
     cache.entries.insert(
         path.to_path_buf(),
         CachedAudio {
-            audio: Arc::clone(&audio),
+            audio: Arc::clone(&decoded.audio),
+            loudness: decoded.loudness,
             file_size: source_size,
             modified,
         },
@@ -741,7 +805,7 @@ fn finish_decode_load(
             cache.entries.remove(&expired);
         }
     }
-    Ok(audio)
+    Ok(decoded)
 }
 
 fn touch_cache_entry(recent: &mut VecDeque<PathBuf>, path: &Path) {
@@ -834,10 +898,56 @@ struct RealtimeRenderer {
     smoothed_pitch: f32,
     smoothed_volume: f32,
     smoothed_music_volume: f32,
+    smoothed_normalization_gain: f32,
     smoothed_stem_gains: StemChannelGains,
     gains_initialized: bool,
     dsp_active: bool,
     seek_transition: SeekTransition,
+    limiter: SafetyLimiter,
+}
+
+struct SafetyLimiter {
+    gain: f32,
+    release: f32,
+    frame: Vec<f32>,
+}
+
+struct OutputProcessors<'a> {
+    seek_transition: Option<&'a mut SeekTransition>,
+    limiter: &'a mut SafetyLimiter,
+}
+
+impl SafetyLimiter {
+    fn new(channels: usize, output_rate: u32) -> Self {
+        Self {
+            gain: 1.0,
+            release: (-1.0 / (output_rate as f64 * LIMITER_RELEASE_SECONDS)).exp() as f32,
+            frame: vec![0.0; channels],
+        }
+    }
+
+    fn process_frame(&mut self) -> f32 {
+        let peak = self
+            .frame
+            .iter()
+            .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+        let target = if peak > LIMITER_CEILING {
+            LIMITER_CEILING / peak
+        } else {
+            1.0
+        };
+        if target < self.gain {
+            self.gain = target;
+        } else {
+            self.gain = 1.0 - (1.0 - self.gain) * self.release;
+        }
+        self.gain
+    }
+
+    fn reset(&mut self) {
+        self.gain = 1.0;
+        self.frame.fill(0.0);
+    }
 }
 
 struct SeekTransition {
@@ -916,12 +1026,14 @@ impl RealtimeRenderer {
             last_reset_rate: f64::NAN,
             smoothed_rate: 1.0,
             smoothed_pitch: 0.0,
-            smoothed_volume: 0.8,
+            smoothed_volume: 1.0,
             smoothed_music_volume: 1.0,
+            smoothed_normalization_gain: 1.0,
             smoothed_stem_gains: [[1.0; 2]; STEM_COUNT],
             gains_initialized: false,
             dsp_active: false,
             seek_transition: SeekTransition::new(channels, output_rate),
+            limiter: SafetyLimiter::new(channels, output_rate),
         }
     }
 
@@ -937,15 +1049,27 @@ impl RealtimeRenderer {
             .as_ref()
             .map_or(0, |audio| Arc::as_ptr(audio) as usize);
         let audio_changed = audio_pointer != 0 && audio_pointer != self.last_audio;
+        if audio_changed {
+            self.limiter.reset();
+        }
         let frames = output.len() / self.channels;
         let block_seconds = frames as f64 / self.output_rate as f64;
         let blend = 1.0 - (-block_seconds / GAIN_RAMP_SECONDS).exp();
         let target_volume = f32::from_bits(shared.volume_bits.load(Ordering::Relaxed));
         let target_music_volume = f32::from_bits(shared.music_volume_bits.load(Ordering::Relaxed));
+        let normalization_gain = if shared
+            .loudness_normalization_enabled
+            .load(Ordering::Relaxed)
+        {
+            f32::from_bits(shared.normalization_gain_bits.load(Ordering::Relaxed))
+        } else {
+            1.0
+        };
         let target_stem_gains = target_stem_gains(shared);
-        if !self.gains_initialized {
+        if !self.gains_initialized || audio_changed {
             self.smoothed_volume = target_volume;
             self.smoothed_music_volume = target_music_volume;
+            self.smoothed_normalization_gain = normalization_gain;
             self.smoothed_stem_gains = target_stem_gains;
             self.gains_initialized = true;
         } else {
@@ -953,6 +1077,11 @@ impl RealtimeRenderer {
             smooth_gain(
                 &mut self.smoothed_music_volume,
                 target_music_volume,
+                blend as f32,
+            );
+            smooth_gain(
+                &mut self.smoothed_normalization_gain,
+                normalization_gain,
                 blend as f32,
             );
             for (current, target) in self.smoothed_stem_gains.iter_mut().zip(target_stem_gains) {
@@ -988,9 +1117,16 @@ impl RealtimeRenderer {
                 self.channels,
                 self.output_rate,
                 shared,
-                [self.smoothed_volume, self.smoothed_music_volume],
+                [
+                    self.smoothed_volume,
+                    self.smoothed_music_volume,
+                    self.smoothed_normalization_gain,
+                ],
                 &smoothed_stem_gains,
-                Some(&mut self.seek_transition),
+                OutputProcessors {
+                    seek_transition: Some(&mut self.seek_transition),
+                    limiter: &mut self.limiter,
+                },
             );
             return;
         }
@@ -1000,7 +1136,11 @@ impl RealtimeRenderer {
             shared,
             self.smoothed_rate,
             self.smoothed_pitch,
-            [self.smoothed_volume, self.smoothed_music_volume],
+            [
+                self.smoothed_volume,
+                self.smoothed_music_volume,
+                self.smoothed_normalization_gain,
+            ],
             &smoothed_stem_gains,
         );
     }
@@ -1011,7 +1151,7 @@ impl RealtimeRenderer {
         shared: &SharedState,
         rate: f64,
         pitch: f32,
-        output_gains: [f32; 2],
+        output_gains: [f32; 3],
         stem_gains: &StemChannelGains,
     ) where
         T: SizedSample + FromSample<f32>,
@@ -1176,16 +1316,22 @@ impl RealtimeRenderer {
                     beat_timeline.as_deref(),
                     metronome_crossfade,
                 );
-                for (channel, target) in frame.iter_mut().enumerate() {
+                for channel in 0..frame.len() {
                     let value = apply_master_gain(
                         self.processed[frame_index * self.channels + channel],
                         click,
                         output_gains[0],
                         output_gains[1],
+                        output_gains[2],
                     );
                     let value = self
                         .seek_transition
                         .smooth_sample(channel, value, seek_blend);
+                    self.limiter.frame[channel] = value;
+                }
+                let limiter_gain = self.limiter.process_frame();
+                for (channel, target) in frame.iter_mut().enumerate() {
+                    let value = self.limiter.frame[channel] * limiter_gain;
                     output_peak = output_peak.max(value.abs());
                     if channel < channel_peaks.len() {
                         channel_peaks[channel] = channel_peaks[channel].max(value.abs());
@@ -1212,6 +1358,7 @@ impl RealtimeRenderer {
             },
         );
         publish_stem_peaks(shared, stem_peaks);
+        publish_limiter_reduction(shared, 1.0 - self.limiter.gain);
         if reached_end {
             self.dsp_active = false;
         }
@@ -1340,15 +1487,27 @@ where
 {
     let volume = f32::from_bits(shared.volume_bits.load(Ordering::Relaxed));
     let music_volume = f32::from_bits(shared.music_volume_bits.load(Ordering::Relaxed));
+    let normalization_gain = if shared
+        .loudness_normalization_enabled
+        .load(Ordering::Relaxed)
+    {
+        f32::from_bits(shared.normalization_gain_bits.load(Ordering::Relaxed))
+    } else {
+        1.0
+    };
     let stem_gains = target_stem_gains(shared);
+    let mut limiter = SafetyLimiter::new(output_channels, output_rate);
     render_with_gains(
         output,
         output_channels,
         output_rate,
         shared,
-        [volume, music_volume],
+        [volume, music_volume, normalization_gain],
         &stem_gains,
-        None,
+        OutputProcessors {
+            seek_transition: None,
+            limiter: &mut limiter,
+        },
     );
 }
 
@@ -1357,27 +1516,31 @@ fn render_with_gains<T>(
     output_channels: usize,
     output_rate: u32,
     shared: &SharedState,
-    output_gains: [f32; 2],
+    output_gains: [f32; 3],
     stem_gains: &StemChannelGains,
-    mut seek_transition: Option<&mut SeekTransition>,
+    mut processors: OutputProcessors<'_>,
 ) where
     T: SizedSample + FromSample<f32>,
 {
     let silence = T::from_sample(0.0);
     output.fill(silence);
     if !shared.playing.load(Ordering::Acquire) {
-        if let Some(transition) = seek_transition.as_deref_mut() {
+        if let Some(transition) = processors.seek_transition.as_deref_mut() {
             transition.clear_output();
         }
         publish_output_peak(shared, 0.0);
+        publish_limiter_reduction(shared, 0.0);
+        processors.limiter.reset();
         publish_stem_peaks(shared, [0.0; STEM_COUNT]);
         return;
     }
     let Some(audio) = shared.audio.load_full() else {
-        if let Some(transition) = seek_transition.as_deref_mut() {
+        if let Some(transition) = processors.seek_transition.as_deref_mut() {
             transition.clear_output();
         }
         publish_output_peak(shared, 0.0);
+        publish_limiter_reduction(shared, 0.0);
+        processors.limiter.reset();
         publish_stem_peaks(shared, [0.0; STEM_COUNT]);
         return;
     };
@@ -1397,7 +1560,8 @@ fn render_with_gains<T>(
     let mut stem_peaks = [0.0_f32; STEM_COUNT];
     let beat_timeline = shared.beat_timeline.load_full();
     for frame in output.chunks_mut(output_channels) {
-        let seek_blend = seek_transition
+        let seek_blend = processors
+            .seek_transition
             .as_deref_mut()
             .map_or(1.0, |transition| transition.begin_frame(generation));
         if valid_loop {
@@ -1435,7 +1599,7 @@ fn render_with_gains<T>(
             beat_timeline.as_deref(),
             metronome_crossfade,
         );
-        for (channel, sample) in frame.iter_mut().enumerate() {
+        for channel in 0..frame.len() {
             let value = playback_sample(
                 shared,
                 &audio,
@@ -1445,18 +1609,28 @@ fn render_with_gains<T>(
                 stem_gains,
                 Some(&mut stem_peaks),
             );
-            let mut output_value =
-                apply_master_gain(value, click, output_gains[0], output_gains[1]);
-            if let Some(transition) = seek_transition.as_deref_mut() {
+            let mut output_value = apply_master_gain(
+                value,
+                click,
+                output_gains[0],
+                output_gains[1],
+                output_gains[2],
+            );
+            if let Some(transition) = processors.seek_transition.as_deref_mut() {
                 output_value = transition.smooth_sample(channel, output_value, seek_blend);
             }
+            processors.limiter.frame[channel] = output_value;
+        }
+        let limiter_gain = processors.limiter.process_frame();
+        for (channel, sample) in frame.iter_mut().enumerate() {
+            let output_value = processors.limiter.frame[channel] * limiter_gain;
             output_peak = output_peak.max(output_value.abs());
             if channel < channel_peaks.len() {
                 channel_peaks[channel] = channel_peaks[channel].max(output_value.abs());
             }
             *sample = T::from_sample(output_value);
         }
-        if let Some(transition) = seek_transition.as_deref_mut() {
+        if let Some(transition) = processors.seek_transition.as_deref_mut() {
             transition.end_frame();
         }
         position += step;
@@ -1477,6 +1651,7 @@ fn render_with_gains<T>(
         },
     );
     publish_stem_peaks(shared, stem_peaks);
+    publish_limiter_reduction(shared, 1.0 - processors.limiter.gain);
 }
 
 fn publish_output_peak(shared: &SharedState, block_peak: f32) {
@@ -1484,6 +1659,9 @@ fn publish_output_peak(shared: &SharedState, block_peak: f32) {
 }
 
 fn publish_output_peaks(shared: &SharedState, block_peak: f32, left_peak: f32, right_peak: f32) {
+    let block_peak = output_meter_level(block_peak);
+    let left_peak = output_meter_level(left_peak);
+    let right_peak = output_meter_level(right_peak);
     let previous = f32::from_bits(shared.output_peak_bits.load(Ordering::Relaxed));
     shared
         .output_peak_bits
@@ -1500,6 +1678,10 @@ fn publish_output_peaks(shared: &SharedState, block_peak: f32, left_peak: f32, r
     );
 }
 
+fn output_meter_level(post_limiter_peak: f32) -> f32 {
+    (post_limiter_peak / LIMITER_CEILING).clamp(0.0, 1.0)
+}
+
 fn publish_stem_peaks(shared: &SharedState, block_peaks: [f32; STEM_COUNT]) {
     for (peak, block_peak) in shared.stem_peak_bits.iter().zip(block_peaks) {
         let previous = f32::from_bits(peak.load(Ordering::Relaxed));
@@ -1507,8 +1689,21 @@ fn publish_stem_peaks(shared: &SharedState, block_peaks: [f32; STEM_COUNT]) {
     }
 }
 
-fn apply_master_gain(music: f32, metronome: f32, volume: f32, music_volume: f32) -> f32 {
-    ((music * music_volume + metronome) * volume).clamp(-1.0, 1.0)
+fn apply_master_gain(
+    music: f32,
+    metronome: f32,
+    volume: f32,
+    music_volume: f32,
+    normalization_gain: f32,
+) -> f32 {
+    (music * normalization_gain * music_volume + metronome) * volume
+}
+
+fn publish_limiter_reduction(shared: &SharedState, reduction: f32) {
+    let previous = f32::from_bits(shared.limiter_reduction_bits.load(Ordering::Relaxed));
+    shared
+        .limiter_reduction_bits
+        .store(reduction.max(previous * 0.86).to_bits(), Ordering::Relaxed);
 }
 
 fn smooth_gain(current: &mut f32, target: f32, blend: f32) {
@@ -1834,7 +2029,7 @@ fn load_decoded_cache(
     source: &Path,
     source_size: u64,
     modified: Option<SystemTime>,
-) -> Option<Arc<DecodedAudio>> {
+) -> Option<DecodedWithLoudness> {
     let cache_path = decoded_cache_path(source)?;
     let mut file = File::open(cache_path).ok()?;
     let mut magic = [0_u8; 8];
@@ -1848,14 +2043,20 @@ fn load_decoded_cache(
     let sample_rate = read_u32(&mut file)?;
     let channels = read_u32(&mut file)? as usize;
     let frames = read_u64(&mut file)? as usize;
+    let integrated_lufs = read_f32(&mut file)?;
+    let true_peak = read_f32(&mut file)?;
     let sample_count = frames.checked_mul(channels)?;
     if sample_rate == 0
         || channels == 0
         || sample_count > MAX_DECODED_CACHE_BYTES / size_of::<f32>()
+        || !(integrated_lufs == f32::NEG_INFINITY
+            || (integrated_lufs.is_finite() && (-100.0..=24.0).contains(&integrated_lufs)))
+        || !true_peak.is_finite()
+        || !(0.0..=16.0).contains(&true_peak)
     {
         return None;
     }
-    let expected_bytes = 40_u64.checked_add((sample_count * size_of::<f32>()) as u64)?;
+    let expected_bytes = 48_u64.checked_add((sample_count * size_of::<f32>()) as u64)?;
     if file.metadata().ok()?.len() != expected_bytes {
         return None;
     }
@@ -1867,12 +2068,18 @@ fn load_decoded_cache(
         )
     };
     file.read_exact(bytes).ok()?;
-    Some(Arc::new(DecodedAudio {
-        samples,
-        channels,
-        sample_rate,
-        frames,
-    }))
+    Some(DecodedWithLoudness {
+        audio: Arc::new(DecodedAudio {
+            samples,
+            channels,
+            sample_rate,
+            frames,
+        }),
+        loudness: LoudnessAnalysis {
+            integrated_lufs,
+            true_peak,
+        },
+    })
 }
 
 fn store_decoded_cache(
@@ -1880,6 +2087,7 @@ fn store_decoded_cache(
     source_size: u64,
     modified: Option<SystemTime>,
     audio: &DecodedAudio,
+    loudness: LoudnessAnalysis,
 ) -> std::io::Result<()> {
     let Some(cache_path) = decoded_cache_path(source) else {
         return Ok(());
@@ -1896,6 +2104,8 @@ fn store_decoded_cache(
     file.write_all(&audio.sample_rate.to_le_bytes())?;
     file.write_all(&(audio.channels as u32).to_le_bytes())?;
     file.write_all(&(audio.frames as u64).to_le_bytes())?;
+    file.write_all(&loudness.integrated_lufs.to_le_bytes())?;
+    file.write_all(&loudness.true_peak.to_le_bytes())?;
     let bytes = unsafe {
         std::slice::from_raw_parts(
             audio.samples.as_ptr().cast::<u8>(),
@@ -1918,6 +2128,12 @@ fn read_u64(reader: &mut impl Read) -> Option<u64> {
     let mut bytes = [0_u8; 8];
     reader.read_exact(&mut bytes).ok()?;
     Some(u64::from_le_bytes(bytes))
+}
+
+fn read_f32(reader: &mut impl Read) -> Option<f32> {
+    let mut bytes = [0_u8; 4];
+    reader.read_exact(&mut bytes).ok()?;
+    Some(f32::from_le_bytes(bytes))
 }
 
 fn decode(path: &Path) -> Result<DecodedAudio, AppError> {
@@ -2039,6 +2255,9 @@ mod tests {
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2057,6 +2276,7 @@ mod tests {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         };
         let mut output = [0_f32; 64];
 
@@ -2211,6 +2431,9 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(0.8_f64.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
@@ -2228,6 +2451,7 @@ mod tests {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         };
         let mut output = [0_f32; 30];
 
@@ -2286,6 +2510,9 @@ mod tests {
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2304,6 +2531,7 @@ mod tests {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         });
         let engine = AudioEngine {
             shared,
@@ -2407,6 +2635,9 @@ mod tests {
             loop_waiting_for_a: AtomicBool::new(true),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2425,6 +2656,7 @@ mod tests {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         };
         let mut output = [0_f32; 11];
 
@@ -2475,6 +2707,9 @@ mod tests {
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
             playback_rate_bits: AtomicU64::new(0.5_f64.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
             metronome_enabled: AtomicBool::new(false),
@@ -2492,6 +2727,7 @@ mod tests {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         };
         let mut renderer = RealtimeRenderer::new(1, 48_000);
         let mut output = vec![0_f32; 50_000];
@@ -2585,6 +2821,9 @@ mod tests {
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(12_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2603,6 +2842,7 @@ mod tests {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         };
         shared.stem_pan_bits[0].store(1_f32.to_bits(), Ordering::Relaxed);
         let panned = target_stem_gains(&shared);
@@ -2654,6 +2894,9 @@ mod tests {
             loop_waiting_for_a: AtomicBool::new(false),
             volume_bits: AtomicU32::new(1_f32.to_bits()),
             music_volume_bits: AtomicU32::new(1_f32.to_bits()),
+            loudness_normalization_enabled: AtomicBool::new(true),
+            normalization_gain_bits: AtomicU32::new(1_f32.to_bits()),
+            integrated_lufs_bits: AtomicU32::new(f32::NAN.to_bits()),
             playback_rate_bits: AtomicU64::new(1_f64.to_bits()),
             pitch_semitones_bits: AtomicU32::new(0_f32.to_bits()),
             beat_timeline: ArcSwapOption::empty(),
@@ -2672,6 +2915,7 @@ mod tests {
             output_peak_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_left_bits: AtomicU32::new(0_f32.to_bits()),
             output_peak_right_bits: AtomicU32::new(0_f32.to_bits()),
+            limiter_reduction_bits: AtomicU32::new(0_f32.to_bits()),
         };
 
         let timeline = BeatTimeline {
@@ -2797,10 +3041,29 @@ mod tests {
 
     #[test]
     fn master_volume_controls_music_and_metronome_together() {
-        assert_eq!(apply_master_gain(0.4, 0.2, 0.0, 1.0), 0.0);
-        assert!((apply_master_gain(0.4, 0.2, 0.5, 1.0) - 0.3).abs() < f32::EPSILON);
-        assert_eq!(apply_master_gain(1.0, 1.0, 1.0, 1.0), 1.0);
-        assert!((apply_master_gain(0.4, 0.2, 1.0, 0.5) - 0.4).abs() < f32::EPSILON);
+        assert_eq!(apply_master_gain(0.4, 0.2, 0.0, 1.0, 1.0), 0.0);
+        assert!((apply_master_gain(0.4, 0.2, 0.5, 1.0, 1.0) - 0.3).abs() < f32::EPSILON);
+        assert_eq!(apply_master_gain(1.0, 1.0, 1.0, 1.0, 1.0), 2.0);
+        assert!((apply_master_gain(0.4, 0.2, 1.0, 0.5, 1.0) - 0.4).abs() < f32::EPSILON);
+        assert!((apply_master_gain(0.4, 0.2, 1.0, 1.0, 0.5) - 0.4).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn safety_limiter_keeps_boosted_output_below_the_ceiling() {
+        let mut limiter = SafetyLimiter::new(2, 48_000);
+        limiter.frame.copy_from_slice(&[2.0, -1.5]);
+        let gain = limiter.process_frame();
+        assert!((limiter.frame[0] * gain).abs() <= LIMITER_CEILING + f32::EPSILON);
+        assert!((limiter.frame[1] * gain).abs() <= LIMITER_CEILING + f32::EPSILON);
+        assert!(gain < 1.0);
+    }
+
+    #[test]
+    fn output_meter_uses_the_limiter_ceiling_as_full_scale() {
+        assert_eq!(output_meter_level(0.0), 0.0);
+        assert!((output_meter_level(LIMITER_CEILING * 0.5) - 0.5).abs() < f32::EPSILON);
+        assert_eq!(output_meter_level(LIMITER_CEILING), 1.0);
+        assert_eq!(output_meter_level(1.0), 1.0);
     }
 
     #[test]
@@ -2913,13 +3176,25 @@ mod tests {
             frames: 2,
         };
 
-        store_decoded_cache(&source, metadata.len(), metadata.modified().ok(), &audio).unwrap();
+        let loudness = LoudnessAnalysis {
+            integrated_lufs: -18.25,
+            true_peak: 0.75,
+        };
+        store_decoded_cache(
+            &source,
+            metadata.len(),
+            metadata.modified().ok(),
+            &audio,
+            loudness,
+        )
+        .unwrap();
         let cached = load_decoded_cache(&source, metadata.len(), metadata.modified().ok()).unwrap();
 
-        assert_eq!(cached.samples, audio.samples);
-        assert_eq!(cached.channels, audio.channels);
-        assert_eq!(cached.sample_rate, audio.sample_rate);
-        assert_eq!(cached.frames, audio.frames);
+        assert_eq!(cached.audio.samples, audio.samples);
+        assert_eq!(cached.audio.channels, audio.channels);
+        assert_eq!(cached.audio.sample_rate, audio.sample_rate);
+        assert_eq!(cached.audio.frames, audio.frames);
+        assert_eq!(cached.loudness, loudness);
     }
 
     #[test]
