@@ -1,11 +1,15 @@
 # Stem separation
 
-SonArcan provides an optional six-channel practice mixer backed by `htdemucs_6s` and Apple MLX. The feature is deliberately opt-in because source separation consumes substantially more compute and disk space than normal playback.
+SonArcan provides an optional six-channel practice mixer backed by one
+`htdemucs_6s` model. Apple Silicon uses Apple MLX; macOS Intel, Windows, and
+Linux use portable Torch inference. The feature is deliberately opt-in because
+source separation consumes substantially more compute and disk space than
+normal playback.
 
 ## User workflow
 
-1. Select a track and enable six-stem mode on an Apple-silicon Mac.
-2. SonArcan starts its pinned, bundled Python/MLX worker and model.
+1. Select a track and enable six-stem mode on a supported desktop.
+2. SonArcan starts the target's pinned, bundled Python worker and shared model.
 3. Structured progress is reported while HTDemucs separates vocals, drums, bass, other, guitar, and piano.
 4. The vertical mixer becomes available when all six cached buffers are complete.
 5. Later activations for the same unmodified source load the project cache instead of running inference again.
@@ -16,15 +20,52 @@ The header switch is a real-time bypass after generation. Switching it off resto
 
 ## Implementation constraints
 
-- Rust supervises the private MLX worker; caching and real-time mixing remain Rust-owned.
+- Rust selects and supervises the private MLX or Torch worker; caching and real-time mixing remain Rust-owned.
 - TypeScript receives status and control metadata only.
 - The CPAL callback performs no inference, I/O, allocation, locking, or IPC.
 - A stem set is activated only after all six outputs and the manifest have been committed.
 - Cache artifacts are generated data and may be removed safely; SonArcan will regenerate them on demand.
 - Validation and cache-write durations are logged separately with the model name. Matching stereo stems avoid a redundant alignment copy, and cache PCM is encoded and written in bounded blocks.
 
-The worker pins Python 3.13.5 and every package in `uv.lock`. uv is used only on development and build machines; a relocatable runtime and safe MLX model are included as signed application resources. The model config records and validates the official source identity and generated safetensors SHA-256.
+The MLX worker pins Python 3.13.5; the portable worker pins Python 3.12.12 and
+CPU Torch. uv is used only on development and build machines. The model config
+records and validates the official source identity and generated Safetensors
+SHA-256. Torch reconstructs the upstream module from that same file and rejects
+missing, extra, or shape-mismatched tensors.
+
+Portable inference follows Demucs' documented fast CPU profile: the shift trick
+is disabled on CPU, retained on accelerators, and window overlap is reduced from
+25% to 10%. Inference runs under Torch inference mode and uses deterministic
+shift selection. The worker logs model-load, decode, inference, and output-write
+durations separately. A measured model load takes only a small fraction of a
+second, so releases do not duplicate the shared MLX-layout tensors for Intel.
+
+## September 2026 performance measurements
+
+The optimization benchmark uses 30 seconds of generated 44.1 kHz stereo float
+audio on a 16 GB MacBook Air M3. Each comparison uses warmed runtime and Metal
+caches. Wall-clock results include model loading, decode, inference, and six WAV
+writes.
+
+| Backend | Previous profile | Optimized profile | Change |
+| --- | ---: | ---: | ---: |
+| Portable Torch, CPU | 9.04 s | 8.47 s | -6.3% wall time; -11.1% CPU time |
+| Portable Torch, MPS | 6.54 s | 5.74 s | -12.2% wall time |
+| Native MLX, batch 2 | 3.91 s | 3.32 s | -15.1% wall time |
+
+The MLX batch sweep was repeated after selecting 10% overlap. Batch 2 completed
+in 3.32 seconds with a 2.65 GiB MLX peak; batch 4 took 4.31 seconds with a
+3.90 GiB peak; batch 8 took 5.36 seconds with a 3.90 GiB peak. Batch 2 therefore
+remains the release default. Portable Torch model loading measured 0.14 seconds,
+so a second Intel-specific tensor artifact would target the wrong bottleneck.
+Every desktop release job now runs a 15-second end-to-end separation and prints
+its real-time factor, providing target-native Intel, Linux, Windows, and Apple
+Silicon measurements for release qualification.
 
 ## Remaining validation
 
-The automated suite validates the worker protocol, six-buffer cache, real-time engine, frontend, and Rust compilation paths without requiring Metal. Release qualification additionally runs a real model smoke test on Apple Silicon, records cold/warm processing time, verifies stem reconstruction and alignment, and monitors peak memory use. Intel macOS, Linux, and Windows are not MLX stem targets.
+The automated suite validates both workers, the strict shared-model
+reconstruction, six-buffer cache, real-time engine, frontend, and native builds
+on all four release targets. Release qualification additionally runs model
+self-tests in each bundled runtime. MLX performance qualification remains
+specific to Apple Silicon; portable CPU timings are recorded separately.

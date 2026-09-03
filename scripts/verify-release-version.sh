@@ -22,6 +22,7 @@ required_icons=(
   "icons/128x128.png"
   "icons/128x128@2x.png"
   "icons/icon.icns"
+  "icons/icon.ico"
 )
 configured_icons="$(node -p "require('$repository_root/src-tauri/tauri.conf.json').bundle.icon.join('\\n')")"
 for icon in "${required_icons[@]}"; do

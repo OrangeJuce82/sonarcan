@@ -12,6 +12,7 @@
   import { droppedAudioPaths } from "./lib/importPaths";
   import { ImportSearchCache } from "./lib/importSearchCache";
   import { completedImportBatch } from "./lib/importCompletion";
+  import { BackgroundTaskScheduler } from "./lib/backgroundTaskScheduler";
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleChordEditModeShortcut, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
   import { activeChordIndexAt, adjacentChordGridIndex, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
@@ -33,6 +34,7 @@
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
+  let runtimeOs = "macos";
   let toasts: ToastMessage[] = [];
   let nextToastId = 1;
   let busy = false;
@@ -210,6 +212,7 @@
   const waveformCache = new Map<string, WaveformData>();
   const loadingWave = Array.from({ length: 72 }, (_, index) => Math.min(0.95, 0.12 + Math.abs(Math.sin(index * 0.71) * Math.cos(index * 0.17)) * 0.78));
   const warmedProjects = new Set<string>();
+  const backgroundTaskScheduler = new BackgroundTaskScheduler();
   type LoopDragMode = "a" | "b";
   let loopDrag: { mode: LoopDragMode; pointerId: number; a: number; b: number } | null = null;
   type ViewportDragMode = "move" | WaveformViewportEdge;
@@ -359,6 +362,19 @@
   );
   $: metronomeBeating = metronomeEnabled && isPlaying && isDetectedBeatActive(currentSeconds, chordAnalysis?.beats ?? [], playbackRate);
   $: activeImports = importQueue.filter((job) => !["completed", "failed"].includes(job.state));
+  $: backgroundTaskScheduler.setBlocked(
+    busy
+      || audioLoading
+      || waveformLoading
+      || tempoLoading
+      || chordsLoading
+      || stemGenerationStarting
+      || stems.state === "separating"
+      || importAnalyzing
+      || importActiveGroupIds.size > 0
+      || importPendingGroupIds.size > 0
+      || activeImports.length > 0,
+  );
   $: importProgress = importQueue.length ? importQueue.reduce((sum, job) => sum + job.progress, 0) / importQueue.length : 0;
   $: consoleOrigins = logOrigins(appLogs);
   $: filteredAppLogs = filterLogs(appLogs, consoleMinimumLevel, consoleOrigin);
@@ -898,6 +914,7 @@
     let unlistenExit: UnlistenFn | undefined;
     let unlistenProjectOpen: UnlistenFn | undefined;
     const appWindow = getCurrentWindow();
+    void diagnostics().then((value) => runtimeOs = value.os).catch(() => undefined);
     let activeParameterShortcut: ParameterShortcut | null = null;
     let parameterShortcutActionUsed = false;
     void listen<string>("native-menu", (event) => handleNativeMenu(event.payload)).then((stop) => unlisten = stop);
@@ -1070,6 +1087,7 @@
       stopJumpHold();
       cancelPendingSeek();
       cancelWaveformFollowAnimation();
+      backgroundTaskScheduler.cancelAll();
       for (const timer of importDismissTimers.values()) window.clearTimeout(timer);
       importDismissTimers.clear();
       window.removeEventListener("error", handleWindowError);
@@ -1263,7 +1281,7 @@
 
   function loadProject(): void {
     void run(async () => {
-      const packagePath = await open(projectOpenDialogOptions(t("openProject")));
+      const packagePath = await open(projectOpenDialogOptions(t("openProject"), runtimeOs === "macos"));
       if (!packagePath) return;
       if (!await ensureProjectAccess(packagePath)) return;
       window.clearTimeout(practiceSaveTimer);
@@ -1312,6 +1330,7 @@
 
   async function resetTrackState(): Promise<void> {
     ++trackSelectionGeneration;
+    backgroundTaskScheduler.cancelAll();
     await cancelChordAnalysis();
     cancelPendingSeek();
     window.clearTimeout(playbackRateTimer);
@@ -2260,8 +2279,7 @@
       if (track.practice.stemsEnabled) void enableStems({ resumePlayback: autoplay });
       else if (autoplay) await play();
       if (!stillSelected()) return;
-      preloadNeighbour(track);
-      void warmPlaylistCache(packagePath, track.id);
+      schedulePlaylistWarmup(packagePath, track.id);
     } catch (error) {
       if (stillSelected()) {
         notify("error", t("playbackError"), errorText(error));
@@ -2274,25 +2292,32 @@
     }
   }
 
-  function preloadNeighbour(track: TrackSummary): void {
-    if (!project || project.tracks.length < 2) return;
-    const index = project.tracks.findIndex((candidate) => candidate.id === track.id);
-    const next = project.tracks[(index + 1) % project.tracks.length];
-    if (next.id !== track.id) void audioPreload(project.packagePath, next.id).catch(() => undefined);
-  }
-
-  async function warmPlaylistCache(packagePath: string, selectedTrackId: string): Promise<void> {
+  function schedulePlaylistWarmup(packagePath: string, selectedTrackId: string): void {
     if (!project || warmedProjects.has(packagePath)) return;
-    warmedProjects.add(packagePath);
-    for (const track of project.tracks) {
-      if (project?.packagePath !== packagePath) return;
-      if (track.id === selectedTrackId) continue;
-      try {
-        await audioPreload(packagePath, track.id);
-      } catch {
-        // Cache warming is best-effort and must never block normal selection.
-      }
+    backgroundTaskScheduler.cancelScope(packagePath);
+    const selectedIndex = project.tracks.findIndex((track) => track.id === selectedTrackId);
+    const tracks = project.tracks.filter((track) => track.id !== selectedTrackId);
+    if (selectedIndex >= 0 && tracks.length > 1) {
+      const nextId = project.tracks[(selectedIndex + 1) % project.tracks.length]?.id;
+      tracks.sort((left, right) => Number(right.id === nextId) - Number(left.id === nextId));
     }
+    for (const track of tracks) {
+      backgroundTaskScheduler.enqueue({
+        scope: packagePath,
+        key: track.id,
+        run: async () => {
+          if (project?.packagePath !== packagePath) return;
+          await audioPreload(packagePath, track.id);
+        },
+      });
+    }
+    backgroundTaskScheduler.enqueue({
+      scope: packagePath,
+      key: "playlist-warmed",
+      run: async () => {
+        if (project?.packagePath === packagePath) warmedProjects.add(packagePath);
+      },
+    });
   }
 
   async function loadTrackWaveform(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {

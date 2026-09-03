@@ -1,4 +1,4 @@
-name: Release macOS Apple Silicon
+name: Release desktop
 
 on:
   push:
@@ -56,6 +56,14 @@ jobs:
       - name: Assemble pinned release runtime
         run: npm run mlx:runtime
       - run: npm run verify:mlx-release
+      - name: Share the reusable HTDemucs model
+        uses: actions/upload-artifact@v6
+        with:
+          name: htdemucs-6s-model
+          path: |
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
+          if-no-files-found: error
       - name: Prepare pinned Beat This! model
         run: npm run chords:downbeat-model
       - name: Assemble pinned LV-Chordia runtime
@@ -74,6 +82,8 @@ jobs:
         if: steps.ffmpeg-runtime-cache.outputs.cache-hit != 'true'
         run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
+      - name: Qualify MLX separation performance
+        run: npm run qualify:stem-performance
       - run: npm run quality
       - name: Ad-hoc sign embedded release binaries
         run: npm run sign:release-resources
@@ -87,7 +97,7 @@ jobs:
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target aarch64-apple-darwin --bundles app,dmg
+          args: --target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.macos-arm.conf.json
       - name: Verify bundled macOS resources
         run: |
           app_bundle="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SonArcan.app"
@@ -106,6 +116,8 @@ jobs:
           "$app_bundle/Contents/Resources/audio-tools/bin/ffprobe" -hide_banner -version
           "$app_bundle/Contents/Resources/chord-runtime/runtime/bin/python3.12" -m sonarcan_chord_worker.worker --self-test --downbeat-model "$app_bundle/Contents/Resources/models/beat-this/final0.ckpt"
           "$app_bundle/Contents/Resources/chord-runtime/runtime/bin/python3.12" "$app_bundle/Contents/Resources/ytdlp-search/yt-dlp" --version
+          npm run verify:bundled-release -- "$app_bundle"
+          codesign --verify --deep --strict --verbose=2 "$app_bundle"
       - name: Generate DMG checksum
         run: |
           dmg_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
@@ -121,3 +133,119 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" \
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt \
             --clobber
+
+  portable:
+    name: Release ${{ matrix.name }}
+    needs: release
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Intel
+            os: macos-15-intel
+            bundles: app,dmg
+            target: x86_64-apple-darwin
+          - name: Linux x64
+            os: ubuntu-24.04
+            bundles: deb,appimage
+            target: x86_64-unknown-linux-gnu
+          - name: Windows x64
+            os: windows-2025
+            bundles: nsis
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    env:
+      APPLE_SIGNING_IDENTITY: "-"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: |
+            tools/sonarcan-torch-worker/uv.lock
+            tools/sonarcan-chord-worker/uv.lock
+      - name: Install Tauri Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libfuse2 \
+            patchelf
+      - run: uv python install 3.12.12
+      - run: npm ci
+      - run: npm run verify:release-version
+      - uses: actions/download-artifact@v7
+        with:
+          name: htdemucs-6s-model
+          path: src-tauri/resources/models/demucs-mlx
+      - run: npm run chords:downbeat-model
+      - run: npm run chords:runtime
+      - run: npm run verify:chord-release
+      - run: npm run stems:runtime
+      - run: npm run verify:stem-release
+      - run: npm run ytdlp:search
+      - run: npm run verify:ytdlp-search-release
+      - run: npm run ffmpeg:runtime
+      - run: npm run verify:ffmpeg-release
+      - name: Qualify portable separation performance
+        run: npm run qualify:stem-performance
+      - run: npm run quality
+      - name: Ad-hoc sign embedded macOS binaries
+        if: runner.os == 'macOS'
+        run: npm run sign:release-resources
+      - name: Build bundle and upload it to the draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: SonArcan ${{ github.ref_name }}
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.portable.conf.json
+      - name: Verify packaged macOS Intel application
+        if: runner.os == 'macOS'
+        run: |
+          app_bundle="src-tauri/target/${{ matrix.target }}/release/bundle/macos/SonArcan.app"
+          npm run verify:bundled-release -- "$app_bundle"
+          codesign --verify --deep --strict --verbose=2 "$app_bundle"
+      - name: Verify packaged Linux applications
+        if: runner.os == 'Linux'
+        run: |
+          verification_root="$(mktemp -d)"
+          deb_path="$(find src-tauri/target/${{ matrix.target }}/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          appimage_path="$(find src-tauri/target/${{ matrix.target }}/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$deb_path"
+          test -n "$appimage_path"
+          dpkg-deb -x "$deb_path" "$verification_root/deb"
+          npm run verify:bundled-release -- "$verification_root/deb"
+          mkdir "$verification_root/appimage"
+          cd "$verification_root/appimage"
+          "$GITHUB_WORKSPACE/$appimage_path" --appimage-extract >/dev/null
+          cd "$GITHUB_WORKSPACE"
+          npm run verify:bundled-release -- "$verification_root/appimage/squashfs-root"
+          rm -rf "$verification_root"
+      - name: Install and verify packaged Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer is missing" }
+          $installRoot = Join-Path $env:RUNNER_TEMP "sonarcan-release-verification"
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList "/S", "/D=$installRoot" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($process.ExitCode)" }
+          npm run verify:bundled-release -- "$installRoot"

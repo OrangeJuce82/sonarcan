@@ -54,7 +54,114 @@ ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0429"
-reason = "Affected glib API is in Tauri's Linux-only GTK3 stack and is not reachable in the supported macOS build; review before Linux release."
+reason = "Affected glib iterator API is not called by SonArcan or its Tauri integration; Linux maintenance risk is tracked in SECURITY.md."
+ignoreUntil = 2026-11-30
+
+# Intel macOS is limited to the last upstream PyTorch wheel (2.2.2). The worker
+# strictly loads a pinned Safetensors file and calls one fixed eager HTDemucs
+# graph. It never exposes torch.load/PT2, distributed/RPC, JIT, Inductor,
+# quantized modules, user models, or arbitrary tensor operations. These
+# time-bounded exceptions apply only to that legacy wheel; Linux and Windows use
+# Torch 2.13.0 CPU. Re-review or retire Intel stems by the deadline.
+
+[[IgnoredVulns]]
+id = "PYSEC-2024-259"
+reason = "Intel-only Torch; distributed RemoteModule is never imported or exposed by the fixed Safetensors worker."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-191"
+reason = "Intel-only Torch; the fixed HTDemucs eager graph does not call mkldnn_max_pool2d."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-198"
+reason = "Intel-only Torch; the affected operation is absent from the fixed HTDemucs eager graph."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-203"
+reason = "Intel-only Torch; the fixed HTDemucs eager graph does not call torch.linalg.lu."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-204"
+reason = "Intel-only Torch; the fixed HTDemucs eager graph does not combine rot90 and randn_like."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-205"
+reason = "Intel-only Torch; proxy_tensor and user-selected graphs are never exposed."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-206"
+reason = "Intel-only Torch; the affected nan_to_num integer conversion is absent from the fixed graph."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-207"
+reason = "Intel-only Torch; Inductor compilation is disabled and never imported."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-208"
+reason = "Intel-only Torch; Inductor compilation and the affected adversarial graph are unavailable."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-209"
+reason = "Intel-only Torch; the affected operation is absent from the fixed HTDemucs eager graph."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2025-41"
+reason = "Intel-only Torch; torch.load and pickle checkpoints are never used; only verified Safetensors are accepted."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-139"
+reason = "Intel-only Torch; PT2 loading is never used; only verified Safetensors are accepted."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-1970"
+reason = "Intel-only Torch; the affected optional API is not reachable from the fixed worker contract."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2286"
+reason = "Intel-only Torch; torch.load and its weights_only unpickler are never called."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "GHSA-c678-jfcj-6jmf"
+reason = "Intel-only Torch; the affected optional API is not reachable from the fixed worker contract."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "GHSA-f4hp-rmr7-r7v8"
+reason = "Intel-only Torch; the affected optional API is not reachable from the fixed worker contract."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "GHSA-qfhq-4f3w-5fph"
+reason = "Intel-only Torch; the fixed HTDemucs eager graph does not call lstm_cell."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "GHSA-rrmf-rvhw-rf47"
+reason = "Intel-only Torch; JIT scripting is never enabled or exposed."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "GHSA-vgrw-7cvw-pwgx"
+reason = "Intel-only Torch; unpack_sequence is absent from the fixed HTDemucs graph."
+ignoreUntil = 2026-11-30
+
+[[IgnoredVulns]]
+id = "GHSA-x3gm-94wq-g975"
+reason = "Intel-only Torch; quantized modules are absent from the fixed HTDemucs graph."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]

@@ -60,20 +60,31 @@ trust boundary instead.
 Review deadline: **2026-11-30**.
 
 - Tauri's Linux GTK3 graph carries ten unmaintained GTK binding notices and the
-  `glib 0.18` iterator advisory. That graph is not compiled into the currently
-  supported macOS build. Before distributing Linux builds, update/migrate the
-  upstream GUI stack or demonstrate that the affected API is unreachable.
+  `glib 0.18` iterator advisory. The GTK path is required by Tauri's supported
+  Linux WebView and is reviewed as a maintenance risk through the deadline
+  above; none of these notices currently reports an exploitable vulnerability.
+  A reachable memory-safety or code-execution advisory blocks Linux releases.
 - Tauri's `urlpattern` graph carries five unmaintained `unic` crates.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
+- PyTorch no longer publishes current Intel macOS wheels. That target alone uses
+  2.2.2 behind a narrow worker which loads only the pinned Safetensors model and
+  executes one fixed eager HTDemucs graph. It never exposes pickle/`torch.load`,
+  PT2 loading, distributed/RPC, JIT, Inductor, quantized modules, arbitrary
+  models, or arbitrary tensor operations. The associated advisories are
+  time-bounded in `osv-scanner.toml`; Windows and Linux use Torch 2.13.0 CPU.
+  Re-review the upstream Intel situation or retire Intel stem inference by the
+  deadline.
 
 These are maintenance advisories, not permission to ignore a vulnerability.
 Any advisory reporting memory safety, code execution, path escape, data loss, or
 denial of service in a reachable supported-target path blocks release.
 
-The MLX worker, Python interpreter, packages, and model are fixed release inputs.
-Release assembly validates the lockfile and model checksum; the application does
-not install uv or resolve Python packages at runtime. Dependency and model
-updates require a fresh audit and regenerated signed release resources.
+The MLX and portable Torch workers, Python interpreters, packages, and shared
+model are fixed release inputs. Release assembly validates each target lockfile
+and model checksum; the application does not install uv or resolve Python
+packages at runtime. Linux and Windows FFmpeg archives are accepted only after
+validating a checksum manifest whose own SHA-256 is pinned in source. Dependency
+and model updates require a fresh audit and regenerated release resources.
 
 ## Reporting and response
 

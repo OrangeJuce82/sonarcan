@@ -7,9 +7,10 @@ Compressed media is decoded on Tauri's blocking worker pool, never on the UI thr
 Development builds use light optimization for SonArcan and full optimization for third-party audio and DSP crates. On the 175-second MP3 used for the August 2026 loading benchmark, waveform availability improved from about 10.26 seconds with the default debug profile to about 208 ms (172 ms decode plus 36 ms reduction). The release build measured 127 ms overall (123 ms decode plus 4 ms reduction). Beat This! analysis starts only after the selected audio is ready, so it cannot compete with the initial decode. Release optimization remains unchanged.
 
 Chord and downbeat recognition are not part of playback or decoded-audio
-ownership. They start concurrently as independent tasks after the selected track
-is ready and run in one supervised process containing LV-Chordia and Beat This!
-models. Beat This! output never changes or splits the chord timeline. The
+ownership. After the selected track is ready, one supervised process runs
+LV-Chordia first and Beat This! second. This avoids simultaneous pressure on the
+same CPU or accelerator while retaining both outputs for downstream features.
+Beat This! output never changes or splits the chord timeline. The
 process can be killed when track selection changes. Model inference and official
 decoding never execute on the CPAL callback. The worker reads the canonical
 original media directly; it does not depend on stems, UI beat visualization,
@@ -25,22 +26,42 @@ remaining overlap. Chord regions therefore always have ordered,
 non-overlapping timing boundaries.
 
 On the August 30, 2026 Apple-silicon integration check, Beat This! detected 75
-downbeats in a 173-second MP3 in 6.47 seconds on MPS. The warmed combined
-LV-Chordia and Beat This! worker completed the same track in 9.27 seconds.
+downbeats in a 173-second MP3 in 6.47 seconds on MPS. Before model execution was
+serialized, the warmed concurrent LV-Chordia and Beat This! worker completed the
+same track in 9.27 seconds. That number remains a historical contention baseline,
+not a measurement of the sequential worker, which must be benchmarked on the same
+media before making a wall-clock performance claim.
 
 Every in-flight decode is removed from the coordination set on both success and failure before waiting callers are notified. A damaged or unreadable media file therefore cannot leave waveform, playback, or tempo requests waiting permanently.
 
-Decoded samples are also written asynchronously to `Cache/decoded` in a compact binary PCM format. Its header fingerprints the source size and nanosecond modification time and records channels, sample rate, and frame count. A valid cache bypasses compressed-media decoding on later sessions. The remaining playlist is warmed sequentially in the background after the active track is ready, avoiding competing decoder jobs.
+Decoded samples are also written asynchronously to `Cache/decoded` in a compact binary PCM format. Its header fingerprints the source size and nanosecond modification time and records channels, sample rate, and frame count. A valid cache bypasses compressed-media decoding on later sessions. The remaining playlist is warmed sequentially in the background after the active track is ready, with the next track first. A frontend scheduler starts at most one warming task after a short idle delay and pauses the queue while loading, chord/rhythm analysis, stem separation, or imports are active. This preserves foreground responsiveness and avoids competing decoder jobs.
 
 Rapid selections use monotonically increasing load generations. A slow, obsolete decode may populate the cache, but it cannot replace the newer track selected by the user.
 
 The real-time callback never locks or reads this cache. It only sees the selected immutable audio buffer through `ArcSwap`.
 
-## Optional HTDemucs 6s stem mode
+## Optional cross-platform HTDemucs 6s stem mode
 
-Stem mode is disabled by default and never delays ordinary track loading. On an Apple-silicon Mac, enabling it starts the private `sonarcan-mlx-worker` process with the exact `demucs-mlx` environment from `tools/sonarcan-mlx-worker/uv.lock`. Development uses uv-managed Python 3.13.5. Release assembly copies uv's complete standalone CPython distribution and synchronizes the locked production packages into it; uv is not installed or executed on the user's Mac.
+Stem mode is disabled by default and never delays ordinary track loading. On an
+Apple-silicon Mac it starts `sonarcan-mlx-worker` with the exact `demucs-mlx`
+environment. macOS Intel, Windows, and Linux start `sonarcan-torch-worker` with
+the pinned CPU-portable Torch environment (and CUDA when an explicitly
+compatible runtime is supplied). Both use one six-stem protocol and one cache.
+Release assembly copies a complete standalone CPython distribution; uv is never
+installed or executed on an end-user machine.
 
-The pinned `htdemucs_6s` model is supplied as a release resource and verified against the SHA-256 in its config before MLX loads it. The worker emits bounded newline-delimited JSON for stage changes, segment progress, logs, errors, and completion. Rust supervises and can terminate the child process, treats every event and output path as untrusted, and accepts only the exact vocals, drums, bass, other, guitar, piano contract.
+The pinned `htdemucs_6s` model is supplied once as a release resource and
+verified against the SHA-256 in its config before either backend loads it. The
+worker emits bounded newline-delimited JSON for stage changes, segment progress,
+logs, errors, and completion. Rust supervises and can terminate the child
+process, treats every event and output path as untrusted, and accepts only the
+exact vocals, drums, bass, other, guitar, piano contract.
+
+The portable worker disables Demucs' shift trick on CPU, retains one
+deterministic shift on accelerators, and uses the upstream documented 10% fast
+overlap. Torch inference mode removes autograd bookkeeping. Its phase timings
+are logged independently so further optimization must be supported by measured
+model-load, decode, inference, and write results.
 
 Completed WAV stems are decoded and aligned to the source sample rate and frame count before being committed under `Stems/<track-id>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, model revision, track identifier, source size, and nanosecond modification time. Only after all six stems validate does the engine swap an immutable six-buffer set into the callback. Per-stem gain, pan, mute, solo, bypass, and peak values remain atomic and allocation-free in the callback. Bypass selects the original immutable audio buffer without releasing the stem set, enabling immediate original/mix comparisons.
 

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sonarcan-torch-worker"
+version = "0.1.0"
+description = "Portable six-stem HTDemucs worker for SonArcan"
+requires-python = "==3.12.*"
+dependencies = [
+  "demucs==4.1.0",
+  "numpy==1.26.4",
+  "safetensors==0.8.0",
+  # PyTorch stopped publishing Intel macOS wheels after 2.2.2. That legacy
+  # target is isolated from all serialization/distributed APIs; other targets
+  # use the current audited CPU runtime.
+  "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+  "torch==2.13.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
+
+[project.scripts]
+sonarcan-torch-worker = "sonarcan_torch_worker.worker:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+required-version = "==0.9.26"
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[dependency-groups]
+dev = []

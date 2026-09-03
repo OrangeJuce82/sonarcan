@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 import json
 import sys
 from pathlib import Path
@@ -33,11 +32,8 @@ def analyze(audio_path: Path, downbeat_model: Path, requested_device: str = "aut
     if requested_device == "auto":
         requested_device = "mps" if torch.backends.mps.is_available() else "cpu"
     device = resolve_device(requested_device)
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="sonarcan-analysis") as executor:
-        chord_future = executor.submit(_analyze_chords, audio_path, device)
-        rhythm_future = executor.submit(detect_rhythm, audio_path, downbeat_model, device)
-        modes = chord_future.result()
-        beats, downbeats, bpm = rhythm_future.result()
+    modes = _analyze_chords(audio_path, device)
+    beats, downbeats, bpm = detect_rhythm(audio_path, downbeat_model, device)
     return {
         "modelVersion": f"lv-chordia@{SOURCE_REVISION}",
         "downbeatModelVersion": f"beat-this@{BEAT_THIS_VERSION}:final0",

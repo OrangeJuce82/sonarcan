@@ -71,7 +71,7 @@
 - [ ] playlist reordering and deletion
 - [ ] crash-safe recovery and backups
 - [ ] audio-device diagnostics
-- [ ] CI builds on macOS, Linux, and Windows
+- [x] CI native builds on macOS ARM64, macOS Intel, Linux x64, and Windows x64
 
 ## Phase 2 — learning workflow
 
@@ -108,6 +108,7 @@
 - [x] structured `yt-dlp` diagnostics with actionable user guidance and in-app Rust logs
 - [x] explicit pasted-text analysis without application clipboard monitoring
 - [ ] import cancellation, retry controls, and completed-job pruning
-- [ ] macOS Apple Silicon packaging first
-- [ ] Linux packaging second
-- [ ] Windows packaging third
+- [x] macOS Apple Silicon packaging with MLX
+- [x] macOS Intel packaging with portable Torch stems
+- [x] Linux x64 packaging with portable Torch stems
+- [x] Windows x64 packaging with portable Torch stems

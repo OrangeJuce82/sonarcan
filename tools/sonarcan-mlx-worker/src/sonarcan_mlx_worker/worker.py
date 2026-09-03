@@ -7,6 +7,7 @@ import json
 import logging
 import random
 import sys
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -24,6 +25,8 @@ MODEL_CONFIG_FIELDS = {
     "source_artifacts", "mlx_version", "conversion_date", "verification_passed",
     "safetensors_sha256",
 }
+INFERENCE_OVERLAP = 0.10
+GIBIBYTE = 1024**3
 
 
 def emit(event_type: str, **fields: Any) -> None:
@@ -146,7 +149,7 @@ def _apply_with_one_shift(model: Any, mix: Any, seed: int, batch_size: int) -> A
             shifted,
             shifts=0,
             split=True,
-            overlap=0.25,
+            overlap=INFERENCE_OVERLAP,
             progress=True,
             batch_size=batch_size,
             seed=seed,
@@ -167,6 +170,7 @@ def separate(input_path: Path, output_dir: Path, model_dir: Path, batch_size: in
 
     logging.getLogger().handlers = [ProtocolLogHandler()]
     logging.getLogger().setLevel(logging.INFO)
+    started = time.perf_counter()
     emit("stage", stage="loadingModel", progress=0.03)
 
     from demucs_mlx.mlx_convert import load_mlx_model
@@ -179,11 +183,15 @@ def separate(input_path: Path, output_dir: Path, model_dir: Path, batch_size: in
     )
     if tuple(model.sources) != ("drums", "bass", "other", "vocals", "guitar", "piano"):
         raise RuntimeError("demucs-mlx returned an unexpected stem order")
+    model_loaded = time.perf_counter()
 
     emit("stage", stage="loadingAudio", progress=0.10)
     wav = _load_audio(input_path, model)
+    audio_loaded = time.perf_counter()
     estimates = _apply_with_one_shift(model, wav[None, ...], seed=0, batch_size=batch_size)
+    inference_finished = time.perf_counter()
 
+    import mlx.core as mx
     import numpy as np
     from demucs_mlx.audio import save_audio
 
@@ -206,6 +214,18 @@ def separate(input_path: Path, output_dir: Path, model_dir: Path, batch_size: in
             completed=index + 1,
             total=len(STEM_NAMES),
         )
+    finished = time.perf_counter()
+    peak_gib = mx.get_peak_memory() / GIBIBYTE
+    emit(
+        "log",
+        level="info",
+        message=(
+            f"HTDemucs MLX settings: batch={batch_size}, overlap={INFERENCE_OVERLAP:.2f}; "
+            f"model={model_loaded - started:.2f}s, decode={audio_loaded - model_loaded:.2f}s, "
+            f"inference={inference_finished - audio_loaded:.2f}s, "
+            f"write={finished - inference_finished:.2f}s, peak={peak_gib:.2f}GiB"
+        ),
+    )
     emit("complete", stage="complete", progress=1.0, stems=list(STEM_NAMES))
 
 
@@ -219,7 +239,12 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--input", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
     command.add_argument("--model-dir", type=Path, required=True)
-    command.add_argument("--batch-size", type=int, default=2, choices=range(1, 9))
+    command.add_argument(
+        "--batch-size",
+        type=int,
+        default=2,
+        choices=range(1, 9),
+    )
     return parser
 
 

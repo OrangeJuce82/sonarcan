@@ -9,10 +9,12 @@ lame_version="3.100"
 lame_sha256="ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
 minimum_macos_version="14.0"
 
-if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
-  echo "The bundled FFmpeg runtime must be assembled on an Apple-silicon Mac." >&2
+machine="$(uname -m)"
+if [[ "$(uname -s)" != "Darwin" || ( "$machine" != "arm64" && "$machine" != "x86_64" ) ]]; then
+  echo "The bundled macOS FFmpeg runtime must be assembled on an ARM64 or Intel Mac." >&2
   exit 1
 fi
+ffmpeg_arch="$machine"
 
 build_root="$(mktemp -d "${TMPDIR:-/tmp}/sonarcan-ffmpeg.XXXXXX")"
 trap 'rm -rf "$build_root"' EXIT
@@ -59,7 +61,7 @@ tar -xJf "$ffmpeg_archive" -C "$build_root"
   cd "$build_root/ffmpeg-$ffmpeg_version"
   PKG_CONFIG_PATH="$prefix/lib/pkgconfig" ./configure \
     --prefix="$prefix" \
-    --arch=arm64 \
+    --arch="$ffmpeg_arch" \
     --target-os=darwin \
     --cc=clang \
     --disable-shared \
@@ -85,7 +87,8 @@ cp "$build_root/lame-$lame_version/COPYING" "$output_dir/licenses/LAME-LGPL.txt"
 
 cat > "$output_dir/manifest.json" <<EOF
 {
-  "architecture": "arm64",
+  "architecture": "$ffmpeg_arch",
+  "platform": "darwin",
   "ffmpegVersion": "$ffmpeg_version",
   "ffmpegSourceSha256": "$ffmpeg_sha256",
   "lameVersion": "$lame_version",

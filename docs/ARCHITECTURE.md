@@ -46,9 +46,10 @@ official `ismir2017`, `submission`, and `full` dictionary decodes. A separate
 pinned Beat This! `final0` model detects beats and downbeats with its official
 minimal post-processing and no DBN. Beat timestamps drive the waveform grid and
 metronome, their median interval provides a read-only indicative BPM, and
-downbeats only accent those rhythmic views. LV-Chordia and Beat This! start as
-independent concurrent tasks; Beat This! never changes or splits an LV-Chordia
-label, boundary, score, timeline card, or repertoire entry. Neither model uses
+downbeats only accent those rhythmic views. The worker runs LV-Chordia first,
+then Beat This!, so the two models do not compete for the same CPU or accelerator
+and both results remain available downstream. Beat This! never changes or splits
+an LV-Chordia label, boundary, score, timeline card, or repertoire entry. Neither model uses
 stems, UI beat visualization, tonal rules, or a SonArcan decoder. Rust validates the
 sequences and downbeat positions, supervises cancellation,
 rejects stale generations, and stores a source-identity-checked disposable
@@ -180,8 +181,11 @@ Control messages will use bounded queues and preallocated buffers. Dropout and u
 
 UI polling is bounded and guarded against overlapping requests. Prefer versioned
 events when they reduce IPC frequency without introducing callback work. Optional
-analysis and model initialization stays lazy; the selected track is loaded first,
-and background cache warming must yield to active user work.
+analysis and model initialization stays lazy; the selected track is loaded first.
+The frontend background scheduler serializes decoded-cache warming, prioritizes
+the next playlist track, and pauses new warming tasks while loading, analysis,
+stem separation, or imports are active. Work already inside a decoder may finish,
+but obsolete queued work is discarded when track or project selection changes.
 
 ## Error model
 
@@ -201,7 +205,15 @@ than one notification per track.
 
 The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
 
-The six-stem MLX process is an implementation detail behind the Rust stem service. It receives only canonical project media/model paths through a direct argument array and returns bounded NDJSON status; raw audio never crosses Tauri IPC. Debug builds resolve the locked uv environment. Release builds resolve the preassembled Python/MLX runtime and model from signed application resources, and never bootstrap uv or packages on the user's machine.
+Six-stem inference is an implementation detail behind one Rust stem service.
+Apple Silicon selects the MLX worker; macOS Intel, Windows, and Linux select the
+portable Torch worker. Both receive only canonical project media/model paths
+through direct argument arrays, return the same bounded NDJSON protocol, and
+load the same verified `htdemucs_6s.safetensors`. The portable worker reverses
+the deterministic convolution/attention layout mapping used during MLX
+conversion and requires a strict load of every upstream Torch parameter. Raw
+audio never crosses Tauri IPC. Release builds resolve target-native preassembled
+Python runtimes and never install packages on the user's machine.
 
 The stem mixer persists its six display names and control state in each track. Its header switch changes an atomic Rust bypass while retaining the immutable decoded stem buffers. The WebView receives only six bounded peak scalars in the normal audio-status snapshot; it never receives stem audio.
 

@@ -128,7 +128,39 @@ enum WorkerEvent {
 struct WorkerCommand {
     executable: PathBuf,
     prefix_arguments: Vec<String>,
+    additional_arguments: Vec<String>,
     model_dir: PathBuf,
+    backend: StemBackend,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StemBackend {
+    Mlx,
+    Torch,
+}
+
+impl StemBackend {
+    fn preferred() -> Self {
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            Self::Mlx
+        } else {
+            Self::Torch
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Mlx => "MLX",
+            Self::Torch => "Torch",
+        }
+    }
+
+    fn log_source(self) -> &'static str {
+        match self {
+            Self::Mlx => "mlx",
+            Self::Torch => "torch",
+        }
+    }
 }
 
 impl StemService {
@@ -154,7 +186,7 @@ impl StemService {
         }
         engine.disable_stems();
         set_status(&self.status, StemStatus::default());
-        app_log::push_external("mlx", "info", "stem separation disabled");
+        app_log::push_external("stems", "info", "stem separation disabled");
     }
 
     pub fn set_enabled(&self, engine: &AudioEngine, enabled: bool) -> bool {
@@ -167,7 +199,7 @@ impl StemService {
             status.enabled = enabled;
         }
         app_log::push_external(
-            "mlx",
+            "stems",
             "info",
             if enabled {
                 "stem mix enabled; original audio remains loaded"
@@ -184,20 +216,23 @@ impl StemService {
         package_path: PathBuf,
         track_id: Uuid,
     ) -> Result<(), AppError> {
-        ensure_supported_platform()?;
         if self.running.swap(true, Ordering::AcqRel) {
             return Err(AppError::StemSeparation(
                 "another stem separation is already running".into(),
             ));
         }
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        set_status(&self.status, active_status(track_id, 0.0, "checkingCache"));
+        let backend = StemBackend::preferred();
+        set_status(
+            &self.status,
+            active_status(track_id, 0.0, "checkingCache", backend.label()),
+        );
         let status = Arc::clone(&self.status);
         let running = Arc::clone(&self.running);
         let child = Arc::clone(&self.child);
         let active_generation = Arc::clone(&self.generation);
         std::thread::Builder::new()
-            .name("sonarcan-demucs-mlx".into())
+            .name("sonarcan-stem-worker".into())
             .spawn(move || {
                 let result = separate_or_load(
                     &app,
@@ -210,8 +245,8 @@ impl StemService {
                 );
                 if active_generation.load(Ordering::Acquire) == generation {
                     if let Err(error) = result {
-                        warn!(%track_id, %error, "demucs-mlx separation failed");
-                        app_log::push_external("mlx", "error", &error.to_string());
+                        warn!(%track_id, %error, "stem separation failed");
+                        app_log::push_external(backend.log_source(), "error", &error.to_string());
                         set_status(
                             &status,
                             StemStatus {
@@ -222,7 +257,7 @@ impl StemService {
                                 track_id: Some(track_id),
                                 cached: false,
                                 error: Some(error.to_string()),
-                                compute_backend: Some("MLX".into()),
+                                compute_backend: Some(backend.label().into()),
                             },
                         );
                     }
@@ -539,16 +574,6 @@ fn write_float_wave_header(
     output.write_all(&data_size.to_le_bytes())
 }
 
-fn ensure_supported_platform() -> Result<(), AppError> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Ok(())
-    } else {
-        Err(AppError::StemSeparation(
-            "demucs-mlx requires an Apple-silicon Mac".into(),
-        ))
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn separate_or_load(
     app: &AppHandle,
@@ -559,6 +584,7 @@ fn separate_or_load(
     status: &Arc<Mutex<StemStatus>>,
     current_child: &Arc<Mutex<Option<Arc<Mutex<Child>>>>>,
 ) -> Result<(), AppError> {
+    let backend = StemBackend::preferred();
     let media_path = project::track_media_path(package_path, track_id)?;
     let metadata = media_path
         .metadata()
@@ -571,22 +597,28 @@ fn separate_or_load(
     ) {
         app.state::<AudioEngine>()
             .activate_stems(&media_path, stems)?;
-        set_status(status, ready_status(track_id, true));
+        set_status(status, ready_status(track_id, true, backend.label()));
         app_log::push_external(
-            "mlx",
+            backend.log_source(),
             "info",
             &format!("{MODEL_NAME}: loaded the verified six-stem cache"),
         );
         return Ok(());
     }
-    set_status(status, active_status(track_id, 0.0, "separatingStems"));
+    let worker = resolve_worker(app)?;
+    set_status(
+        status,
+        active_status(track_id, 0.0, "separatingStems", worker.backend.label()),
+    );
     let separation_started = Instant::now();
     app_log::push_external(
-        "mlx",
+        worker.backend.log_source(),
         "info",
-        &format!("{MODEL_NAME}: starting six-stem generation with demucs-mlx"),
+        &format!(
+            "{MODEL_NAME}: starting six-stem generation with {}",
+            worker.backend.label()
+        ),
     );
-    let worker = resolve_worker(app)?;
     let source = app
         .state::<AudioEngine>()
         .decoded_for_analysis(&media_path)?;
@@ -610,18 +642,24 @@ fn separate_or_load(
         if active_generation.load(Ordering::Acquire) != generation {
             return Err(AppError::StemSeparation("separation cancelled".into()));
         }
-        set_status(status, active_status(track_id, 0.985, "validatingStems"));
+        set_status(
+            status,
+            active_status(track_id, 0.985, "validatingStems", worker.backend.label()),
+        );
         let validation_started = Instant::now();
         let stems = load_worker_stems(&output_dir, &source)?;
         app_log::push_external(
-            "mlx",
+            worker.backend.log_source(),
             "info",
             &format!(
                 "{MODEL_NAME}: six stems decoded and validated in {:.2}s",
                 validation_started.elapsed().as_secs_f64()
             ),
         );
-        set_status(status, active_status(track_id, 0.995, "cachingStems"));
+        set_status(
+            status,
+            active_status(track_id, 0.995, "cachingStems", worker.backend.label()),
+        );
         let cache_started = Instant::now();
         store_cache(
             package_path,
@@ -631,7 +669,7 @@ fn separate_or_load(
             &stems,
         )?;
         app_log::push_external(
-            "mlx",
+            worker.backend.log_source(),
             "info",
             &format!(
                 "{MODEL_NAME}: six-stem cache written in {:.2}s",
@@ -640,16 +678,19 @@ fn separate_or_load(
         );
         app.state::<AudioEngine>()
             .activate_stems(&media_path, stems)?;
-        set_status(status, ready_status(track_id, false));
+        set_status(
+            status,
+            ready_status(track_id, false, worker.backend.label()),
+        );
         app_log::push_external(
-            "mlx",
+            worker.backend.log_source(),
             "info",
             &format!(
                 "{MODEL_NAME}: six-stem generation completed in {:.2}s",
                 separation_started.elapsed().as_secs_f64()
             ),
         );
-        info!(%track_id, model = MODEL_NAME, "six-stem MLX cache is ready");
+        info!(%track_id, model = MODEL_NAME, backend = worker.backend.label(), "six-stem cache is ready");
         Ok(())
     });
     if output_dir.starts_with(&work_parent) && output_dir.exists() {
@@ -681,6 +722,7 @@ fn run_worker(
         .arg(output)
         .arg("--model-dir")
         .arg(&worker.model_dir)
+        .args(&worker.additional_arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -688,28 +730,30 @@ fn run_worker(
         .env_remove("PYTHONPATH");
     let mut child = command.spawn().map_err(|error| {
         AppError::StemSeparation(format!(
-            "could not start the pinned MLX runtime at {}: {error}",
+            "could not start the pinned {} runtime at {}: {error}",
+            worker.backend.label(),
             worker.executable.display()
         ))
     })?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| AppError::StemSeparation("MLX stdout is unavailable".into()))?;
+        .ok_or_else(|| AppError::StemSeparation("stem worker stdout is unavailable".into()))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| AppError::StemSeparation("MLX stderr is unavailable".into()))?;
+        .ok_or_else(|| AppError::StemSeparation("stem worker stderr is unavailable".into()))?;
     let child = Arc::new(Mutex::new(child));
     *current_child
         .lock()
-        .map_err(|_| AppError::StemSeparation("MLX process state is unavailable".into()))? =
+        .map_err(|_| AppError::StemSeparation("stem process state is unavailable".into()))? =
         Some(Arc::clone(&child));
+    let log_source = worker.backend.log_source();
     let stderr_thread = std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             if !line.trim().is_empty() {
                 let message: String = line.chars().take(8_192).collect();
-                app_log::push_external("mlx", "info", &message);
+                app_log::push_external(log_source, "info", &message);
             }
         }
     });
@@ -722,27 +766,28 @@ fn run_worker(
         let line = line.map_err(|error| AppError::StemSeparation(error.to_string()))?;
         if line.len() > MAX_PROTOCOL_LINE {
             return Err(AppError::StemSeparation(
-                "MLX worker emitted an oversized protocol message".into(),
+                "stem worker emitted an oversized protocol message".into(),
             ));
         }
         match serde_json::from_str::<WorkerEvent>(&line) {
             Ok(WorkerEvent::Stage { stage, progress })
-            | Ok(WorkerEvent::Progress { stage, progress }) => {
-                set_status(status, active_status(track_id, progress, &stage))
-            }
+            | Ok(WorkerEvent::Progress { stage, progress }) => set_status(
+                status,
+                active_status(track_id, progress, &stage, worker.backend.label()),
+            ),
             Ok(WorkerEvent::Log { level, message }) => {
-                app_log::push_external("mlx", safe_level(&level), &message)
+                app_log::push_external(worker.backend.log_source(), safe_level(&level), &message)
             }
             Ok(WorkerEvent::Complete { stems }) => {
                 complete = stems == STEM_NAMES.map(str::to_owned);
                 if !complete {
-                    worker_error = Some("MLX worker returned an invalid stem contract".into());
+                    worker_error = Some("stem worker returned an invalid stem contract".into());
                 }
             }
             Ok(WorkerEvent::Error { message }) => worker_error = Some(message),
             Ok(WorkerEvent::Unknown) => {}
             Err(error) => app_log::push_external(
-                "mlx",
+                worker.backend.log_source(),
                 "warn",
                 &format!("ignored malformed worker event: {error}"),
             ),
@@ -750,7 +795,7 @@ fn run_worker(
     }
     let exit = child
         .lock()
-        .map_err(|_| AppError::StemSeparation("MLX process state is unavailable".into()))?
+        .map_err(|_| AppError::StemSeparation("stem process state is unavailable".into()))?
         .wait()
         .map_err(|error| AppError::StemSeparation(error.to_string()))?;
     let _ = stderr_thread.join();
@@ -762,29 +807,44 @@ fn run_worker(
     }
     if !exit.success() || !complete {
         return Err(AppError::StemSeparation(worker_error.unwrap_or_else(
-            || format!("MLX worker exited with status {exit}"),
+            || format!("stem worker exited with status {exit}"),
         )));
     }
     Ok(())
 }
 
 fn resolve_worker(_app: &AppHandle) -> Result<WorkerCommand, AppError> {
+    let backend = StemBackend::preferred();
     #[cfg(debug_assertions)]
     {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .ok_or_else(|| AppError::StemSeparation("repository root is unavailable".into()))?;
-        let worker_root = root.join("tools/sonarcan-mlx-worker");
-        let executable = std::env::var_os("SONARCAN_MLX_PYTHON")
+        let (worker_root, environment_name, module) = match backend {
+            StemBackend::Mlx => (
+                root.join("tools/sonarcan-mlx-worker"),
+                "SONARCAN_MLX_PYTHON",
+                "sonarcan_mlx_worker",
+            ),
+            StemBackend::Torch => (
+                root.join("tools/sonarcan-torch-worker"),
+                "SONARCAN_TORCH_PYTHON",
+                "sonarcan_torch_worker",
+            ),
+        };
+        let executable = std::env::var_os(environment_name)
             .map(PathBuf::from)
-            .unwrap_or_else(|| worker_root.join(".venv/bin/python"));
+            .unwrap_or_else(|| development_python(&worker_root));
         let model_dir = std::env::var_os("SONARCAN_MLX_MODEL_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| root.join("src-tauri/resources/models/demucs-mlx"));
+        let additional_arguments = portable_worker_arguments(backend)?;
         validated_worker(
             executable,
-            vec!["-m".into(), "sonarcan_mlx_worker".into()],
+            vec!["-m".into(), module.into()],
+            additional_arguments,
             model_dir,
+            backend,
         )
     }
     #[cfg(not(debug_assertions))]
@@ -793,38 +853,83 @@ fn resolve_worker(_app: &AppHandle) -> Result<WorkerCommand, AppError> {
             .path()
             .resource_dir()
             .map_err(|error| AppError::StemSeparation(error.to_string()))?;
+        let (runtime, module) = match backend {
+            StemBackend::Mlx => ("mlx-runtime", "sonarcan_mlx_worker"),
+            StemBackend::Torch => ("stem-runtime", "sonarcan_torch_worker"),
+        };
         validated_worker(
-            resources.join("mlx-runtime/runtime/bin/python3.13"),
-            vec!["-m".into(), "sonarcan_mlx_worker".into()],
+            bundled_python(&resources.join(runtime).join("runtime"), backend),
+            vec!["-m".into(), module.into()],
+            portable_worker_arguments(backend)?,
             resources.join("models/demucs-mlx"),
+            backend,
         )
     }
+}
+
+#[cfg(debug_assertions)]
+fn development_python(worker_root: &Path) -> PathBuf {
+    if cfg!(windows) {
+        worker_root.join(".venv/Scripts/python.exe")
+    } else {
+        worker_root.join(".venv/bin/python")
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn bundled_python(runtime: &Path, backend: StemBackend) -> PathBuf {
+    if cfg!(windows) {
+        runtime.join("python.exe")
+    } else {
+        runtime.join(match backend {
+            StemBackend::Mlx => "bin/python3.13",
+            StemBackend::Torch => "bin/python3.12",
+        })
+    }
+}
+
+fn portable_worker_arguments(backend: StemBackend) -> Result<Vec<String>, AppError> {
+    if matches!(backend, StemBackend::Mlx) {
+        return Ok(Vec::new());
+    }
+    let executable = ffmpeg::find().ok_or_else(|| {
+        AppError::StemSeparation(
+            "FFmpeg is required by the portable stem backend but is unavailable".into(),
+        )
+    })?;
+    Ok(vec![
+        "--ffmpeg".into(),
+        executable.to_string_lossy().into_owned(),
+    ])
 }
 
 fn validated_worker(
     executable: PathBuf,
     prefix_arguments: Vec<String>,
+    additional_arguments: Vec<String>,
     model_dir: PathBuf,
+    backend: StemBackend,
 ) -> Result<WorkerCommand, AppError> {
     // Preserve the final virtualenv symlink. Python uses the invoked path to
     // discover pyvenv.cfg; resolving it would silently run uv's base Python
     // without the pinned environment in development.
-    let file_name = executable
-        .file_name()
-        .ok_or_else(|| AppError::StemSeparation("the pinned MLX runtime path is invalid".into()))?;
+    let file_name = executable.file_name().ok_or_else(|| {
+        AppError::StemSeparation("the pinned stem runtime path is invalid".into())
+    })?;
     let executable = executable
         .parent()
         .and_then(|parent| parent.canonicalize().ok())
         .map(|parent| parent.join(file_name))
         .ok_or_else(|| {
         AppError::StemSeparation(format!(
-            "the pinned MLX runtime is missing; run `npm run mlx:sync` in development or install a release containing it ({})",
+            "the pinned {} runtime is missing; prepare its development environment or install a release containing it ({})",
+            backend.label(),
             executable.display()
         ))
     })?;
     if !executable.is_file() {
         return Err(AppError::StemSeparation(format!(
-            "the pinned MLX runtime is missing; run `npm run mlx:sync` in development or install a release containing it ({})", executable.display()
+            "the pinned {} runtime is missing; prepare its development environment or install a release containing it ({})", backend.label(), executable.display()
         )));
     }
     if !model_dir.is_dir() || model_dir.is_symlink() {
@@ -836,7 +941,9 @@ fn validated_worker(
     Ok(WorkerCommand {
         executable,
         prefix_arguments,
+        additional_arguments,
         model_dir,
+        backend,
     })
 }
 
@@ -893,7 +1000,7 @@ fn align_stem(stem: DecodedAudio, target_rate: u32, target_frames: usize) -> Dec
     }
 }
 
-fn active_status(track_id: Uuid, progress: f32, stage: &str) -> StemStatus {
+fn active_status(track_id: Uuid, progress: f32, stage: &str, backend: &str) -> StemStatus {
     StemStatus {
         state: StemState::Separating,
         enabled: true,
@@ -902,10 +1009,10 @@ fn active_status(track_id: Uuid, progress: f32, stage: &str) -> StemStatus {
         track_id: Some(track_id),
         cached: false,
         error: None,
-        compute_backend: Some("MLX".into()),
+        compute_backend: Some(backend.into()),
     }
 }
-fn ready_status(track_id: Uuid, cached: bool) -> StemStatus {
+fn ready_status(track_id: Uuid, cached: bool, backend: &str) -> StemStatus {
     StemStatus {
         state: StemState::Ready,
         enabled: true,
@@ -914,7 +1021,7 @@ fn ready_status(track_id: Uuid, cached: bool) -> StemStatus {
         track_id: Some(track_id),
         cached,
         error: None,
-        compute_backend: Some("MLX".into()),
+        compute_backend: Some(backend.into()),
     }
 }
 fn safe_level(level: &str) -> &str {
@@ -1094,7 +1201,14 @@ mod tests {
         let virtualenv_python = bin.join("python");
         symlink(&base_python, &virtualenv_python).unwrap();
 
-        let worker = validated_worker(virtualenv_python.clone(), Vec::new(), model).unwrap();
+        let worker = validated_worker(
+            virtualenv_python.clone(),
+            Vec::new(),
+            Vec::new(),
+            model,
+            StemBackend::Mlx,
+        )
+        .unwrap();
 
         assert_eq!(worker.executable.file_name(), virtualenv_python.file_name());
         assert!(fs::symlink_metadata(&worker.executable)

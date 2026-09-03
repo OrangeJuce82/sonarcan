@@ -7,14 +7,15 @@
 
   A focused, local-first desktop workspace to learn, analyze, isolate, and rehearse music.
 
-  [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?logo=apple&logoColor=white)](https://support.apple.com/macos)
-  ![Apple Silicon only](https://img.shields.io/badge/Apple_Silicon-only-0ea5e9?logo=apple&logoColor=white)
+  ![Desktop platforms](https://img.shields.io/badge/desktop-macOS%20%7C%20Windows%20%7C%20Linux-0ea5e9)
   [![MIT License](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
   [![Support on PayPal](https://img.shields.io/badge/Support-PayPal-0070ba?logo=paypal&logoColor=white)](https://www.paypal.com/paypalme/z5omes)
 </div>
 
-> [!IMPORTANT]
-> SonArcan currently runs **only on Apple Silicon Macs** (`M1`, `M2`, `M3`, `M4` and later) with **macOS 14 or newer**. Intel Macs, Windows, and Linux are not supported at this time.
+> [!NOTE]
+> SonArcan targets macOS 14+ on Apple Silicon and Intel, Windows x64, and Linux
+> x64. MLX remains the optimized stem backend on Apple Silicon; the other
+> targets use the portable Torch backend with the exact same bundled model.
 
 SonArcan is made for musicians who want the useful parts of an audio workstation without the weight of a full DAW. Import a setlist, understand the music, isolate parts, build loops, and practice—all while keeping projects portable and data on your Mac.
 
@@ -24,7 +25,7 @@ SonArcan is made for musicians who want the useful parts of an audio workstation
 - Play, seek, change gain, and create seamless A/B loops through a dedicated Rust audio engine.
 - Slow down or speed up from 50–200% independently of pitch, with ±12 semitones and fine cent correction.
 - Detect BPM, beats, downbeats, and timed chords locally, with detected timelines and source-aware disposable caches.
-- Separate six stems locally with HTDemucs 6s and Apple MLX, then mix or export them.
+- Separate six stems locally with HTDemucs 6s through MLX or portable Torch, then mix or export them.
 - Practice with a progressive loop trainer, synchronized metronome, waveform, spectrum, and stereo meter.
 - Keep per-track practice settings, recent projects, diagnostics, and a multilingual interface.
 
@@ -38,7 +39,7 @@ SonArcan stands on an outstanding open-source audio and desktop ecosystem:
 | --- | --- |
 | Desktop & interface | [Rust](https://www.rust-lang.org/), [Tauri 2](https://tauri.app/), [Svelte 5](https://svelte.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/) |
 | Real-time audio | [CPAL](https://github.com/RustAudio/cpal), [Symphonia](https://github.com/pdeljanov/Symphonia), [Signalsmith Stretch](https://signalsmith-audio.co.uk/code/stretch/), [RustFFT](https://github.com/ejmahler/RustFFT) |
-| Source separation | [Apple MLX](https://github.com/ml-explore/mlx), [demucs-mlx](https://pypi.org/project/demucs-mlx/), [HTDemucs 6s](https://github.com/facebookresearch/demucs), [Python](https://www.python.org/) |
+| Source separation | [Apple MLX](https://github.com/ml-explore/mlx), [demucs-mlx](https://pypi.org/project/demucs-mlx/), [PyTorch](https://pytorch.org/), [HTDemucs 6s](https://github.com/facebookresearch/demucs), [Python](https://www.python.org/) |
 | Musical analysis | [LV-Chordia](https://github.com/openmirlab/lv-chordia), [Beat This!](https://github.com/CPJKU/beat_this), [PyTorch](https://pytorch.org/), [librosa](https://librosa.org/) |
 | Import & media | [FFmpeg](https://ffmpeg.org/), [LAME](https://lame.sourceforge.io/), [yt-dlp](https://github.com/yt-dlp/yt-dlp) |
 | Reproducible builds | [npm](https://www.npmjs.com/), [Cargo](https://doc.rust-lang.org/cargo/), [uv](https://docs.astral.sh/uv/), GitHub Actions |
@@ -49,14 +50,16 @@ A heartfelt thank-you to every maintainer, researcher, tester, and contributor b
 
 ### Requirements
 
-- Apple Silicon Mac with macOS 14+
+- macOS 14+, Windows x64, or a Linux x64 desktop supported by Tauri 2
 - Node.js 22+ and npm
 - Stable Rust 1.78+ with Cargo
 - `uv` exactly `0.9.26`
 - FFmpeg for development
-- [Tauri 2 prerequisites for macOS](https://v2.tauri.app/start/prerequisites/)
+- [Tauri 2 prerequisites for the target OS](https://v2.tauri.app/start/prerequisites/)
 
-Install the native tools and pinned Python versions:
+Install the native tools and pinned Python versions. Apple Silicon development
+also prepares MLX; other targets prepare the Torch worker with
+`npm run stems:sync`.
 
 ```bash
 rustup toolchain install stable
@@ -70,7 +73,7 @@ Prepare a fresh checkout:
 
 ```bash
 npm ci
-npm run mlx:sync
+npm run stems:sync # use mlx:sync on Apple Silicon
 npm run test:chords
 npm run mlx:model
 npm run quality
@@ -84,9 +87,12 @@ npm run tauri dev
 
 `npm run dev` starts only the frontend; playback, project management, analysis, and stems require Tauri and the Rust backend.
 
-## 📦 Build for macOS
+## 📦 Desktop bundles
 
-SonArcan releases bundle the pinned Python/MLX workers, analysis models, and ARM64 FFmpeg runtime. End users do not need to install Python, `uv`, FFmpeg, or model dependencies.
+Releases bundle pinned Python workers, analysis models, and a target-native
+FFmpeg runtime. End users do not need to install Python, `uv`, FFmpeg, or model
+dependencies. The tag workflow builds four artifacts: macOS ARM64, macOS Intel,
+Windows x64, and Linux x64.
 
 ```bash
 npm ci

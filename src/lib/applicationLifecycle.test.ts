@@ -23,3 +23,11 @@ test("the project picker selects packaged sac documents instead of directories",
     filters: [{ name: "Open a SonArcan project", extensions: ["sac"] }],
   });
 });
+
+test("the project picker selects sac directories outside macOS", () => {
+  assert.deepEqual(projectOpenDialogOptions("Open a SonArcan project", false), {
+    directory: true,
+    multiple: false,
+    title: "Open a SonArcan project",
+  });
+});

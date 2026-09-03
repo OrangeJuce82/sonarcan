@@ -29,14 +29,17 @@ const generatedArtifacts = [
   "coverage",
   ".svelte-kit",
   "tools/sonarcan-chord-worker/build",
+  "tools/sonarcan-torch-worker/build",
 ];
 
 const localDependencies = [
   "node_modules",
   "tools/sonarcan-mlx-worker/.venv",
   "tools/sonarcan-chord-worker/.venv",
+  "tools/sonarcan-torch-worker/.venv",
   "src-tauri/resources/chord-runtime/runtime",
   "src-tauri/resources/mlx-runtime/runtime",
+  "src-tauri/resources/stem-runtime/runtime",
   "src-tauri/resources/audio-tools/bin",
   "src-tauri/resources/audio-tools/licenses",
   "src-tauri/resources/audio-tools/manifest.json",
@@ -74,6 +77,7 @@ const targets = [
   ...generatedArtifacts,
   ...await pythonCaches("tools/sonarcan-mlx-worker"),
   ...await pythonCaches("tools/sonarcan-chord-worker"),
+  ...await pythonCaches("tools/sonarcan-torch-worker"),
   ...(includeDependencies ? localDependencies : []),
 ];
 

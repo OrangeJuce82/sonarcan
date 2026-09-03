@@ -8,7 +8,13 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from sonarcan_mlx_worker.worker import JsonProgress, MODEL_CONFIG_FIELDS, STEM_NAMES, validate_model_files
+from sonarcan_mlx_worker.worker import (
+    INFERENCE_OVERLAP,
+    JsonProgress,
+    MODEL_CONFIG_FIELDS,
+    STEM_NAMES,
+    validate_model_files,
+)
 from sonarcan_mlx_worker.build_model import without_training_metadata
 from sonarcan_mlx_worker.refresh_records import file_record, refresh
 
@@ -28,6 +34,9 @@ def model_config(digest: str) -> dict[str, object]:
 
 
 class WorkerContractTests(unittest.TestCase):
+    def test_uses_the_measured_fast_overlap(self) -> None:
+        self.assertEqual(INFERENCE_OVERLAP, 0.10)
+
     def test_model_validation_accepts_the_exact_six_stem_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             model_dir = Path(directory)
