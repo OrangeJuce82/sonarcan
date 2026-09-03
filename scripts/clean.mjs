@@ -30,6 +30,7 @@ const generatedArtifacts = [
   ".svelte-kit",
   "tools/sonarcan-chord-worker/build",
   "tools/sonarcan-torch-worker/build",
+  "tools/sonarcan-mlx-worker/build",
 ];
 
 const localDependencies = [

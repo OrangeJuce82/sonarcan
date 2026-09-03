@@ -8,6 +8,7 @@ __pycache__/
 *.egg-info/
 .venv/
 tools/sonarcan-mlx-worker/.venv/
+tools/sonarcan-mlx-worker/build/
 src-tauri/resources/mlx-runtime/runtime/
 src-tauri/resources/chord-runtime/runtime/
 src-tauri/resources/stem-runtime/runtime/
