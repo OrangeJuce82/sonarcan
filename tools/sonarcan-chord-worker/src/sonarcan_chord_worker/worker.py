@@ -32,16 +32,41 @@ def analyze(audio_path: Path, downbeat_model: Path, requested_device: str = "aut
     if requested_device == "auto":
         requested_device = "mps" if torch.backends.mps.is_available() else "cpu"
     device = resolve_device(requested_device)
-    modes = _analyze_chords(audio_path, device)
-    beats, downbeats, bpm = detect_rhythm(audio_path, downbeat_model, device)
+    warnings: list[str] = []
+    try:
+        modes = _analyze_chords(audio_path, device)
+    except Exception as error:
+        warnings.append(_analysis_warning("LV-Chordia", error))
+        modes = {mode: [] for mode in DICTIONARIES}
+    try:
+        rhythm = detect_rhythm(audio_path, downbeat_model, device)
+    except Exception as error:
+        warnings.append(_analysis_warning("Beat This!", error))
+        rhythm = ([], [], None, [], [], None)
+    if len(warnings) == 2:
+        raise RuntimeError("; ".join(warnings))
+    (
+        beats, downbeats, bpm,
+        dbn_beats, dbn_downbeats, dbn_bpm,
+    ) = rhythm
     return {
         "modelVersion": f"lv-chordia@{SOURCE_REVISION}",
         "downbeatModelVersion": f"beat-this@{BEAT_THIS_VERSION}:final0",
         "bpm": bpm,
         "beats": beats,
         "downbeats": downbeats,
+        "dbnBpm": dbn_bpm,
+        "dbnBeats": dbn_beats,
+        "dbnDownbeats": dbn_downbeats,
         "modes": modes,
+        "warnings": warnings,
     }
+
+
+def _analysis_warning(component: str, error: Exception) -> str:
+    printable = "".join(character if character.isprintable() else " " for character in str(error))
+    detail = (" ".join(printable.split()) or error.__class__.__name__)[:240]
+    return f"{component} failed: {detail}"
 
 
 def _analyze_chords(audio_path: Path, device) -> dict[str, list[dict]]:

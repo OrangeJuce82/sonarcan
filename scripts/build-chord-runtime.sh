@@ -6,6 +6,12 @@ worker_root="$repository_root/tools/sonarcan-chord-worker"
 runtime_dir="$repository_root/src-tauri/resources/chord-runtime/runtime"
 downbeat_model="$repository_root/src-tauri/resources/models/beat-this/final0.ckpt"
 
+remove_unused_madmom_models() {
+  local models="$1/lib/python3.12/site-packages/madmom/models"
+  rm -rf "$models/beats" "$models/chords" "$models/chroma" "$models/downbeats" \
+    "$models/key" "$models/notes" "$models/onsets" "$models/patterns"
+}
+
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
   echo "The LV-Chordia release runtime must be assembled on an Apple-silicon Mac." >&2
   exit 1
@@ -17,6 +23,7 @@ if [[ -x "$runtime_dir/bin/python3.12" ]]; then
     cd "$worker_root"
     uv pip sync --system --break-system-packages --python "$runtime_dir/bin/python3.12" --reinstall-package sonarcan-lv-chordia-worker "$runtime_dir/requirements.lock.txt"
   )
+  remove_unused_madmom_models "$runtime_dir"
   "$runtime_dir/bin/python3.12" -m sonarcan_chord_worker.worker --self-test --downbeat-model "$downbeat_model"
   echo "Pinned LV-Chordia runtime refreshed in $runtime_dir"
   exit 0
@@ -39,6 +46,7 @@ uv export --quiet --project "$worker_root" --locked --no-dev --no-editable --out
   cd "$worker_root"
   uv pip sync --system --break-system-packages --python "$staging_runtime/bin/python3.12" --reinstall-package sonarcan-lv-chordia-worker "$staging_runtime/requirements.lock.txt"
 )
+remove_unused_madmom_models "$staging_runtime"
 "$staging_runtime/bin/python3.12" -m sonarcan_chord_worker.worker --self-test --downbeat-model "$downbeat_model"
 mv "$staging_runtime" "$runtime_dir"
 trap - EXIT

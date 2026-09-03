@@ -43,12 +43,25 @@ Timed chord analysis follows the same boundary through a pinned Python worker.
 The worker reads the canonical original media, runs the learned LV-Chordia
 five-model ensemble, and emits three bounded timed-label sequences using the
 official `ismir2017`, `submission`, and `full` dictionary decodes. A separate
-pinned Beat This! `final0` model detects beats and downbeats with its official
-minimal post-processing and no DBN. Beat timestamps drive the waveform grid and
-metronome, their median interval provides a read-only indicative BPM, and
-downbeats only accent those rhythmic views. The worker runs LV-Chordia first,
+pinned Beat This! `final0` model detects beats and downbeats. SonArcan retains
+its official minimal timeline and the optional Beat This! madmom DBN timeline.
+Only these two bounded timestamp sequences cross IPC; frame-level predictions
+remain inside the worker. M toggles the metronome; Alt/Option+M and
+Alt/Option-clicking the metronome switch between the minimal and DBN timelines. The
+waveform, navigation, loop snapping, metronome, and tempo display always use the
+selected timeline. DBN is the user-preference default; changing the mode while a
+track is selected stores a per-track practice override without changing that global
+default. The BPM display estimates the tempo around the
+playhead with a robust local median, refreshes twice per second, and applies
+playback speed so it represents the tempo currently heard without display
+jitter. Downbeats only accent those rhythmic
+views. The worker runs LV-Chordia first,
 then Beat This!, so the two models do not compete for the same CPU or accelerator
-and both results remain available downstream. Beat This! never changes or splits
+and both results remain available downstream. If either model fails, the worker
+retains the other model's bounded result and reports a partial-analysis warning;
+partial results are not cached so selecting the track later retries the failed
+model. The combined request fails only when neither model produces a result.
+Beat This! never changes or splits
 an LV-Chordia label, boundary, score, timeline card, or repertoire entry. Neither model uses
 stems, UI beat visualization, tonal rules, or a SonArcan decoder. Rust validates the
 sequences and downbeat positions, supervises cancellation,

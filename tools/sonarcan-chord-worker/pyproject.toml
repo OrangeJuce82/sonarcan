@@ -11,6 +11,8 @@ description = "Private, pinned LV-Chordia inference worker for SonArcan"
 requires-python = "==3.12.*"
 dependencies = [
   "beat-this==1.1.0",
+  "cython @ git+https://github.com/cython/cython.git@8a1b3c10260fa9f9a91475819d737bce59b1a3d0",
+  "madmom @ git+https://github.com/CPJKU/madmom.git@27f032e8947204902c675e5e341a3faf5dc86dae",
   # PyPI 1.1.0 predates the reusable ensemble and explicit MPS fixes. Pin the
   # exact audited upstream revision rather than silently following main.
   "lv-chordia @ git+https://github.com/openmirlab/lv-chordia.git@9d7de7bbf45efa6731ec8dc62d35280f141c0702",
@@ -22,6 +24,12 @@ where = ["src"]
 
 [tool.uv]
 required-version = "==0.9.26"
+no-build-isolation-package = ["madmom"]
+
+[[tool.uv.dependency-metadata]]
+name = "madmom"
+version = "0.17.dev0"
+requires-dist = ["mido>=1.2.6", "numpy>=1.13.4", "scipy>=1.13"]
 
 [dependency-groups]
 dev = []

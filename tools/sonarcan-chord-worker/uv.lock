@@ -2,6 +2,13 @@ version = 1
 revision = 3
 requires-python = "==3.12.*"
 
+[manifest]
+
+[[manifest.dependency-metadata]]
+name = "madmom"
+version = "0.17.dev0"
+requires-dist = ["mido>=1.2.6", "numpy>=1.13.4", "scipy>=1.13"]
+
 [[package]]
 name = "beat-this"
 version = "1.1.0"
@@ -162,6 +169,11 @@ nvtx = [
 ]
 
 [[package]]
+name = "cython"
+version = "3.1.3"
+source = { git = "https://github.com/cython/cython.git?rev=8a1b3c10260fa9f9a91475819d737bce59b1a3d0#8a1b3c10260fa9f9a91475819d737bce59b1a3d0" }
+
+[[package]]
 name = "decorator"
 version = "5.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -313,6 +325,16 @@ dependencies = [
     { name = "pretty-midi" },
     { name = "pydub" },
     { name = "torch" },
+]
+
+[[package]]
+name = "madmom"
+version = "0.17.dev0"
+source = { git = "https://github.com/CPJKU/madmom.git?rev=27f032e8947204902c675e5e341a3faf5dc86dae#27f032e8947204902c675e5e341a3faf5dc86dae" }
+dependencies = [
+    { name = "mido" },
+    { name = "numpy" },
+    { name = "scipy" },
 ]
 
 [[package]]
@@ -738,14 +760,18 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "beat-this" },
+    { name = "cython" },
     { name = "lv-chordia" },
+    { name = "madmom" },
     { name = "numpy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "beat-this", specifier = "==1.1.0" },
+    { name = "cython", git = "https://github.com/cython/cython.git?rev=8a1b3c10260fa9f9a91475819d737bce59b1a3d0" },
     { name = "lv-chordia", git = "https://github.com/openmirlab/lv-chordia.git?rev=9d7de7bbf45efa6731ec8dc62d35280f141c0702" },
+    { name = "madmom", git = "https://github.com/CPJKU/madmom.git?rev=27f032e8947204902c675e5e341a3faf5dc86dae" },
     { name = "numpy", specifier = "==2.3.5" },
 ]
 

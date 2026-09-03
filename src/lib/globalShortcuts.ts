@@ -1,6 +1,6 @@
 type ShortcutKeyboardEvent = Pick<
   KeyboardEvent,
-  "altKey" | "ctrlKey" | "isComposing" | "key" | "metaKey" | "shiftKey" | "target"
+  "altKey" | "code" | "ctrlKey" | "isComposing" | "key" | "metaKey" | "shiftKey" | "target"
 >;
 
 type ClosestTarget = EventTarget & {
@@ -96,6 +96,17 @@ export function shouldToggleChordEditModeShortcut(event: ShortcutKeyboardEvent):
   return event.key.toLowerCase() === "e" && shouldHandleParameterShortcut(event);
 }
 
+export function shouldToggleBeatThisDbnShortcut(event: ShortcutKeyboardEvent): boolean {
+  const key = event.key.toLowerCase();
+  return (event.code === "KeyM" || key === "m" || key === "µ")
+    && event.altKey
+    && !event.shiftKey
+    && !event.ctrlKey
+    && !event.metaKey
+    && !event.isComposing
+    && !isTextEditingTarget(event.target);
+}
+
 export function shouldToggleMetronomeOnRelease(
   event: ShortcutKeyboardEvent,
   activeParameterShortcut: ParameterShortcut | null,
@@ -104,6 +115,7 @@ export function shouldToggleMetronomeOnRelease(
   return activeParameterShortcut === "metronomeVolume"
     && parameterShortcutForKey(event.key) === "metronomeVolume"
     && !parameterActionUsed
+    && !event.shiftKey
     && shouldHandleParameterShortcut(event);
 }
 

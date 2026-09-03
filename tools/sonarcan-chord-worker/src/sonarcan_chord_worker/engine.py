@@ -52,15 +52,42 @@ def verify_downbeat_checkpoint(checkpoint: Path) -> None:
         raise RuntimeError("Beat This! final0 checkpoint failed SHA-256 verification")
 
 
-def detect_rhythm(audio_path: Path, checkpoint: Path, device) -> tuple[list[float], list[float], float | None]:
-    from beat_this.inference import File2Beats
+def detect_rhythm(
+    audio_path: Path, checkpoint: Path, device
+) -> tuple[
+    list[float], list[float], float | None,
+    list[float], list[float], float | None,
+]:
+    from beat_this.inference import Audio2Frames
+    from beat_this.model.postprocessor import Postprocessor
+    from beat_this.preprocessing import load_audio
+
+    from .rhythm import prepare_postprocessing_logits
 
     verify_downbeat_checkpoint(checkpoint)
-    tracker = File2Beats(checkpoint_path=str(checkpoint), device=device, dbn=False)
-    beats, downbeats = tracker(str(audio_path))
+    tracker = Audio2Frames(checkpoint_path=str(checkpoint), device=device)
+    signal, sample_rate = load_audio(str(audio_path))
+    beat_logits, downbeat_logits = tracker(signal, sample_rate)
+    postprocessing_beat_logits = prepare_postprocessing_logits(beat_logits)
+    postprocessing_downbeat_logits = prepare_postprocessing_logits(downbeat_logits)
+    beats, downbeats = Postprocessor(type="minimal")(
+        postprocessing_beat_logits, postprocessing_downbeat_logits
+    )
+    dbn_beats, dbn_downbeats = Postprocessor(type="dbn")(
+        postprocessing_beat_logits, postprocessing_downbeat_logits
+    )
     beat_times = [round(float(position), 6) for position in beats]
     downbeat_times = [round(float(position), 6) for position in downbeats]
-    return beat_times, downbeat_times, bpm_from_beats(beat_times)
+    dbn_beat_times = [round(float(position), 6) for position in dbn_beats]
+    dbn_downbeat_times = [round(float(position), 6) for position in dbn_downbeats]
+    return (
+        beat_times,
+        downbeat_times,
+        bpm_from_beats(beat_times),
+        dbn_beat_times,
+        dbn_downbeat_times,
+        bpm_from_beats(dbn_beat_times),
+    )
 
 
 def bpm_from_beats(beat_times: list[float]) -> float | None:

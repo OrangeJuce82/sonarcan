@@ -24,6 +24,7 @@ pub struct UserPreferences {
     pub loudness_normalization: bool,
     pub metronome_volume: f32,
     pub metronome_sound: MetronomeSound,
+    pub beat_this_dbn: bool,
     pub default_playback_rate: f64,
     pub default_pitch_semitones: f64,
     pub loop_load_position: LoopLoadPosition,
@@ -113,6 +114,7 @@ impl Default for UserPreferences {
             loudness_normalization: true,
             metronome_volume: 0.55,
             metronome_sound: MetronomeSound::Electronic,
+            beat_this_dbn: true,
             default_playback_rate: 1.0,
             default_pitch_semitones: 0.0,
             loop_load_position: LoopLoadPosition::Beginning,
@@ -209,6 +211,7 @@ mod tests {
         assert_eq!(preferences.navigation_mode, NavigationMode::Time);
         assert_eq!(preferences.navigation_time_seconds, 10);
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
+        assert!(preferences.beat_this_dbn);
         assert_eq!(preferences.master_volume, 1.0);
         assert!(preferences.loudness_normalization);
     }

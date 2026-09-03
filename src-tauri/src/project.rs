@@ -77,6 +77,8 @@ pub struct PracticeState {
     pub metronome_enabled: bool,
     #[serde(default = "default_metronome_volume", skip_serializing)]
     pub metronome_volume: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beat_this_dbn: Option<bool>,
     #[serde(default)]
     pub trainer_enabled: bool,
     pub trainer_start_rate: f64,
@@ -152,6 +154,7 @@ impl Default for PracticeState {
             loop_b_seconds: None,
             metronome_enabled: false,
             metronome_volume: default_metronome_volume(),
+            beat_this_dbn: None,
             trainer_enabled: false,
             trainer_start_rate: default_trainer_start_rate(),
             trainer_repetitions: default_trainer_repetitions(),
@@ -1359,6 +1362,7 @@ mod tests {
             loop_b_seconds: Some(0.0008),
             metronome_enabled: true,
             metronome_volume: 0.5,
+            beat_this_dbn: Some(false),
             trainer_enabled: true,
             trainer_start_rate: 0.5,
             trainer_repetitions: 4,
@@ -1385,6 +1389,7 @@ mod tests {
             ..state.clone()
         };
         assert_eq!(reopened.tracks[0].practice, expected);
+        assert_eq!(reopened.tracks[0].practice.beat_this_dbn, Some(false));
 
         let supported_boundaries = PracticeState {
             volume: 2.0,
@@ -1459,6 +1464,7 @@ mod tests {
 
         assert!(rewritten.get("gridBpm").is_none());
         assert!(rewritten.get("beatGridOffsetSeconds").is_none());
+        assert!(rewritten.get("beatThisDbn").is_none());
     }
 
     #[test]

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleChordEditModeShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
+import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleBeatThisDbnShortcut, shouldToggleChordEditModeShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
 
 function shortcutEvent(overrides: Partial<Parameters<typeof shouldHandleGlobalShortcut>[0]> = {}): Parameters<typeof shouldHandleGlobalShortcut>[0] {
   return {
     altKey: false,
+    code: "Space",
     ctrlKey: false,
     isComposing: false,
     key: "Space",
@@ -102,6 +103,14 @@ test("M toggles the metronome on release only when no volume action was used", (
   assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "m", target: input }), "metronomeVolume", false), false);
   const select = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("select") ? ({}) : null });
   assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "m", target: select }), "metronomeVolume", false), true);
+});
+
+test("Alt+M toggles Beat This! DBN", () => {
+  assert.equal(shouldToggleBeatThisDbnShortcut(shortcutEvent({ code: "Semicolon", key: "µ", altKey: true })), true);
+  assert.equal(shouldToggleBeatThisDbnShortcut(shortcutEvent({ code: "KeyM", key: "M", altKey: true })), true);
+  assert.equal(shouldToggleBeatThisDbnShortcut(shortcutEvent({ key: "m", shiftKey: true, altKey: true })), false);
+  const input = Object.assign(new EventTarget(), { closest: () => ({}) });
+  assert.equal(shouldToggleBeatThisDbnShortcut(shortcutEvent({ key: "m", altKey: true, target: input })), false);
 });
 
 test("shortcut labels follow macOS, Windows, and Linux keyboards", () => {

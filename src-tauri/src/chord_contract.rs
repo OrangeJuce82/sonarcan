@@ -12,6 +12,8 @@ const MAX_SEGMENTS_PER_MODE: usize = 8_192;
 const MAX_DOWNBEATS: usize = 65_536;
 const MAX_BEATS: usize = 262_144;
 const MAX_DURATION_SECONDS: f64 = 24.0 * 60.0 * 60.0;
+const MAX_WARNINGS: usize = 1;
+const MAX_WARNING_BYTES: usize = 1_024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -35,7 +37,12 @@ pub struct ChordAnalysis {
     pub bpm: Option<f64>,
     pub beats: Vec<f64>,
     pub downbeats: Vec<f64>,
+    pub dbn_bpm: Option<f64>,
+    pub dbn_beats: Vec<f64>,
+    pub dbn_downbeats: Vec<f64>,
     pub modes: BTreeMap<String, Vec<TimedChord>>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,7 +53,12 @@ pub struct WorkerAnalysis {
     bpm: Option<f64>,
     beats: Vec<f64>,
     downbeats: Vec<f64>,
+    dbn_bpm: Option<f64>,
+    dbn_beats: Vec<f64>,
+    dbn_downbeats: Vec<f64>,
     modes: BTreeMap<String, Vec<TimedChord>>,
+    #[serde(default)]
+    warnings: Vec<String>,
 }
 
 impl WorkerAnalysis {
@@ -69,23 +81,9 @@ impl WorkerAnalysis {
         for segments in self.modes.values() {
             validate_segments(segments)?;
         }
-        validate_positions(&self.beats, MAX_BEATS, "beat")?;
-        validate_positions(&self.downbeats, MAX_DOWNBEATS, "downbeat")?;
-        if self
-            .bpm
-            .is_some_and(|bpm| !bpm.is_finite() || !(30.0..=300.0).contains(&bpm))
-        {
-            return Err(invalid_output("BPM is outside accepted bounds"));
-        }
-        if self.downbeats.iter().any(|downbeat| {
-            self.beats
-                .binary_search_by(|beat| beat.total_cmp(downbeat))
-                .is_err()
-        }) {
-            return Err(invalid_output(
-                "a downbeat is not present in the beat sequence",
-            ));
-        }
+        validate_warnings(&self.warnings)?;
+        validate_timeline(&self.beats, &self.downbeats, self.bpm, "raw")?;
+        validate_timeline(&self.dbn_beats, &self.dbn_downbeats, self.dbn_bpm, "DBN")?;
         Ok(ChordAnalysis {
             cache_version,
             track_id,
@@ -94,9 +92,53 @@ impl WorkerAnalysis {
             bpm: self.bpm,
             beats: self.beats,
             downbeats: self.downbeats,
+            dbn_bpm: self.dbn_bpm,
+            dbn_beats: self.dbn_beats,
+            dbn_downbeats: self.dbn_downbeats,
             modes: self.modes,
+            warnings: self.warnings,
         })
     }
+}
+
+fn validate_warnings(warnings: &[String]) -> Result<(), AppError> {
+    if warnings.len() > MAX_WARNINGS
+        || warnings.iter().any(|warning| {
+            warning.is_empty()
+                || warning.len() > MAX_WARNING_BYTES
+                || warning.chars().any(char::is_control)
+                || !(warning.starts_with("LV-Chordia failed: ")
+                    || warning.starts_with("Beat This! failed: "))
+        })
+    {
+        return Err(invalid_output("invalid partial-analysis warning"));
+    }
+    Ok(())
+}
+
+fn validate_timeline(
+    beats: &[f64],
+    downbeats: &[f64],
+    bpm: Option<f64>,
+    name: &str,
+) -> Result<(), AppError> {
+    validate_positions(beats, MAX_BEATS, &format!("{name} beat"))?;
+    validate_positions(downbeats, MAX_DOWNBEATS, &format!("{name} downbeat"))?;
+    if bpm.is_some_and(|value| !value.is_finite() || !(30.0..=300.0).contains(&value)) {
+        return Err(invalid_output(&format!(
+            "{name} BPM is outside accepted bounds"
+        )));
+    }
+    if downbeats.iter().any(|downbeat| {
+        beats
+            .binary_search_by(|beat| beat.total_cmp(downbeat))
+            .is_err()
+    }) {
+        return Err(invalid_output(&format!(
+            "a {name} downbeat is not present in its beat sequence"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_positions(positions: &[f64], maximum: usize, name: &str) -> Result<(), AppError> {
@@ -182,7 +224,11 @@ mod tests {
             bpm: Some(120.0),
             beats: vec![0.2, 0.7, 1.2, 1.7, 2.2],
             downbeats: vec![0.2, 2.2],
+            dbn_bpm: Some(120.0),
+            dbn_beats: vec![0.2, 0.7, 1.2, 1.7, 2.2],
+            dbn_downbeats: vec![0.2, 2.2],
             modes,
+            warnings: vec![],
         }
         .validate(Uuid::nil(), 9)
         .unwrap();
@@ -200,7 +246,11 @@ mod tests {
             bpm: None,
             beats: vec![],
             downbeats: vec![],
-            modes
+            dbn_bpm: None,
+            dbn_beats: vec![],
+            dbn_downbeats: vec![],
+            modes,
+            warnings: vec![],
         }
         .validate(Uuid::nil(), 9)
         .is_err());
@@ -208,6 +258,8 @@ mod tests {
         invalid.strength = f32::NAN;
         assert!(validate_segments(&[invalid]).is_err());
         assert!(validate_positions(&[2.0, 1.0], MAX_DOWNBEATS, "downbeat").is_err());
+        assert!(validate_warnings(&["LV-Chordia failed: unavailable".into()]).is_ok());
+        assert!(validate_warnings(&["unexpected warning".into()]).is_err());
     }
 
     #[test]

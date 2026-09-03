@@ -23,7 +23,7 @@ use crate::{
     error::AppError,
 };
 
-const CACHE_VERSION: u32 = 12;
+const CACHE_VERSION: u32 = 15;
 const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 32 * 1024;
 const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024;
@@ -139,7 +139,9 @@ impl ChordAnalysisService {
         })?;
         let analysis = worker.validate(track_id, CACHE_VERSION)?;
         ensure_current(&self.generation, generation)?;
-        store(package_path, source, &analysis)?;
+        if analysis.warnings.is_empty() {
+            store(package_path, source, &analysis)?;
+        }
         Ok(analysis)
     }
 }
@@ -378,7 +380,11 @@ mod tests {
             bpm: Some(120.0),
             beats: vec![0.5, 1.0, 1.5, 2.0, 2.5],
             downbeats: vec![0.5, 2.5],
+            dbn_bpm: Some(120.0),
+            dbn_beats: vec![0.5, 1.0, 1.5, 2.0, 2.5],
+            dbn_downbeats: vec![0.5, 2.5],
             modes: BTreeMap::new(),
+            warnings: vec![],
         }
     }
 

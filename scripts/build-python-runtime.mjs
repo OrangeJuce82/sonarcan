@@ -76,6 +76,15 @@ run("uv", [
   "pip", "sync", "--system", "--break-system-packages", "--python", runtimePython,
   "--reinstall-package", configuration.package, requirements,
 ], { cwd: project });
+if (runtimeName === "chord") {
+  const sitePackages = process.platform === "win32"
+    ? join(runtime, "Lib", "site-packages")
+    : join(runtime, "lib", "python3.12", "site-packages");
+  const madmomModels = join(sitePackages, "madmom", "models");
+  for (const directory of ["beats", "chords", "chroma", "downbeats", "key", "notes", "onsets", "patterns"]) {
+    rmSync(join(madmomModels, directory), { recursive: true, force: true });
+  }
+}
 run(runtimePython, ["-m", configuration.module, ...configuration.healthArguments]);
 
 console.log(`Pinned ${runtimeName} runtime assembled in ${runtime}`);

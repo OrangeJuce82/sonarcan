@@ -256,7 +256,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .separator()
         .text(
             "playlist:export_stems",
-            tr(selected_language, "Export Stems…", "Exporter les stems…"),
+            tr(
+                selected_language,
+                "Export Separated Tracks…",
+                "Exporter les pistes séparées…",
+            ),
         )
         .text(
             "playlist:export_chords",

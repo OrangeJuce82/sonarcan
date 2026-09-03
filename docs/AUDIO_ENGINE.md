@@ -10,6 +10,9 @@ Chord and downbeat recognition are not part of playback or decoded-audio
 ownership. After the selected track is ready, one supervised process runs
 LV-Chordia first and Beat This! second. This avoids simultaneous pressure on the
 same CPU or accelerator while retaining both outputs for downstream features.
+Failure of one model retains the other model's result and emits a bounded warning.
+These partial results are used for the current selection but not cached, allowing
+the failed model to be retried later. The request fails only if both models fail.
 Beat This! output never changes or splits the chord timeline. The
 process can be killed when track selection changes. Model inference and official
 decoding never execute on the CPAL callback. The worker reads the canonical

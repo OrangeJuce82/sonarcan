@@ -385,41 +385,59 @@ fn convert_local(
         ConversionFormat::Flac => "flac",
         _ => "mp3",
     };
-    let output =
-        std::env::temp_dir().join(format!("sonarcan-import-{}.{}", Uuid::new_v4(), extension));
     let ffmpeg = ffmpeg::find().ok_or_else(|| {
         AppError::BackgroundTask(
             "FFmpeg is required for this local audio conversion. Repair the application bundle, or install FFmpeg when running a development build.".into(),
         )
     })?;
+    let output = converted_output_path(source, extension, Uuid::new_v4());
+    let staging = output.parent().ok_or_else(|| {
+        AppError::BackgroundTask("the local conversion staging path is invalid".into())
+    })?;
+    fs::create_dir(staging).map_err(|error| AppError::io(staging, error))?;
     let mut command = Command::new(ffmpeg);
     command
         .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
         .arg(source);
     apply_conversion_args(&mut command, preferences);
     command.arg(&output);
-    let mut child = command
-        .spawn()
-        .map_err(|error| AppError::BackgroundTask(format!("could not start FFmpeg: {error}")))?;
+    let mut child = command.spawn().map_err(|error| {
+        let _ = fs::remove_dir_all(staging);
+        AppError::BackgroundTask(format!("could not start FFmpeg: {error}"))
+    })?;
     loop {
         if is_cancelled(cancelled) {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = fs::remove_file(&output);
+            cleanup_temporary_file(&output, source);
             return Ok(None);
         }
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| AppError::BackgroundTask(error.to_string()))?
-        {
+        let status = child.try_wait().map_err(|error| {
+            cleanup_temporary_file(&output, source);
+            AppError::BackgroundTask(error.to_string())
+        })?;
+        if let Some(status) = status {
             if !status.success() {
-                let _ = fs::remove_file(&output);
+                cleanup_temporary_file(&output, source);
                 return Err(AppError::BackgroundTask("FFmpeg conversion failed".into()));
             }
             return Ok(Some(output));
         }
         thread::sleep(Duration::from_millis(100));
     }
+}
+
+fn converted_output_path(source: &Path, extension: &str, id: Uuid) -> PathBuf {
+    let stem = source
+        .file_stem()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| std::ffi::OsStr::new("audio"));
+    let mut file_name = stem.to_os_string();
+    file_name.push(".");
+    file_name.push(extension);
+    std::env::temp_dir()
+        .join(format!("sonarcan-import-{id}"))
+        .join(file_name)
 }
 
 fn needs_local_conversion(source: &Path, preferences: &UserPreferences) -> bool {
@@ -635,7 +653,17 @@ fn is_cancelled(cancelled: &AtomicBool) -> bool {
 
 fn cleanup_temporary_file(converted: &Path, source: &Path) {
     if converted != source && converted.starts_with(std::env::temp_dir()) {
-        let _ = fs::remove_file(converted);
+        let staging = converted.parent().filter(|parent| {
+            parent
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("sonarcan-import-"))
+        });
+        if let Some(staging) = staging {
+            let _ = fs::remove_dir_all(staging);
+        } else {
+            let _ = fs::remove_file(converted);
+        }
     }
 }
 
@@ -1077,6 +1105,21 @@ mod tests {
             "%(playlist_index&{} - |)s%(title).180B.%(ext)s"
         );
         assert!(!YOUTUBE_OUTPUT_TEMPLATE.contains("%(id)"));
+    }
+
+    #[test]
+    fn local_conversion_preserves_the_source_basename() {
+        let output = converted_output_path(
+            Path::new("/Music/Artist - Song.final.wav"),
+            "mp3",
+            Uuid::nil(),
+        );
+
+        assert_eq!(output.file_name().unwrap(), "Artist - Song.final.mp3");
+        assert_eq!(
+            output.parent().unwrap().file_name().unwrap(),
+            "sonarcan-import-00000000-0000-0000-0000-000000000000"
+        );
     }
 
     #[test]
