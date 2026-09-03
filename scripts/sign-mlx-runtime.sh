@@ -8,6 +8,9 @@ chord_runtime_dir="$repository_root/src-tauri/resources/chord-runtime/runtime"
 audio_tools_dir="$repository_root/src-tauri/resources/audio-tools/bin"
 identity="${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY is required}"
 signed_count=0
+resource_roots=("$chord_runtime_dir" "$audio_tools_dir")
+if [[ -d "$mlx_runtime_dir" ]]; then resource_roots+=("$mlx_runtime_dir"); fi
+if [[ -d "$stem_runtime_dir" ]]; then resource_roots+=("$stem_runtime_dir"); fi
 
 while IFS= read -r -d '' candidate; do
   if file -b "$candidate" | grep -q "Mach-O"; then
@@ -22,9 +25,6 @@ while IFS= read -r -d '' candidate; do
     codesign --verify --strict "$candidate"
     signed_count=$((signed_count + 1))
   fi
-resource_roots=("$chord_runtime_dir" "$audio_tools_dir")
-if [[ -d "$mlx_runtime_dir" ]]; then resource_roots+=("$mlx_runtime_dir"); fi
-if [[ -d "$stem_runtime_dir" ]]; then resource_roots+=("$stem_runtime_dir"); fi
 done < <(find "${resource_roots[@]}" -type f -print0)
 
 if [[ "$signed_count" -eq 0 ]]; then
