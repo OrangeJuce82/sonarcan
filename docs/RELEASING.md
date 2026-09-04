@@ -118,8 +118,9 @@ embedded-runtime signing script use the same ad-hoc identity.
 
 5. The `Release desktop` workflow checks version consistency, prepares the
    shared model once on Apple Silicon, creates the **draft** GitHub Release,
-   then builds the macOS, Windows, and Linux bundles concurrently. Every
-   runtime and media tool is verified before packaging.
+   then runs the explicit `release-macos`, `release-linux`, and
+   `release-windows` jobs concurrently. Every runtime and media tool is
+   verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
    declaration, shared-model identity, and bundled executables.
 7. Download and smoke-test every draft installer. On macOS, verify with
