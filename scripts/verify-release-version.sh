@@ -59,4 +59,8 @@ if ! grep -Fq -- '--self-test --downbeat-model "$app_bundle/Contents/Resources/m
   echo "The bundled chord-runtime self-test must receive the bundled Beat This! model." >&2
   exit 1
 fi
+if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
+  echo "Bundled runtime verification must not write bytecode after signing." >&2
+  exit 1
+fi
 echo "Release version $package_version is consistent."

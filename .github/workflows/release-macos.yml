@@ -99,6 +99,10 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.macos-arm.conf.json
       - name: Verify bundled macOS resources
+        env:
+          # The verification invokes the bundled interpreter after ad-hoc
+          # signing; bytecode writes would invalidate its code signatures.
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
           app_bundle="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SonArcan.app"
           codesign --verify --deep --strict --verbose=2 "$app_bundle"
