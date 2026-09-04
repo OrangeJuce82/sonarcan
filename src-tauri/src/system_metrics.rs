@@ -1,5 +1,3 @@
-use std::process::Command;
-
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -25,7 +23,7 @@ pub fn snapshot() -> SystemMetrics {
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
 fn unix_process_snapshot() -> SystemMetrics {
     let pid = std::process::id().to_string();
-    let output = Command::new("ps")
+    let output = std::process::Command::new("ps")
         .args(["-o", "%cpu=", "-o", "rss=", "-p", pid.as_str()])
         .output();
     let Ok(output) = output else {

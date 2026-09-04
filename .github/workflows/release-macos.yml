@@ -14,7 +14,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare-model:
+    name: Prepare shared HTDemucs model
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: tools/sonarcan-mlx-worker/uv.lock
+      - name: Install pinned Python runtime
+        run: uv python install 3.12.12
+      - run: npm ci
+      - run: npm run verify:release-version
+      - name: Restore converted MLX model
+        id: mlx-model-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
+          key: mlx-model-htdemucs-6s-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/sonarcan-mlx-worker/uv.lock', 'tools/sonarcan-mlx-worker/src/sonarcan_mlx_worker/build_model.py') }}
+      - name: Convert official HTDemucs 6s model
+        if: steps.mlx-model-cache.outputs.cache-hit != 'true'
+        run: npm run mlx:model
+      - name: Share the reusable HTDemucs model
+        uses: actions/upload-artifact@v6
+        with:
+          name: htdemucs-6s-model
+          path: |
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
+            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
+          if-no-files-found: error
+      - name: Create draft release before parallel uploads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_args=(--draft --generate-notes --title "SonArcan $GITHUB_REF_NAME")
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
+
   release:
+    name: Release macOS Apple Silicon
+    needs: prepare-model
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -42,28 +92,14 @@ jobs:
         run: uv python install 3.12.12
       - run: npm ci
       - run: npm run verify:release-version
-      - name: Restore converted MLX model
-        id: mlx-model-cache
-        uses: actions/cache@v5
+      - name: Download shared HTDemucs model
+        uses: actions/download-artifact@v7
         with:
-          path: |
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
-          key: mlx-model-htdemucs-6s-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/sonarcan-mlx-worker/uv.lock', 'tools/sonarcan-mlx-worker/src/sonarcan_mlx_worker/build_model.py') }}
-      - name: Convert official HTDemucs 6s model
-        if: steps.mlx-model-cache.outputs.cache-hit != 'true'
-        run: npm run mlx:model
+          name: htdemucs-6s-model
+          path: src-tauri/resources/models/demucs-mlx
       - name: Assemble pinned release runtime
         run: npm run mlx:runtime
       - run: npm run verify:mlx-release
-      - name: Share the reusable HTDemucs model
-        uses: actions/upload-artifact@v6
-        with:
-          name: htdemucs-6s-model
-          path: |
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
-          if-no-files-found: error
       - name: Prepare pinned Beat This! model
         run: npm run chords:downbeat-model
       - name: Assemble pinned LV-Chordia runtime
@@ -140,7 +176,7 @@ jobs:
 
   portable:
     name: Release ${{ matrix.name }}
-    needs: release
+    needs: prepare-model
     timeout-minutes: 120
     strategy:
       fail-fast: false

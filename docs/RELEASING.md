@@ -116,10 +116,10 @@ embedded-runtime signing script use the same ad-hoc identity.
    git push origin v0.2.0-beta.1
    ```
 
-5. The `Release desktop` workflow checks version consistency, converts the
-   shared model once on Apple Silicon, then builds the MLX ARM bundle and the
-   portable Windows and Linux bundles. Every runtime and media tool is
-   verified before packaging into a **draft** GitHub Release.
+5. The `Release desktop` workflow checks version consistency, prepares the
+   shared model once on Apple Silicon, creates the **draft** GitHub Release,
+   then builds the macOS, Windows, and Linux bundles concurrently. Every
+   runtime and media tool is verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
    declaration, shared-model identity, and bundled executables.
 7. Download and smoke-test every draft installer. On macOS, verify with
