@@ -9,6 +9,9 @@ Linux contain portable CPU Torch. Both backends load the same converted model
 resource and expose the complete six-stem feature. Each bundle contains one
 target-native shared Python 3.13 runtime; never copy that runtime between
 targets or combine target architectures into a universal macOS binary.
+The pinned `madmom` revision omits its setuptools, NumPy, and Cython build
+requirements, so release assembly bootstraps those exact inputs before building
+it without isolation.
 
 CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,

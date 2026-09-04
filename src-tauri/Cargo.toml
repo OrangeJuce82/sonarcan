@@ -1,6 +1,6 @@
 [package]
 name = "sonarcan"
-version = "0.1.0-beta.16"
+version = "0.1.0-beta.17"
 description = "Dive into the music."
 authors = ["SonArcan contributors"]
 license = "MIT"

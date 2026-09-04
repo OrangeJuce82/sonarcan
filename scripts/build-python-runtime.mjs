@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runtimePipArguments } from "./python-runtime-install.mjs";
+import { madmomBuildDependencies, runtimePipArguments } from "./python-runtime-install.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const project = join(repositoryRoot, "tools/sonarcan-python-runtime");
@@ -50,10 +50,15 @@ run("uv", [
   "--output-file", requirements,
 ]);
 run("uv", [
-  "pip", "sync", "--system", "--break-system-packages", "--python", runtimePython,
+  "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
+  ...madmomBuildDependencies,
+]);
+run("uv", [
+  "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
+  "--no-build-isolation-package", "madmom",
   "--reinstall-package", "sonarcan-lv-chordia-worker",
   "--reinstall-package", stemPackage,
-  ...runtimePipArguments(process.platform), requirements,
+  ...runtimePipArguments(process.platform), "--requirement", requirements,
 ], { cwd: project });
 
 const sitePackages = process.platform === "win32"
