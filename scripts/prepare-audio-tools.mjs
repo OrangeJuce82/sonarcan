@@ -4,15 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { audioToolsRelease } from "./audio-tools-release.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = join(root, "src-tauri/resources/audio-tools");
-const releaseTag = "autobuild-2026-08-29-13-12";
-const checksumsSha256 = "f9bc6cb691090bdc377dbc0befd2658a2b21501bac21b0c1334328670c6f7957";
-const assets = {
-  "linux-x64": "ffmpeg-master-latest-linux64-lgpl.tar.xz",
-  "win32-x64": "ffmpeg-master-latest-win64-lgpl.zip",
-};
+const { assets, checksumsSha256, tag: releaseTag } = audioToolsRelease;
 
 function run(command, commandArguments, options = {}) {
   const result = spawnSync(command, commandArguments, { stdio: "inherit", ...options });
