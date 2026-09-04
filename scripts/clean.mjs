@@ -31,6 +31,7 @@ const generatedArtifacts = [
   "tools/sonarcan-chord-worker/build",
   "tools/sonarcan-torch-worker/build",
   "tools/sonarcan-mlx-worker/build",
+  "tools/sonarcan-python-runtime/build",
 ];
 
 const localDependencies = [
@@ -38,9 +39,8 @@ const localDependencies = [
   "tools/sonarcan-mlx-worker/.venv",
   "tools/sonarcan-chord-worker/.venv",
   "tools/sonarcan-torch-worker/.venv",
-  "src-tauri/resources/chord-runtime/runtime",
-  "src-tauri/resources/mlx-runtime/runtime",
-  "src-tauri/resources/stem-runtime/runtime",
+  "tools/sonarcan-python-runtime/.venv",
+  "src-tauri/resources/python-runtime/runtime",
   "src-tauri/resources/audio-tools/bin",
   "src-tauri/resources/audio-tools/licenses",
   "src-tauri/resources/audio-tools/manifest.json",
@@ -79,6 +79,7 @@ const targets = [
   ...await pythonCaches("tools/sonarcan-mlx-worker"),
   ...await pythonCaches("tools/sonarcan-chord-worker"),
   ...await pythonCaches("tools/sonarcan-torch-worker"),
+  ...await pythonCaches("tools/sonarcan-python-runtime"),
   ...(includeDependencies ? localDependencies : []),
 ];
 

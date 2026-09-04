@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "sonarcan-lv-chordia-worker"
 version = "0.1.0"
 description = "Private, pinned LV-Chordia inference worker for SonArcan"
-# LV-Chordia 1.1.0 imports pydub's audioop compatibility path at module load.
-# audioop was removed in Python 3.13, so 3.12 is the newest verified runtime.
-requires-python = "==3.12.*"
+requires-python = "==3.13.*"
 dependencies = [
+  # pydub still imports audioop, which moved out of the standard library in 3.13.
+  "audioop-lts==0.2.2",
   "beat-this==1.1.0",
   "cython @ git+https://github.com/cython/cython.git@8a1b3c10260fa9f9a91475819d737bce59b1a3d0",
   "madmom @ git+https://github.com/CPJKU/madmom.git@27f032e8947204902c675e5e341a3faf5dc86dae",

@@ -5,10 +5,10 @@
 The tag workflow produces native bundles for Apple Silicon
 (`aarch64-apple-darwin`), Windows x64 (`x86_64-pc-windows-msvc`), and Linux x64
 (`x86_64-unknown-linux-gnu`). Apple Silicon bundles contain MLX; Windows and
-Linux contain portable CPU Torch. Both
-backends load the same converted model resource and expose the complete six-stem
-feature. Never copy a Python runtime between targets or combine them into a
-universal macOS binary.
+Linux contain portable CPU Torch. Both backends load the same converted model
+resource and expose the complete six-stem feature. Each bundle contains one
+target-native shared Python 3.13 runtime; never copy that runtime between
+targets or combine target architectures into a universal macOS binary.
 
 CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,
@@ -26,12 +26,13 @@ been produced; that optional format must not block the supported Linux release.
 ## What is pinned
 
 - uv 0.9.26 is used only for development and release assembly;
-- CPython 3.13.5 is recorded by `.python-version` for the MLX stem runtime;
-- the chord worker embeds CPython 3.12.12 and the exact LV-Chordia revision
-  `9d7de7bbf45efa6731ec8dc62d35280f141c0702`;
+- CPython 3.13.5 is used by the shared chord/downbeat and stem runtime;
+- the chord worker pins the exact LV-Chordia revision
+  `9d7de7bbf45efa6731ec8dc62d35280f141c0702` and `audioop-lts` for pydub's
+  Python 3.13 compatibility path;
 - the official `yt-dlp` zipimport artifact is pinned by version and SHA-256 in
   `src-tauri/resources/ytdlp-search/manifest.json` and runs through the shared
-  Python 3.12 resolver;
+  Python 3.13 resolver;
 - direct and transitive packages are locked in `uv.lock`;
 - the official Demucs source signature and checksum are validated by
   `demucs-mlx` before conversion;
@@ -75,15 +76,13 @@ removing the Gatekeeper disclosure.
 
 ## Local release qualification
 
-Prepare the backend for the current build host (`mlx:*` on Apple Silicon,
-`stems:*` elsewhere), then assemble the common analysis and media resources:
+Prepare the model for the current build host, then assemble the shared Python
+runtime and common media resources:
 
 ```bash
 npm ci
-npm run stems:sync
-npm run stems:runtime
+npm run python:runtime
 npm run verify:stem-release
-npm run chords:runtime
 npm run verify:chord-release
 npm run ytdlp:search
 npm run verify:ytdlp-search-release
@@ -95,8 +94,8 @@ npm run quality
 Run `npm run security` as well only when the release changes a dependency or
 lockfile, in accordance with the repository security policy.
 
-On Apple Silicon, replace the three portable-stem commands with `mlx:sync`,
-`mlx:model`, and `mlx:runtime`. Build with the target overlay
+On Apple Silicon, run `mlx:sync` and `mlx:model` before assembling the shared
+runtime. Build with the target overlay
 `src-tauri/tauri.macos-arm.conf.json` or
 `src-tauri/tauri.portable.conf.json`. macOS can still use
 `npm run register:macos-app` for local Launch Services qualification.

@@ -225,8 +225,10 @@ through direct argument arrays, return the same bounded NDJSON protocol, and
 load the same verified `htdemucs_6s.safetensors`. The portable worker reverses
 the deterministic convolution/attention layout mapping used during MLX
 conversion and requires a strict load of every upstream Torch parameter. Raw
-audio never crosses Tauri IPC. Release builds resolve target-native preassembled
-Python runtimes and never install packages on the user's machine.
+audio never crosses Tauri IPC. Release builds resolve one target-native,
+preassembled Python 3.13 runtime and never install packages on the user's
+machine. It contains the chord/downbeat worker and exactly one stem backend, so
+CPython, NumPy, SciPy, and PyTorch are not duplicated.
 
 The stem mixer persists its six display names and control state in each track. Its header switch changes an atomic Rust bypass while retaining the immutable decoded stem buffers. The WebView receives only six bounded peak scalars in the normal audio-status snapshot; it never receives stem audio.
 
@@ -273,7 +275,7 @@ and publishes each group's candidates as soon as that query finishes. A failed
 query remains isolated in its group and does not hide completed results or stop
 later searches.
 
-Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.12 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
+Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.13 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
 
 On the August 30, 2026 Apple-silicon benchmark, the former 35 MiB standalone
 macOS executable took 8.85 seconds for `--version` and 9.62 seconds for a

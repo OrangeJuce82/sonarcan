@@ -209,7 +209,7 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
     #[cfg(not(debug_assertions))]
     {
         let _ = app;
-        if let Some(executable) = python_runtime::bundled_python_312() {
+        if let Some(executable) = python_runtime::bundled_python_313() {
             return Ok(WorkerCommand {
                 executable,
                 prefix_arguments: vec!["-m".into(), "sonarcan_chord_worker.worker".into()],

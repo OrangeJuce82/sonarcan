@@ -853,12 +853,12 @@ fn resolve_worker(_app: &AppHandle) -> Result<WorkerCommand, AppError> {
             .path()
             .resource_dir()
             .map_err(|error| AppError::StemSeparation(error.to_string()))?;
-        let (runtime, module) = match backend {
-            StemBackend::Mlx => ("mlx-runtime", "sonarcan_mlx_worker"),
-            StemBackend::Torch => ("stem-runtime", "sonarcan_torch_worker"),
+        let module = match backend {
+            StemBackend::Mlx => "sonarcan_mlx_worker",
+            StemBackend::Torch => "sonarcan_torch_worker",
         };
         validated_worker(
-            bundled_python(&resources.join(runtime).join("runtime"), backend),
+            bundled_python(&resources.join("python-runtime").join("runtime")),
             vec!["-m".into(), module.into()],
             portable_worker_arguments(backend)?,
             resources.join("models/demucs-mlx"),
@@ -877,14 +877,11 @@ fn development_python(worker_root: &Path) -> PathBuf {
 }
 
 #[cfg(not(debug_assertions))]
-fn bundled_python(runtime: &Path, backend: StemBackend) -> PathBuf {
+fn bundled_python(runtime: &Path) -> PathBuf {
     if cfg!(windows) {
         runtime.join("python.exe")
     } else {
-        runtime.join(match backend {
-            StemBackend::Mlx => "bin/python3.13",
-            StemBackend::Torch => "bin/python3.12",
-        })
+        runtime.join("bin/python3.13")
     }
 }
 

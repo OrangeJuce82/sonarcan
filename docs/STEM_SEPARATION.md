@@ -27,8 +27,9 @@ The header switch is a real-time bypass after generation. Switching it off resto
 - Cache artifacts are generated data and may be removed safely; SonArcan will regenerate them on demand.
 - Validation and cache-write durations are logged separately with the model name. Matching stereo stems avoid a redundant alignment copy, and cache PCM is encoded and written in bounded blocks.
 
-The MLX worker pins Python 3.13.5; the portable worker pins Python 3.12.12 and
-CPU Torch. uv is used only on development and build machines. The model config
+All release workers share one target-native Python 3.13.5 runtime. Linux and
+Windows resolve CPU-only Torch from PyTorch's CPU index. uv is used only on
+development and build machines. The model config
 records and validates the official source identity and generated Safetensors
 SHA-256. Torch reconstructs the upstream module from that same file and rejects
 missing, extra, or shape-mismatched tensors.

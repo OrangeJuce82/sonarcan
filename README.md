@@ -66,7 +66,6 @@ rustup toolchain install stable
 brew install ffmpeg
 curl -LsSf https://astral.sh/uv/0.9.26/install.sh | sh
 uv python install 3.13.5
-uv python install 3.12.12
 ```
 
 Prepare a fresh checkout:
@@ -98,8 +97,7 @@ Windows x64, and a Linux x64 DEB.
 npm ci
 npm run mlx:sync
 npm run mlx:model
-npm run mlx:runtime
-npm run chords:runtime
+npm run python:runtime
 npm run ffmpeg:runtime
 npm run quality
 npm run build:macos:dmg

@@ -1,0 +1,39 @@
+[project]
+name = "sonarcan-python-runtime"
+version = "0.1.0"
+description = "Platform-selected shared Python runtime for SonArcan releases"
+requires-python = "==3.13.*"
+dependencies = [
+  "sonarcan-lv-chordia-worker",
+  "sonarcan-mlx-worker; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sonarcan-torch-worker; sys_platform != 'darwin' or platform_machine != 'arm64'",
+  "torchaudio==2.11.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "torchaudio==2.11.0+cpu; sys_platform == 'linux' or sys_platform == 'win32'",
+]
+
+[tool.uv]
+required-version = "==0.9.26"
+package = false
+environments = [
+  "sys_platform != 'darwin' or platform_machine == 'arm64'",
+]
+no-build-isolation-package = ["madmom"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+sonarcan-lv-chordia-worker = { path = "../sonarcan-chord-worker" }
+sonarcan-mlx-worker = { path = "../sonarcan-mlx-worker" }
+sonarcan-torch-worker = { path = "../sonarcan-torch-worker" }
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchaudio = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[dependency-groups]
+dev = []

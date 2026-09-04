@@ -973,7 +973,7 @@ fn normalized_url_key(input: &str) -> String {
 pub(crate) fn ytdlp_command() -> Result<YtDlpCommand, AppError> {
     if let (Some(archive), Some(python)) = (
         python_runtime::resource_path("ytdlp-search/yt-dlp"),
-        python_runtime::bundled_python_312(),
+        python_runtime::bundled_python_313(),
     ) {
         if archive.is_file() {
             return Ok(YtDlpCommand {

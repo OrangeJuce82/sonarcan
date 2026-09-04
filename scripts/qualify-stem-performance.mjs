@@ -8,10 +8,9 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appleSilicon = process.env.SONARCAN_STEM_BACKEND !== "torch"
   && process.platform === "darwin" && process.arch === "arm64";
-const runtimeName = appleSilicon ? "mlx-runtime" : "stem-runtime";
 const python = process.platform === "win32"
-  ? join(root, `src-tauri/resources/${runtimeName}/runtime/python.exe`)
-  : join(root, `src-tauri/resources/${runtimeName}/runtime/bin/${appleSilicon ? "python3.13" : "python3.12"}`);
+  ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
+  : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
 const suffix = process.platform === "win32" ? ".exe" : "";
 const ffmpeg = join(root, `src-tauri/resources/audio-tools/bin/ffmpeg${suffix}`);
 const model = join(root, "src-tauri/resources/models/demucs-mlx");

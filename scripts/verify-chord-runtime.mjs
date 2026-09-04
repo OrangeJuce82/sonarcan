@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtime = process.platform === "win32"
-  ? join(root, "src-tauri/resources/chord-runtime/runtime/python.exe")
-  : join(root, "src-tauri/resources/chord-runtime/runtime/bin/python3.12");
+  ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
+  : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
 const model = join(root, "src-tauri/resources/models/beat-this/final0.ckpt");
 
 if (!existsSync(runtime)) {
-  throw new Error("Missing LV-Chordia runtime. Run: npm run chords:runtime");
+  throw new Error("Missing shared Python runtime. Run: npm run python:runtime");
 }
 
 const result = spawnSync(runtime, [
@@ -27,6 +27,6 @@ if (
   || JSON.stringify(health.modes) !== JSON.stringify(expectedModes)
   || !String(health.downbeatModelVersion ?? "").startsWith("beat-this@")
 ) {
-  throw new Error("The bundled chord/downbeat worker is stale or has an invalid contract. Run: npm run chords:runtime");
+  throw new Error("The bundled chord/downbeat worker is stale or has an invalid contract. Run: npm run python:runtime");
 }
 console.log(JSON.stringify(health));

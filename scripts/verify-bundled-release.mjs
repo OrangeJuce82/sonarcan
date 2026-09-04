@@ -13,7 +13,7 @@ if (!existsSync(root) || !statSync(root).isDirectory()) {
 function findResourceRoot(directory, depth = 0) {
   if (depth > 10) return undefined;
   const beatModel = join(directory, "models", "beat-this", "final0.ckpt");
-  if (existsSync(beatModel) && existsSync(join(directory, "chord-runtime"))) return directory;
+  if (existsSync(beatModel) && existsSync(join(directory, "python-runtime"))) return directory;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
     const found = findResourceRoot(join(directory, entry.name), depth + 1);
@@ -47,14 +47,14 @@ if (!resources) throw new Error(`could not locate SonArcan resources inside ${ro
 const windows = process.platform === "win32";
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
 const suffix = windows ? ".exe" : "";
-const chordPython = required(
+const sharedPython = required(
   windows
-    ? join(resources, "chord-runtime", "runtime", "python.exe")
-    : join(resources, "chord-runtime", "runtime", "bin", "python3.12"),
-  "bundled chord Python",
+    ? join(resources, "python-runtime", "runtime", "python.exe")
+    : join(resources, "python-runtime", "runtime", "bin", "python3.13"),
+  "bundled shared Python 3.13",
 );
 const beatModel = required(join(resources, "models", "beat-this", "final0.ckpt"), "Beat This model");
-const chordOutput = run(chordPython, [
+const chordOutput = run(sharedPython, [
   "-m", "sonarcan_chord_worker.worker", "--self-test", "--downbeat-model", beatModel,
 ], "bundled chord/downbeat worker", true);
 const chordHealth = JSON.parse(chordOutput);
@@ -62,16 +62,9 @@ if (!chordHealth.ok || chordHealth.modes?.join(",") !== "complete,essential,stan
   throw new Error("bundled chord/downbeat worker returned an invalid contract");
 }
 
-const stemRuntime = appleSilicon ? "mlx-runtime" : "stem-runtime";
-const stemPython = required(
-  windows
-    ? join(resources, stemRuntime, "runtime", "python.exe")
-    : join(resources, stemRuntime, "runtime", "bin", appleSilicon ? "python3.13" : "python3.12"),
-  "bundled stem Python",
-);
 const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
 const model = required(join(resources, "models", "demucs-mlx", "htdemucs_6s.safetensors"), "HTDemucs model");
-run(stemPython, [
+run(sharedPython, [
   "-m", stemModule, "self-test", "--model-dir", dirname(model),
 ], `bundled ${appleSilicon ? "MLX" : "Torch"} stem worker`);
 
@@ -81,7 +74,7 @@ run(ffmpeg, ["-hide_banner", "-version"], "bundled FFmpeg");
 run(ffprobe, ["-hide_banner", "-version"], "bundled FFprobe");
 
 const ytdlp = required(join(resources, "ytdlp-search", "yt-dlp"), "bundled yt-dlp search artifact");
-run(chordPython, [ytdlp, "--version"], "bundled yt-dlp search artifact");
+run(sharedPython, [ytdlp, "--version"], "bundled yt-dlp search artifact");
 
 console.log(JSON.stringify({
   verifiedBundle: root,

@@ -48,8 +48,7 @@ The real-time callback never locks or reads this cache. It only sees the selecte
 Stem mode is disabled by default and never delays ordinary track loading. On an
 Apple-silicon Mac it starts `sonarcan-mlx-worker` with the exact `demucs-mlx`
 environment. Windows and Linux start `sonarcan-torch-worker` with the pinned
-CPU-portable Torch environment (and CUDA when an explicitly
-compatible runtime is supplied). Both use one six-stem protocol and one cache.
+CPU-only Torch environment. Both use one six-stem protocol and one cache.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.
 
@@ -109,7 +108,7 @@ after the limiter and calibrated so its −1 dBFS ceiling is the top of the UI
 scale. These scalar values are the only output-level data crossing IPC; raw
 audio never leaves the engine.
 
-Python, uv, worker dependencies, and the model revision are pinned in the worker project and `stem_contract.rs`. Updating any of them requires regenerating the lockfile and runtime, changing the cache revision when output compatibility changes, and repeating separation parity and performance tests.
+Python, uv, worker dependencies, and the model revision are pinned in the worker projects, the shared runtime project, and `stem_contract.rs`. Updating any of them requires regenerating the lockfiles and runtime, changing the cache revision when output compatibility changes, and repeating separation parity and performance tests.
 
 `demucs-mlx 1.4.6` rejects a numeric key found only in the official checkpoint's unused `training_args` metadata. The release model builder strips that one optional metadata field before invoking the package's restricted loader and converter. Constructor data, tensor state, official signature, source checksum, and generated safetensors checksum continue through the upstream validation path. Remove this narrow workaround when the pinned upstream version accepts its official checkpoint unchanged.
 

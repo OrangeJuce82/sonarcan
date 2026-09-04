@@ -9,9 +9,9 @@ __pycache__/
 .venv/
 tools/sonarcan-mlx-worker/.venv/
 tools/sonarcan-mlx-worker/build/
-src-tauri/resources/mlx-runtime/runtime/
-src-tauri/resources/chord-runtime/runtime/
-src-tauri/resources/stem-runtime/runtime/
+tools/sonarcan-python-runtime/.venv/
+tools/sonarcan-python-runtime/build/
+src-tauri/resources/python-runtime/runtime/
 tools/sonarcan-torch-worker/.venv/
 tools/sonarcan-chord-worker/build/
 src-tauri/resources/audio-tools/*

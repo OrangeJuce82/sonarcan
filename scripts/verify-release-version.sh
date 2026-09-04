@@ -9,6 +9,7 @@ cargo_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$repository_root/src-ta
 release_tag="${GITHUB_REF_NAME:-v$package_version}"
 release_workflow="$repository_root/.github/workflows/release-macos.yml"
 portable_worker="$repository_root/tools/sonarcan-torch-worker/pyproject.toml"
+shared_runtime="$repository_root/tools/sonarcan-python-runtime/uv.lock"
 
 if [[ "$package_version" != "$tauri_version" || "$package_version" != "$cargo_version" ]]; then
   echo "package.json, tauri.conf.json and Cargo.toml versions must match." >&2
@@ -49,12 +50,8 @@ if ! grep -Fq 'SHA256SUMS.txt' "$release_workflow"; then
   echo "The macOS release workflow must publish a DMG checksum." >&2
   exit 1
 fi
-if ! grep -Fq 'uv python install 3.12.12' "$release_workflow"; then
-  echo "The macOS release workflow must install the Python version bundled in the chord runtime." >&2
-  exit 1
-fi
 if ! grep -Fq '3.13.5' "$release_workflow"; then
-  echo "The macOS release workflow must install the Python version bundled in the MLX runtime." >&2
+  echo "The release workflow must install the shared Python runtime version." >&2
   exit 1
 fi
 if grep -Fq -- '--bundles deb,appimage' "$release_workflow"; then
@@ -66,7 +63,7 @@ if ! grep -Fq 'npm run chords:downbeat-model' "$release_workflow"; then
   exit 1
 fi
 if ! grep -Fq -- '--self-test --downbeat-model "$app_bundle/Contents/Resources/models/beat-this/final0.ckpt"' "$release_workflow"; then
-  echo "The bundled chord-runtime self-test must receive the bundled Beat This! model." >&2
+  echo "The bundled chord/downbeat self-test must receive the bundled Beat This! model." >&2
   exit 1
 fi
 if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
@@ -79,6 +76,13 @@ if grep -Fq 'x86_64-apple-darwin' "$release_workflow"; then
 fi
 if ! grep -Fq 'torch==2.13.0+cpu; sys_platform == '\''linux'\'' or sys_platform == '\''win32'\''' "$portable_worker"; then
   echo "Linux and Windows releases must pin the exact portable CPU Torch build." >&2
+  exit 1
+fi
+if ! grep -Fq 'version = "2.13.0+cpu"' "$shared_runtime" \
+  || ! grep -Fq 'version = "2.11.0+cpu"' "$shared_runtime" \
+  || ! grep -Fq 'source = { registry = "https://download.pytorch.org/whl/cpu" }' "$shared_runtime" \
+  || grep -Fq 'name = "nvidia-' "$shared_runtime"; then
+  echo "The shared runtime must resolve CPU-only Torch audio packages without NVIDIA packages on Linux and Windows." >&2
   exit 1
 fi
 echo "Release version $package_version is consistent."

@@ -26,6 +26,7 @@ uv run --project tools/sonarcan-chord-worker --locked \
   /absolute/path/to/audio.mp3
 ```
 
-The worker requires Python 3.12. Release builds use the self-contained runtime
-assembled by `npm run chords:runtime` rather than a Python installation on the
-user's Mac.
+The worker requires Python 3.13; `audioop-lts` supplies the module still used by
+pydub. Release builds use the self-contained runtime assembled by
+`npm run python:runtime` rather than a Python installation on the user's
+computer.

@@ -45,12 +45,12 @@ change cached analysis.
 
 ## Runtime and trust boundary
 
-The runtime is pinned to Python 3.12 and LV-Chordia revision
-`9d7de7bbf45efa6731ec8dc62d35280f141c0702`. Python 3.13 is not used because
-the upstream `pydub` path still imports the removed `audioop` module.
+The shared runtime is pinned to Python 3.13 and LV-Chordia revision
+`9d7de7bbf45efa6731ec8dc62d35280f141c0702`. The pinned `audioop-lts` package
+provides the standard-library module still imported by upstream `pydub`.
 
 All five pretrained checkpoint files are SHA-256 verified before `torch.load`.
-The release runtime is generated with `npm run chords:runtime` and verified by
+The release runtime is generated with `npm run python:runtime` and verified by
 the Tauri release build. Development uses the same locked `uv` project.
 
 ## Presentation
