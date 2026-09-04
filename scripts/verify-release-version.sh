@@ -53,6 +53,14 @@ if ! grep -Fq 'uv python install 3.12.12' "$release_workflow"; then
   echo "The macOS release workflow must install the Python version bundled in the chord runtime." >&2
   exit 1
 fi
+if ! grep -Fq '3.13.5' "$release_workflow"; then
+  echo "The macOS release workflow must install the Python version bundled in the MLX runtime." >&2
+  exit 1
+fi
+if grep -Fq -- '--bundles deb,appimage' "$release_workflow"; then
+  echo "The Linux release must not let the unreliable AppImage bundler block the verified DEB." >&2
+  exit 1
+fi
 if ! grep -Fq 'npm run chords:downbeat-model' "$release_workflow"; then
   echo "The macOS release workflow must download and verify the pinned Beat This! model." >&2
   exit 1

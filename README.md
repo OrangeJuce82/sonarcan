@@ -92,7 +92,7 @@ npm run tauri dev
 Releases bundle pinned Python workers, analysis models, and a target-native
 FFmpeg runtime. End users do not need to install Python, `uv`, FFmpeg, or model
 dependencies. The tag workflow builds three platform releases: macOS ARM64,
-Windows x64, and Linux x64.
+Windows x64, and a Linux x64 DEB.
 
 ```bash
 npm ci

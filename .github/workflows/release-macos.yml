@@ -30,7 +30,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: tools/sonarcan-mlx-worker/uv.lock
       - name: Install pinned Python runtime
-        run: uv python install 3.12.12
+        run: uv python install 3.12.12 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
       - name: Restore converted MLX model
@@ -89,7 +89,7 @@ jobs:
             tools/sonarcan-mlx-worker/uv.lock
             tools/sonarcan-chord-worker/uv.lock
       - name: Install pinned Python runtime
-        run: uv python install 3.12.12
+        run: uv python install 3.12.12 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
       - name: Download shared HTDemucs model
@@ -224,7 +224,7 @@ jobs:
       - name: Qualify portable separation performance
         run: npm run qualify:stem-performance
       - run: npm run quality
-      - name: Build bundle and upload it to the draft release
+      - name: Build DEB and upload it to the draft release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -234,21 +234,14 @@ jobs:
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target x86_64-unknown-linux-gnu --bundles deb,appimage --config src-tauri/tauri.portable.conf.json
-      - name: Verify packaged Linux applications
+          args: --target x86_64-unknown-linux-gnu --bundles deb --config src-tauri/tauri.portable.conf.json
+      - name: Verify packaged Linux application
         run: |
           verification_root="$(mktemp -d)"
           deb_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          appimage_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
           test -n "$deb_path"
-          test -n "$appimage_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
-          mkdir "$verification_root/appimage"
-          cd "$verification_root/appimage"
-          "$GITHUB_WORKSPACE/$appimage_path" --appimage-extract >/dev/null
-          cd "$GITHUB_WORKSPACE"
-          npm run verify:bundled-release -- "$verification_root/appimage/squashfs-root"
           rm -rf "$verification_root"
 
   release-windows:

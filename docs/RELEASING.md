@@ -13,11 +13,15 @@ universal macOS binary.
 CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,
 execute their self-tests, and upload platform installers to one draft release.
-After packaging, the release gate inspects the macOS applications, extracts both
-Linux packages, and silently installs the Windows NSIS package in the disposable
+After packaging, the release gate inspects the macOS applications, extracts the
+Linux DEB, and silently installs the Windows NSIS package in the disposable
 runner. It then executes the embedded chord/downbeat, stem, FFmpeg, FFprobe, and
 yt-dlp health checks from those packaged locations. A missing, foreign-architecture,
 or non-relocatable runtime therefore fails the release while it is still a draft.
+
+Linux releases currently publish a verified DEB. AppImage publication is paused
+because Tauri's upstream `linuxdeploy` path can fail after a valid DEB has already
+been produced; that optional format must not block the supported Linux release.
 
 ## What is pinned
 

@@ -712,8 +712,19 @@ fn local_input_path(input: &str) -> Option<PathBuf> {
     } else {
         percent_decode(value)?
     };
-    let path = PathBuf::from(decoded);
+    let path = PathBuf::from(platform_file_uri_path(&decoded));
     path.is_file().then_some(path)
+}
+
+fn platform_file_uri_path(decoded: &str) -> &str {
+    #[cfg(windows)]
+    if let Some(without_root) = decoded.strip_prefix('/') {
+        let bytes = without_root.as_bytes();
+        if bytes.first().is_some_and(u8::is_ascii_alphabetic) && bytes.get(1) == Some(&b':') {
+            return without_root;
+        }
+    }
+    decoded
 }
 
 fn percent_decode(value: &str) -> Option<String> {
@@ -1179,7 +1190,15 @@ mod tests {
         fs::create_dir_all(&account_directory).unwrap();
         let path = account_directory.join("track name.mp3");
         fs::write(&path, b"audio").unwrap();
-        let encoded_path = path.to_string_lossy().replace(' ', "%20");
+        let encoded_path = path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace(' ', "%20");
+        let encoded_path = if cfg!(windows) {
+            format!("/{encoded_path}")
+        } else {
+            encoded_path
+        };
 
         for input in [
             format!("file://{encoded_path}"),
@@ -1189,7 +1208,10 @@ mod tests {
         ] {
             let candidates = parse_text(&input);
             assert_eq!(candidates.len(), 1, "input: {input}");
-            assert!(matches!(candidates[0].kind, CandidateKind::Local));
+            assert!(
+                matches!(candidates[0].kind, CandidateKind::Local),
+                "input: {input}"
+            );
         }
     }
 
