@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { runtimePipArguments } from "./python-runtime-install.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtimeName = process.argv[2];
@@ -67,6 +68,7 @@ cpSync(managedRoot, runtime, { recursive: true, dereference: false });
 const runtimePython = process.platform === "win32"
   ? join(runtime, "python.exe")
   : join(runtime, "bin/python3.12");
+const pipArguments = runtimePipArguments(runtimeName, process.platform);
 
 run("uv", [
   "export", "--quiet", "--project", project, "--locked", "--no-dev", "--no-editable",
@@ -74,7 +76,7 @@ run("uv", [
 ]);
 run("uv", [
   "pip", "sync", "--system", "--break-system-packages", "--python", runtimePython,
-  "--reinstall-package", configuration.package, requirements,
+  "--reinstall-package", configuration.package, ...pipArguments, requirements,
 ], { cwd: project });
 if (runtimeName === "chord") {
   const sitePackages = process.platform === "win32"
