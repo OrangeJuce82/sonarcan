@@ -13,9 +13,9 @@
 </div>
 
 > [!NOTE]
-> SonArcan targets macOS 14+ on Apple Silicon and Intel, Windows x64, and Linux
-> x64. MLX remains the optimized stem backend on Apple Silicon; the other
-> targets use the portable Torch backend with the exact same bundled model.
+> SonArcan targets macOS 14+ on Apple Silicon, Windows x64, and Linux x64. MLX
+> remains the optimized stem backend on Apple Silicon; Windows and Linux use the
+> portable Torch backend with the exact same bundled model.
 
 SonArcan is made for musicians who want the useful parts of an audio workstation without the weight of a full DAW. Import a setlist, understand the music, isolate parts, build loops, and practice—all while keeping projects portable and data on your Mac.
 
@@ -50,7 +50,7 @@ A heartfelt thank-you to every maintainer, researcher, tester, and contributor b
 
 ### Requirements
 
-- macOS 14+, Windows x64, or a Linux x64 desktop supported by Tauri 2
+- macOS 14+ on Apple Silicon, Windows x64, or a Linux x64 desktop supported by Tauri 2
 - Node.js 22+ and npm
 - Stable Rust 1.78+ with Cargo
 - `uv` exactly `0.9.26`
@@ -91,7 +91,7 @@ npm run tauri dev
 
 Releases bundle pinned Python workers, analysis models, and a target-native
 FFmpeg runtime. End users do not need to install Python, `uv`, FFmpeg, or model
-dependencies. The tag workflow builds four artifacts: macOS ARM64, macOS Intel,
+dependencies. The tag workflow builds three platform releases: macOS ARM64,
 Windows x64, and Linux x64.
 
 ```bash

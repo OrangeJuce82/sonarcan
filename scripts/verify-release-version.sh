@@ -2,11 +2,13 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
-package_version="$(node -p "require('$repository_root/package.json').version")"
-tauri_version="$(node -p "require('$repository_root/src-tauri/tauri.conf.json').version")"
+cd "$repository_root"
+package_version="$(node -p "require('./package.json').version")"
+tauri_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 cargo_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$repository_root/src-tauri/Cargo.toml" | head -1)"
 release_tag="${GITHUB_REF_NAME:-v$package_version}"
 release_workflow="$repository_root/.github/workflows/release-macos.yml"
+portable_worker="$repository_root/tools/sonarcan-torch-worker/pyproject.toml"
 
 if [[ "$package_version" != "$tauri_version" || "$package_version" != "$cargo_version" ]]; then
   echo "package.json, tauri.conf.json and Cargo.toml versions must match." >&2
@@ -24,7 +26,7 @@ required_icons=(
   "icons/icon.icns"
   "icons/icon.ico"
 )
-configured_icons="$(node -p "require('$repository_root/src-tauri/tauri.conf.json').bundle.icon.join('\\n')")"
+configured_icons="$(node -p "require('./src-tauri/tauri.conf.json').bundle.icon.join('\\n')")"
 for icon in "${required_icons[@]}"; do
   if ! grep -Fxq "$icon" <<< "$configured_icons"; then
     echo "The release bundle is missing the configured app icon $icon." >&2
@@ -61,6 +63,14 @@ if ! grep -Fq -- '--self-test --downbeat-model "$app_bundle/Contents/Resources/m
 fi
 if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
   echo "Bundled runtime verification must not write bytecode after signing." >&2
+  exit 1
+fi
+if grep -Fq 'x86_64-apple-darwin' "$release_workflow"; then
+  echo "The release workflow must not publish unsupported Intel macOS bundles." >&2
+  exit 1
+fi
+if ! grep -Fq 'torch==2.13.0+cpu; sys_platform == '\''linux'\'' or sys_platform == '\''win32'\''' "$portable_worker"; then
+  echo "Linux and Windows releases must pin the exact portable CPU Torch build." >&2
   exit 1
 fi
 echo "Release version $package_version is consistent."

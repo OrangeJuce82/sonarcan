@@ -37,8 +37,6 @@ jobs:
             os: ubuntu-24.04
           - name: Windows x64
             os: windows-2025
-          - name: macOS Intel
-            os: macos-15-intel
           - name: macOS Apple Silicon
             os: macos-15
     runs-on: ${{ matrix.os }}

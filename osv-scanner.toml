@@ -57,27 +57,6 @@ id = "RUSTSEC-2024-0429"
 reason = "Affected glib iterator API is not called by SonArcan or its Tauri integration; Linux maintenance risk is tracked in SECURITY.md."
 ignoreUntil = 2026-11-30
 
-# Intel macOS is limited to the last upstream PyTorch wheel (2.2.2). The worker
-# strictly loads a pinned Safetensors file and calls one fixed eager HTDemucs
-# graph. It never exposes torch.load/PT2, distributed/RPC, JIT, Inductor,
-# quantized modules, user models, or arbitrary tensor operations. These
-# time-bounded exceptions apply only to that legacy wheel; Linux and Windows use
-# Torch 2.13.0 CPU. Re-review or retire Intel stems by the deadline.
-
-[[IgnoredVulns]]
-id = "PYSEC-2024-259"
-reason = "Intel-only Torch; distributed RemoteModule is never imported or exposed by the fixed Safetensors worker."
-ignoreUntil = 2026-11-30
-
-[[IgnoredVulns]]
-id = "PYSEC-2025-191"
-reason = "Intel-only Torch; the fixed HTDemucs eager graph does not call mkldnn_max_pool2d."
-ignoreUntil = 2026-11-30
-
-[[IgnoredVulns]]
-id = "PYSEC-2025-198"
-reason = "Intel-only Torch; the affected operation is absent from the fixed HTDemucs eager graph."
-ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "PYSEC-2025-203"

@@ -1,8 +1,8 @@
 # Stem separation
 
 SonArcan provides an optional six-channel practice mixer backed by one
-`htdemucs_6s` model. Apple Silicon uses Apple MLX; macOS Intel, Windows, and
-Linux use portable Torch inference. The feature is deliberately opt-in because
+`htdemucs_6s` model. Apple Silicon uses Apple MLX; Windows and Linux use
+portable Torch inference. The feature is deliberately opt-in because
 source separation consumes substantially more compute and disk space than
 normal playback.
 
@@ -57,15 +57,15 @@ The MLX batch sweep was repeated after selecting 10% overlap. Batch 2 completed
 in 3.32 seconds with a 2.65 GiB MLX peak; batch 4 took 4.31 seconds with a
 3.90 GiB peak; batch 8 took 5.36 seconds with a 3.90 GiB peak. Batch 2 therefore
 remains the release default. Portable Torch model loading measured 0.14 seconds,
-so a second Intel-specific tensor artifact would target the wrong bottleneck.
+so a second platform-specific tensor artifact would target the wrong bottleneck.
 Every desktop release job now runs a 15-second end-to-end separation and prints
-its real-time factor, providing target-native Intel, Linux, Windows, and Apple
+its real-time factor, providing target-native Linux, Windows, and Apple
 Silicon measurements for release qualification.
 
 ## Remaining validation
 
 The automated suite validates both workers, the strict shared-model
 reconstruction, six-buffer cache, real-time engine, frontend, and native builds
-on all four release targets. Release qualification additionally runs model
+on all three release targets. Release qualification additionally runs model
 self-tests in each bundled runtime. MLX performance qualification remains
 specific to Apple Silicon; portable CPU timings are recorded separately.

@@ -71,7 +71,7 @@
 - [ ] playlist reordering and deletion
 - [ ] crash-safe recovery and backups
 - [ ] audio-device diagnostics
-- [x] CI native builds on macOS ARM64, macOS Intel, Linux x64, and Windows x64
+- [x] CI native builds on macOS ARM64, Linux x64, and Windows x64
 
 ## Phase 2 — learning workflow
 
@@ -109,6 +109,6 @@
 - [x] explicit pasted-text analysis without application clipboard monitoring
 - [ ] import cancellation, retry controls, and completed-job pruning
 - [x] macOS Apple Silicon packaging with MLX
-- [x] macOS Intel packaging with portable Torch stems
+- [x] retire macOS Intel packaging after current LV-Chordia/Torch wheels stopped supporting it
 - [x] Linux x64 packaging with portable Torch stems
 - [x] Windows x64 packaging with portable Torch stems

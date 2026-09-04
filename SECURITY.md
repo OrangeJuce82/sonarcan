@@ -66,14 +66,9 @@ Review deadline: **2026-11-30**.
   A reachable memory-safety or code-execution advisory blocks Linux releases.
 - Tauri's `urlpattern` graph carries five unmaintained `unic` crates.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
-- PyTorch no longer publishes current Intel macOS wheels. That target alone uses
-  2.2.2 behind a narrow worker which loads only the pinned Safetensors model and
-  executes one fixed eager HTDemucs graph. It never exposes pickle/`torch.load`,
-  PT2 loading, distributed/RPC, JIT, Inductor, quantized modules, arbitrary
-  models, or arbitrary tensor operations. The associated advisories are
-  time-bounded in `osv-scanner.toml`; Windows and Linux use Torch 2.13.0 CPU.
-  Re-review the upstream Intel situation or retire Intel stem inference by the
-  deadline.
+- PyTorch no longer publishes current Intel macOS wheels, while LV-Chordia
+  requires Torch 2.13 or newer. Intel macOS release artifacts are therefore not
+  produced. Windows and Linux use the pinned Torch 2.13.0 CPU runtime.
 
 These are maintenance advisories, not permission to ignore a vulnerability.
 Any advisory reporting memory safety, code execution, path escape, data loss, or

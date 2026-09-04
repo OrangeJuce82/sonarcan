@@ -219,8 +219,8 @@ than one notification per track.
 The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
 
 Six-stem inference is an implementation detail behind one Rust stem service.
-Apple Silicon selects the MLX worker; macOS Intel, Windows, and Linux select the
-portable Torch worker. Both receive only canonical project media/model paths
+Apple Silicon selects the MLX worker; Windows and Linux select the portable
+Torch worker. Both receive only canonical project media/model paths
 through direct argument arrays, return the same bounded NDJSON protocol, and
 load the same verified `htdemucs_6s.safetensors`. The portable worker reverses
 the deterministic convolution/attention layout mapping used during MLX

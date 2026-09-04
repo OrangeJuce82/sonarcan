@@ -3,14 +3,14 @@
 ## Supported releases
 
 The tag workflow produces native bundles for Apple Silicon
-(`aarch64-apple-darwin`), macOS Intel (`x86_64-apple-darwin`), Windows x64
-(`x86_64-pc-windows-msvc`), and Linux x64 (`x86_64-unknown-linux-gnu`). Apple
-Silicon bundles contain MLX; the other three contain portable CPU Torch. Both
+(`aarch64-apple-darwin`), Windows x64 (`x86_64-pc-windows-msvc`), and Linux x64
+(`x86_64-unknown-linux-gnu`). Apple Silicon bundles contain MLX; Windows and
+Linux contain portable CPU Torch. Both
 backends load the same converted model resource and expose the complete six-stem
 feature. Never copy a Python runtime between targets or combine them into a
 universal macOS binary.
 
-CI compiles the Tauri application on all four targets for every change. Tag
+CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,
 execute their self-tests, and upload platform installers to one draft release.
 After packaging, the release gate inspects the macOS applications, extracts both
@@ -36,7 +36,7 @@ or non-relocatable runtime therefore fails the release while it is still a draft
 - FFmpeg 8.0.3 and LAME 3.100 are built from their verified source archives as
   static ARM64 command-line tools; their source SHA-256 values are recorded in
   `scripts/build-ffmpeg-runtime.sh` and the generated runtime manifest;
-- portable Torch 2.2.2 CPU wheels are resolved from PyTorch's pinned CPU index;
+- portable Torch 2.13.0 CPU wheels are resolved from PyTorch's pinned CPU index;
 - BtbN Linux and Windows FFmpeg archives are selected from one immutable release
   tag and verified through a checksum manifest whose SHA-256 is pinned in source;
 - target-native Python environments, the shared model, FFmpeg, and FFprobe are
@@ -118,7 +118,7 @@ embedded-runtime signing script use the same ad-hoc identity.
 
 5. The `Release desktop` workflow checks version consistency, converts the
    shared model once on Apple Silicon, then builds the MLX ARM bundle and the
-   portable Intel, Windows, and Linux bundles. Every runtime and media tool is
+   portable Windows and Linux bundles. Every runtime and media tool is
    verified before packaging into a **draft** GitHub Release.
 6. The workflow verifies the application icons, macOS `.sac` document-package
    declaration, shared-model identity, and bundled executables.

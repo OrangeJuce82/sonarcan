@@ -47,8 +47,8 @@ The real-time callback never locks or reads this cache. It only sees the selecte
 
 Stem mode is disabled by default and never delays ordinary track loading. On an
 Apple-silicon Mac it starts `sonarcan-mlx-worker` with the exact `demucs-mlx`
-environment. macOS Intel, Windows, and Linux start `sonarcan-torch-worker` with
-the pinned CPU-portable Torch environment (and CUDA when an explicitly
+environment. Windows and Linux start `sonarcan-torch-worker` with the pinned
+CPU-portable Torch environment (and CUDA when an explicitly
 compatible runtime is supplied). Both use one six-stem protocol and one cache.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.

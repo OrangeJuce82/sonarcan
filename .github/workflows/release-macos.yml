@@ -146,10 +146,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS Intel
-            os: macos-15-intel
-            bundles: app,dmg
-            target: x86_64-apple-darwin
           - name: Linux x64
             os: ubuntu-24.04
             bundles: deb,appimage
@@ -159,8 +155,6 @@ jobs:
             bundles: nsis
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
-    env:
-      APPLE_SIGNING_IDENTITY: "-"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -207,9 +201,6 @@ jobs:
       - name: Qualify portable separation performance
         run: npm run qualify:stem-performance
       - run: npm run quality
-      - name: Ad-hoc sign embedded macOS binaries
-        if: runner.os == 'macOS'
-        run: npm run sign:release-resources
       - name: Build bundle and upload it to the draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -221,12 +212,6 @@ jobs:
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/tauri.portable.conf.json
-      - name: Verify packaged macOS Intel application
-        if: runner.os == 'macOS'
-        run: |
-          app_bundle="src-tauri/target/${{ matrix.target }}/release/bundle/macos/SonArcan.app"
-          npm run verify:bundled-release -- "$app_bundle"
-          codesign --verify --deep --strict --verbose=2 "$app_bundle"
       - name: Verify packaged Linux applications
         if: runner.os == 'Linux'
         run: |

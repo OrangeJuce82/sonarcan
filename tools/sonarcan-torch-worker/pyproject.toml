@@ -11,11 +11,8 @@ dependencies = [
   "demucs==4.1.0",
   "numpy==1.26.4",
   "safetensors==0.8.0",
-  # PyTorch stopped publishing Intel macOS wheels after 2.2.2. That legacy
-  # target is isolated from all serialization/distributed APIs; other targets
-  # use the current audited CPU runtime.
-  "torch==2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-  "torch==2.13.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+  "torch==2.13.0+cpu; sys_platform == 'linux' or sys_platform == 'win32'",
+  "torch==2.13.0; sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 
 [project.scripts]
@@ -26,6 +23,9 @@ where = ["src"]
 
 [tool.uv]
 required-version = "==0.9.26"
+environments = [
+  "sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
