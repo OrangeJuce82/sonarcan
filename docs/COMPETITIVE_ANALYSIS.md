@@ -271,8 +271,9 @@ product risk, not implementation novelty.
     practical advantages.
 
 - [ ] **Add synchronized lyrics, text tabs, and timed notes.**
-  - Start with user-authored plain text and timestamped notes.
-  - Keep online lyric lookup optional and separate from local project behavior.
+  - [x] Start with user-authored plain text plus LRC/TTML line and word timing.
+  - [ ] Add text tabs and general-purpose timestamped notes.
+  - [x] Keep no-account LRCLIB lookup optional and cache accepted matches locally.
   - Avoid turning the feature into a proprietary tablature marketplace.
 
 - [ ] **Add an optional live-practice input and take recorder.**

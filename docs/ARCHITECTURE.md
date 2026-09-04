@@ -77,16 +77,23 @@ Essentiel and Complet expose the other native model views. The
 panel can filter the uncalibrated model score, color by score or root, show a
 consistent sharp or flat spelling, follow the playback pitch transposition, and
 switch to an alphabetical repertoire of unique chords.
-The audio header exposes one user navigation mode: Time, Beat, or Chord. Left
+The audio header exposes one user navigation mode: Time, Beat, Chord, or Lyrics. Left
 and Right, the transport jump buttons, and waveform clicks share that mode.
 Time uses a configurable one-to-sixty-second step and defaults to ten seconds;
-Beat and Chord activate automatically when their analysis data becomes
-available and temporarily fall back to Time beforehand. `N` cycles the mode.
+Beat, Chord, and Lyrics activate when their bounded navigation points become
+available. The selector visibly remains on Time while the preferred mode is being
+orchestrated, then switches automatically after valid points arrive. Unavailable
+options are disabled and `N` cycles only the currently available modes. Lyrics
+uses synchronized line starts including the saved display offset. Four non-interactive
+states centered in the Audio header expose Beat This!, chord, lyrics, and separated-mix
+orchestration. Left/Right and the transport jump controls move to the adjacent point.
 The preference is global user state and is never stored in a project or track.
-Clicking a chord selects Chord navigation. Loop magnetism uses chord boundaries
-in Chord mode and Beat This! beats in Time or Beat mode, falling back to beats
-while chord data is unavailable. `I` cycles the piano, guitar, and ukulele
-views. Global shortcuts remain inactive while editing text.
+Clicking a chord selects Chord navigation and clicking a timed lyric selects
+Lyrics navigation. Loop magnetism uses chord boundaries in Chord mode,
+synchronized line starts in Lyrics mode, and Beat This! beats in Time or Beat
+mode, falling back to beats while chord data is unavailable. `I` cycles the
+piano, guitar, and ukulele views. Global shortcuts remain inactive while editing
+text.
 The detailed waveform places those same visible chord segments in a compact,
 clickable lane using the waveform viewport and playhead, so zooming, panning,
 automatic follow, chord filtering, edits, and transposition remain synchronized.
@@ -112,6 +119,25 @@ User chord corrections remain a separate, bounded per-track overlay keyed by
 LV-Chordia vocabulary and native segment times. They are persisted in project
 practice state, never written into the disposable model cache, and never alter
 segment boundaries or the underlying LV-Chordia output.
+
+Lyrics are an optional per-track document stored under `Lyrics/<track-id>.json`.
+The versioned, bounded DTO supports plain text, line timing, word timing, source
+attribution, and a user-controlled display offset. The Svelte lyrics panel owns
+presentation, navigation, and editing; Rust validates and atomically persists the
+document outside the audio callback. Inline editing accepts UTF-8 plain text,
+LRC, enhanced LRC, and TTML syntax. Malformed synchronized timestamps and timing
+outside the current audio duration are rejected. LRCLIB provides the optional
+zero-account lookup boundary.
+A selected match is stored in the project so playback remains independent of the
+service and works offline. Automatic lookup removes parenthesized or bracketed
+qualifiers and standalone punctuation from the track title, then makes at most
+three increasingly broad searches by dropping one trailing word per pass. A synchronized
+result from any pass takes priority; otherwise the first available plain-text result set
+is used. Plain text follows playback with a linear visual estimate but never exposes
+Lyrics navigation points. Manual search remains available. Provider identifiers and attribution
+remain attached until an edit creates a local copy. The native Songs menu exports lyrics as
+synchronized LRC (including enhanced word timing) or as a simple Markdown
+document. No credential or network request is stored in a project.
 
 The webview is strictly a control surface. It never decodes audio or owns playback timing, looping, gain, time-stretching, or pitch-shifting. Those operations always run in Rust; TypeScript only sends control parameters and displays snapshots of engine state.
 

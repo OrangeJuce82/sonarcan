@@ -14,6 +14,50 @@ export interface TrackSummary {
   practice: PracticeState;
 }
 
+export type LyricsProvider = "local" | "lrclib" | "musixmatch" | "lyricfind";
+export type LyricsSyncLevel = "none" | "line" | "word";
+
+export interface LyricsWord {
+  text: string;
+  startMs: number;
+  endMs: number | null;
+}
+
+export interface LyricsLine {
+  text: string;
+  startMs: number | null;
+  endMs: number | null;
+  words: LyricsWord[];
+}
+
+export interface LyricsDocument {
+  version: 1;
+  provider: LyricsProvider;
+  providerTrackId: string | null;
+  language: string;
+  syncLevel: LyricsSyncLevel;
+  attribution: string | null;
+  copyright: string | null;
+  offsetMs: number;
+  lines: LyricsLine[];
+}
+
+export interface LyricsSearchResult {
+  id: number;
+  trackName: string;
+  artistName: string;
+  albumName: string;
+  durationSeconds: number;
+  instrumental: boolean;
+  hasSyncedLyrics: boolean;
+  hasPlainLyrics: boolean;
+}
+
+export interface RemoteLyricsRecord extends LyricsSearchResult {
+  syncedLyrics: string | null;
+  plainLyrics: string | null;
+}
+
 export interface PracticeState {
   positionSeconds: number;
   playbackRate: number;
@@ -155,7 +199,7 @@ export type ChannelPreference = "preserve" | "stereo" | "mono";
 export type Mp3Quality = "vbrHigh" | "kbps320" | "kbps256" | "kbps192";
 export type LoopLoadPosition = "beginning" | "loopStart";
 export type TimeDisplay = "simple" | "precise";
-export type NavigationMode = "time" | "beat" | "chord";
+export type NavigationMode = "time" | "beat" | "chord" | "lyrics";
 export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
 export type ImportJobState = "queued" | "downloading" | "converting" | "importing" | "completed" | "failed";
 export interface ImportJob { id: string; label: string; state: ImportJobState; progress: number; error: string | null; suggestion: string | null; diagnostic: string | null; }

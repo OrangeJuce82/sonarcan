@@ -116,6 +116,7 @@ My-Band.sac/
 ├── Stems/
 ├── Analysis/
 ├── Chords/
+├── Lyrics/
 └── Cache/
 ```
 

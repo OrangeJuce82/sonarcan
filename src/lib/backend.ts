@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Language } from "./i18n";
 import type { JamsChordSegment } from "./chordExport";
-import type { AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, MetronomeSound, PracticeState, ProjectSummary, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
+import type { AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -63,6 +63,24 @@ export async function deleteTrack(packagePath: string, trackId: string): Promise
   if (!isTauri()) throw new Error("Deleting tracks requires the Tauri desktop runtime.");
   return invoke<ProjectSummary>("delete_track", { packagePath, trackId });
 }
+
+export const getLyrics = (packagePath: string, trackId: string): Promise<LyricsDocument | null> =>
+  invoke("get_lyrics", { packagePath, trackId });
+
+export const saveLyrics = (packagePath: string, trackId: string, document: LyricsDocument): Promise<LyricsDocument> =>
+  invoke("save_lyrics", { packagePath, trackId, document });
+
+export const deleteLyrics = (packagePath: string, trackId: string): Promise<void> =>
+  invoke("delete_lyrics", { packagePath, trackId });
+
+export const searchLrclibLyrics = (query: string): Promise<LyricsSearchResult[]> =>
+  invoke("search_lrclib_lyrics", { query });
+
+export const getLrclibLyrics = (id: number): Promise<RemoteLyricsRecord> =>
+  invoke("get_lrclib_lyrics", { id });
+
+export const exportLyrics = (destination: string, title: string, document: LyricsDocument, format: "lrc" | "markdown"): Promise<void> =>
+  invoke("export_lyrics", { destination, title, document, format });
 
 export async function exportPlaylist(packagePath: string, destination: string, format: "json" | "markdown"): Promise<void> {
   if (!isTauri()) throw new Error("Exporting a playlist requires the Tauri desktop runtime.");
@@ -144,6 +162,7 @@ export const logsSnapshot = (): Promise<AppLogEntry[]> => invoke("logs_snapshot"
 export const pushFrontendLog = (level: string, message: string): Promise<void> => invoke("push_frontend_log", { level, message });
 export const revealProject = (packagePath: string): Promise<void> => invoke("reveal_project", { packagePath });
 export const openExternalLink = (target: "github" | "donate"): Promise<void> => invoke("open_external_link", { target });
+export const openLrclibSearch = (query: string): Promise<void> => invoke("open_lrclib_search", { query });
 export const openYoutubeVideo = (videoId: string): Promise<void> => invoke("open_youtube_video", { videoId });
 
 export async function diagnostics(): Promise<DiagnosticsSnapshot> {

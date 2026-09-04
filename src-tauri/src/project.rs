@@ -279,7 +279,7 @@ fn create_project_package(
         }
         Err(error) => return Err(AppError::io(package_path, error)),
     }
-    for directory in ["Audio", "Stems", "Analysis", "Chords", "Cache"] {
+    for directory in ["Audio", "Stems", "Analysis", "Chords", "Lyrics", "Cache"] {
         let path = package_path.join(directory);
         fs::create_dir(&path).map_err(|error| AppError::io(path, error))?;
     }
@@ -595,6 +595,7 @@ pub fn delete_track(package_path: &Path, track_id: Uuid) -> Result<ProjectSummar
         let _ = fs::remove_file(cache_path);
     }
     let _ = fs::remove_dir_all(package_path.join("Stems").join(track_id.to_string()));
+    let _ = fs::remove_file(package_path.join("Lyrics").join(format!("{track_id}.json")));
     Ok(summary(package_path.to_path_buf(), manifest))
 }
 
@@ -777,6 +778,19 @@ pub fn track_media_path(package_path: &Path, track_id: Uuid) -> Result<PathBuf, 
         .map(|track| track.source_path)
         .ok_or(AppError::TrackNotFound(track_id))?;
     validated_media_path(package_path, &source_path)
+}
+
+pub fn track_duration_seconds(
+    package_path: &Path,
+    track_id: Uuid,
+) -> Result<Option<f64>, AppError> {
+    let manifest = load(package_path)?;
+    manifest
+        .tracks
+        .iter()
+        .find(|track| track.id == track_id)
+        .map(|track| track.duration_seconds)
+        .ok_or(AppError::TrackNotFound(track_id))
 }
 
 fn validated_media_path(package_path: &Path, source_path: &Path) -> Result<PathBuf, AppError> {
@@ -1000,7 +1014,7 @@ mod tests {
         let created = create_project_at(&selected_path).unwrap();
 
         assert_eq!(created.package_path, selected_path);
-        for directory in ["Audio", "Stems", "Analysis", "Chords", "Cache"] {
+        for directory in ["Audio", "Stems", "Analysis", "Chords", "Lyrics", "Cache"] {
             assert!(selected_path.join(directory).is_dir());
         }
         assert!(selected_path.join("project.json").is_file());

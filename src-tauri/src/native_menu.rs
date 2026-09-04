@@ -253,6 +253,22 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 "Exporter en Markdown…",
             ),
         )
+        .text(
+            "playlist:export_lyrics_lrc",
+            tr(
+                selected_language,
+                "Export Lyrics as LRC…",
+                "Exporter les paroles en LRC…",
+            ),
+        )
+        .text(
+            "playlist:export_lyrics_markdown",
+            tr(
+                selected_language,
+                "Export Lyrics as Markdown…",
+                "Exporter les paroles en Markdown…",
+            ),
+        )
         .separator()
         .text(
             "playlist:export_stems",

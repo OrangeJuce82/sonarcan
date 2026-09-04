@@ -1,5 +1,35 @@
 // Native-menu translations use their English source text as a stable internal key.
 pub fn get(language: &str, english: &str) -> Option<&'static str> {
+    if english == "Export Lyrics as LRC…" {
+        return match language {
+            "es" => Some("Exportar letras como LRC…"),
+            "de" => Some("Songtext als LRC exportieren…"),
+            "pt" => Some("Exportar letras como LRC…"),
+            "it" => Some("Esporta testo come LRC…"),
+            "zh" => Some("将歌词导出为 LRC…"),
+            "ja" => Some("歌詞を LRC として書き出す…"),
+            "ko" => Some("가사를 LRC로 내보내기…"),
+            "ar" => Some("تصدير الكلمات بصيغة LRC…"),
+            "hi" => Some("बोल LRC के रूप में निर्यात करें…"),
+            "id" => Some("Ekspor lirik sebagai LRC…"),
+            _ => None,
+        };
+    }
+    if english == "Export Lyrics as Markdown…" {
+        return match language {
+            "es" => Some("Exportar letras como Markdown…"),
+            "de" => Some("Songtext als Markdown exportieren…"),
+            "pt" => Some("Exportar letras como Markdown…"),
+            "it" => Some("Esporta testo come Markdown…"),
+            "zh" => Some("将歌词导出为 Markdown…"),
+            "ja" => Some("歌詞を Markdown として書き出す…"),
+            "ko" => Some("가사를 Markdown으로 내보내기…"),
+            "ar" => Some("تصدير الكلمات بصيغة Markdown…"),
+            "hi" => Some("बोल Markdown के रूप में निर्यात करें…"),
+            "id" => Some("Ekspor lirik sebagai Markdown…"),
+            _ => None,
+        };
+    }
     match (language, english) {
         ("es", "Preferences…") => Some("Preferencias…"),
         ("es", "New Project") => Some("Nuevo proyecto"),
@@ -553,6 +583,8 @@ mod tests {
         "Add…",
         "Export as JSON…",
         "Export as Markdown…",
+        "Export Lyrics as LRC…",
+        "Export Lyrics as Markdown…",
         "Export Separated Tracks…",
         "Export Chords as JAMS…",
         "Window",

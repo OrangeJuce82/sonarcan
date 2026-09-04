@@ -94,6 +94,7 @@ pub enum NavigationMode {
     Time,
     Beat,
     Chord,
+    Lyrics,
 }
 
 impl Default for UserPreferences {
@@ -312,6 +313,18 @@ mod tests {
         };
         validate(&mut too_long);
         assert_eq!(too_long.navigation_time_seconds, 60);
+    }
+
+    #[test]
+    fn lyrics_navigation_round_trips_through_preferences() {
+        let mut value = UserPreferences {
+            navigation_mode: NavigationMode::Lyrics,
+            ..UserPreferences::default()
+        };
+        validate(&mut value);
+        let stored = serde_json::to_value(&value).unwrap();
+        let reopened: UserPreferences = serde_json::from_value(stored).unwrap();
+        assert_eq!(reopened.navigation_mode, NavigationMode::Lyrics);
     }
 
     #[test]

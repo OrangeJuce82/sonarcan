@@ -2,13 +2,36 @@ import type { NavigationMode, TimedChord } from "./types.ts";
 import { adjacentChordTransportPosition } from "./chordViews.ts";
 import { nearestDetectedBeat } from "./presentation.ts";
 
+export function availableNavigationModes(
+  beats: readonly number[],
+  chords: readonly TimedChord[],
+  lyrics: readonly number[],
+): NavigationMode[] {
+  const modes: NavigationMode[] = ["time"];
+  if (beats.length) modes.push("beat");
+  if (chords.length) modes.push("chord");
+  if (lyrics.length) modes.push("lyrics");
+  return modes;
+}
+
+export function navigationModeAvailable(
+  mode: NavigationMode,
+  beats: readonly number[],
+  chords: readonly TimedChord[],
+  lyrics: readonly number[],
+): boolean {
+  return availableNavigationModes(beats, chords, lyrics).includes(mode);
+}
+
 export function effectiveNavigationMode(
   preferred: NavigationMode,
   beats: readonly number[],
   chords: readonly TimedChord[],
+  lyrics: readonly number[],
 ): NavigationMode {
   if (preferred === "beat" && !beats.length) return "time";
   if (preferred === "chord" && !chords.length) return "time";
+  if (preferred === "lyrics" && !lyrics.length) return "time";
   return preferred;
 }
 
@@ -39,10 +62,12 @@ export function navigationPosition(
   timeSeconds: number,
   beats: readonly number[],
   chords: readonly TimedChord[],
+  lyrics: readonly number[],
 ): number {
-  const effective = effectiveNavigationMode(preferred, beats, chords);
+  const effective = effectiveNavigationMode(preferred, beats, chords, lyrics);
   if (effective === "beat") return adjacentBeatPosition(beats, positionSeconds, direction);
   if (effective === "chord") return adjacentChordTransportPosition(chords, positionSeconds, direction);
+  if (effective === "lyrics") return adjacentBeatPosition(lyrics, positionSeconds, direction);
   return positionSeconds + direction * timeSeconds;
 }
 
@@ -51,6 +76,7 @@ export function snappedNavigationPosition(
   positionSeconds: number,
   beats: readonly number[],
   chords: readonly TimedChord[],
+  lyrics: readonly number[],
 ): number {
   if (preferred === "chord" && chords.length) {
     const starts = chords.map((chord) => chord.startSeconds);
@@ -67,5 +93,19 @@ export function snappedNavigationPosition(
     if (after === undefined) return before;
     return positionSeconds - before <= after - positionSeconds ? before : after;
   }
+  if (preferred === "lyrics" && lyrics.length) return nearestPosition(positionSeconds, lyrics);
   return nearestDetectedBeat(positionSeconds, beats);
+}
+
+function nearestPosition(positionSeconds: number, positions: readonly number[]): number {
+  let nearest = positions[0] ?? positionSeconds;
+  let distance = Math.abs(nearest - positionSeconds);
+  for (const position of positions.slice(1)) {
+    const candidateDistance = Math.abs(position - positionSeconds);
+    if (candidateDistance < distance) {
+      nearest = position;
+      distance = candidateDistance;
+    }
+  }
+  return nearest;
 }

@@ -4,7 +4,7 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { handleWindowCloseRequest, projectOpenDialogOptions } from "./lib/applicationLifecycle";
-  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportPlaylist, exportStems, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, savePreferences, saveProjectAs, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openLrclibSearch, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
   import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, importRelevanceLevel, importRelevancePercent, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
@@ -25,14 +25,18 @@
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
   import Toaster from "./lib/Toaster.svelte";
+  import LyricsPanel from "./lib/LyricsPanel.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
-  import { effectiveNavigationMode, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
+  import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
   import { chordSegmentsForJams } from "./lib/chordExport";
   import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
-  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
+  import { lrclibDocument, lyricsNavigationPositions } from "./lib/lyrics";
+  import { lyricsSearchQueries, preferredLyricsResult } from "./lib/lyricsMatching";
+  import { lyricsTranslate } from "./lib/lyricsI18n";
+  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, LyricsDocument, LyricsSearchResult, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
@@ -109,7 +113,16 @@
   let chordEditSuggestionSelect: HTMLSelectElement | undefined;
   let chordEditWheelAccumulator = 0;
   let harmonyView: "piano" | "guitar" | "ukulele" = "piano";
+  let detailView: "instrument" | "lyrics" = "instrument";
   let harmonyLabelMode: "notes" | "degrees" = "notes";
+  let lyricsDocument: LyricsDocument | null = null;
+  let lyricsLoading = false;
+  let lyricsLoadError = "";
+  let lyricsSearchResults: LyricsSearchResult[] = [];
+  let lyricsSearching = false;
+  let lyricsSearchError = "";
+  let lyricsSearchGeneration = 0;
+  const automaticLyricsAttempts = new Set<string>();
   let repertoireKeyboardLabel: string | null = null;
   let lastRepertoirePlaybackLabel: string | null = null;
   let chordList: HTMLElement | undefined;
@@ -232,8 +245,11 @@
   const shortcutPlatform = shortcutPlatformFor(navigator.platform, navigator.userAgent);
   const shortcutKeys = shortcutKeyLabels(shortcutPlatform);
   let activeNavigationMode: NavigationMode;
-  let navigationAnalysisPending: boolean;
+  let availableNavigationModeOptions: NavigationMode[] = ["time"];
+  let lyricNavigationPoints: number[] = [];
   let loopSnapAvailable: boolean;
+  let beatOrchestratorLoading = false;
+  let mixOrchestratorLoading = false;
   $: beatThisDbn = beatModeForTrack(beatThisDbnOverride, preferences.beatThisDbn);
   $: activeBeatTimeline = beatTimelineFor(chordAnalysis, { beatThisDbn });
   $: activeBeats = activeBeatTimeline.beats;
@@ -242,11 +258,16 @@
     chordAnalysis.beats.length
     || chordAnalysis.dbnBeats.length
   ));
-  $: activeNavigationMode = effectiveNavigationMode(preferences.navigationMode, activeBeats, timelineChords);
-  $: navigationAnalysisPending = activeNavigationMode !== preferences.navigationMode;
-  $: loopSnapAvailable = preferences.navigationMode === "chord"
+  $: lyricNavigationPoints = lyricsNavigationPositions(lyricsDocument, durationSeconds);
+  $: availableNavigationModeOptions = availableNavigationModes(activeBeats, timelineChords, lyricNavigationPoints);
+  $: activeNavigationMode = effectiveNavigationMode(preferences.navigationMode, activeBeats, timelineChords, lyricNavigationPoints);
+  $: loopSnapAvailable = activeNavigationMode === "chord"
     ? Boolean(timelineChords.length || activeBeats.length)
-    : Boolean(activeBeats.length);
+    : activeNavigationMode === "lyrics"
+      ? Boolean(lyricNavigationPoints.length)
+      : Boolean(activeBeats.length);
+  $: beatOrchestratorLoading = Boolean(currentTrack) && (audioLoading || chordsLoading);
+  $: mixOrchestratorLoading = stemGenerationStarting || stems.state === "separating";
 
   function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -834,31 +855,28 @@
   }
 
   function changeNavigationMode(mode: NavigationMode): void {
+    if (!navigationModeAvailable(mode, activeBeats, timelineChords, lyricNavigationPoints)) return;
+    if (mode === "lyrics") detailView = "lyrics";
     if (preferences.navigationMode === mode) return;
     preferences = { ...preferences, navigationMode: mode };
     void persistPreferences();
   }
 
   function cycleNavigationMode(): void {
-    const modes: NavigationMode[] = ["time", "beat", "chord"];
-    const index = modes.indexOf(preferences.navigationMode);
-    changeNavigationMode(modes[(index + 1) % modes.length] ?? "time");
-  }
-
-  function navigationModeLabel(mode: NavigationMode): string {
-    if (mode === "beat") return t("navigationBeat");
-    if (mode === "chord") return t("navigationChord");
-    return t("navigationTime");
+    const index = availableNavigationModeOptions.indexOf(activeNavigationMode);
+    changeNavigationMode(availableNavigationModeOptions[(index + 1) % availableNavigationModeOptions.length] ?? "time");
   }
 
   function navigationDirectionLabel(direction: -1 | 1): string {
     if (activeNavigationMode === "beat") return direction < 0 ? t("previousBeat") : t("nextBeat");
     if (activeNavigationMode === "chord") return direction < 0 ? t("previousChord") : t("nextChord");
+    if (activeNavigationMode === "lyrics") return lyricsTranslate(language, direction < 0 ? "previousLine" : "nextLine");
     const template = direction < 0 ? t("navigationBackTime") : t("navigationForwardTime");
     return template.replace("{seconds}", String(preferences.navigationTimeSeconds));
   }
 
   function cycleHarmonyView(): void {
+    detailView = "instrument";
     const views: Array<typeof harmonyView> = ["piano", "guitar", "ukulele"];
     const index = views.indexOf(harmonyView);
     harmonyView = views[(index + 1) % views.length] ?? "piano";
@@ -1375,6 +1393,13 @@
     pitchTimer = undefined;
     practiceSaveTimer = undefined;
     currentTrack = null;
+    lyricsDocument = null;
+    lyricsLoading = false;
+    lyricsLoadError = "";
+    lyricsSearchResults = [];
+    lyricsSearching = false;
+    lyricsSearchError = "";
+    lyricsSearchGeneration += 1;
     loadingTrackId = null;
     isPlaying = false;
     audioLoading = false;
@@ -1660,6 +1685,8 @@
     else if (id === "playlist:add") openImportCenter();
     else if (id === "playlist:export_json") exportCurrentPlaylist("json");
     else if (id === "playlist:export_markdown") exportCurrentPlaylist("markdown");
+    else if (id === "playlist:export_lyrics_lrc") void exportCurrentLyrics("lrc");
+    else if (id === "playlist:export_lyrics_markdown") void exportCurrentLyrics("markdown");
     else if (id === "playlist:export_stems") {
       if (stems.state === "ready" && stems.trackId === currentTrack?.id) openStemExport();
       else notify("warn", t("exportStemsUnavailable"));
@@ -1965,6 +1992,12 @@
     });
   }
 
+  function openLyricsProvider(query: string): void {
+    void openLrclibSearch(query).catch((error) => {
+      notify("error", t("linkOpenError"), errorText(error));
+    });
+  }
+
   function openImportVideo(videoId: string): void {
     void openYoutubeVideo(videoId).catch((error) => {
       notify("error", t("linkOpenError"), errorText(error));
@@ -2044,8 +2077,161 @@
     chordFocusWithin = false;
     chordFocusRestorePending = false;
     chordProgrammaticScroll = false;
+    lyricsDocument = null;
+    lyricsLoadError = "";
+    lyricsSearchResults = [];
+    lyricsSearchError = "";
+    lyricsSearchGeneration += 1;
+    lyricsLoading = true;
+    void loadTrackLyrics(track, packagePath, selectionGeneration);
     void loadTrackWaveform(track, packagePath, selectionGeneration);
     void loadSelectedAudio(track, packagePath, selectionGeneration, autoplay);
+  }
+
+  async function loadTrackLyrics(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
+    try {
+      const loaded = await getLyrics(packagePath, track.id);
+      if (selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== track.id) return;
+      lyricsDocument = loaded;
+      if (!loaded) await automaticallyImportLyrics(track, packagePath, selectionGeneration);
+      else if (loaded.provider === "lrclib" && loaded.syncLevel === "none") {
+        await automaticallyImportLyrics(track, packagePath, selectionGeneration, true);
+      }
+    } catch (error) {
+      if (selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== track.id) return;
+      lyricsLoadError = errorText(error);
+    } finally {
+      if (selectionGeneration === trackSelectionGeneration && currentTrack?.id === track.id) lyricsLoading = false;
+    }
+  }
+
+  async function automaticallyImportLyrics(track: TrackSummary, packagePath: string, selectionGeneration: number, synchronizedOnly = false): Promise<void> {
+    const attemptKey = `${packagePath}\0${track.id}\0${synchronizedOnly ? "synchronized" : "any"}`;
+    if (automaticLyricsAttempts.has(attemptKey)) return;
+    automaticLyricsAttempts.add(attemptKey);
+    try {
+      const results = await searchLyricsWithFallback(track.title, synchronizedOnly);
+      const match = preferredLyricsResult(results, track.durationSeconds);
+      if (!match || selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== track.id) return;
+      const record = await getLrclibLyrics(match.id);
+      const document = lrclibDocument(record, language, durationSeconds * 1_000);
+      const saved = await saveLyrics(packagePath, track.id, document);
+      if (selectionGeneration === trackSelectionGeneration && currentTrack?.id === track.id) lyricsDocument = saved;
+    } catch {
+      // Free lookup is best-effort; local writing and import remain available offline.
+    }
+  }
+
+  async function searchOnlineLyrics(query: string): Promise<void> {
+    const generation = ++lyricsSearchGeneration;
+    lyricsSearching = true;
+    lyricsSearchError = "";
+    lyricsSearchResults = [];
+    try {
+      const results = await searchLyricsWithFallback(query);
+      if (generation === lyricsSearchGeneration) lyricsSearchResults = results;
+    } catch (error) {
+      if (generation === lyricsSearchGeneration) lyricsSearchError = errorText(error);
+    } finally {
+      if (generation === lyricsSearchGeneration) lyricsSearching = false;
+    }
+  }
+
+  async function searchLyricsWithFallback(title: string, synchronizedOnly = false): Promise<LyricsSearchResult[]> {
+    const queries = lyricsSearchQueries(title);
+    let plainFallback: LyricsSearchResult[] = [];
+    for (let index = 0; index < queries.length; index += 1) {
+      const results = (await searchLrclibLyrics(queries[index]))
+        .filter((result) => !result.instrumental && (result.hasSyncedLyrics || result.hasPlainLyrics));
+      const synchronized = results.filter((result) => result.hasSyncedLyrics);
+      if (synchronized.length) return synchronized;
+      if (!synchronizedOnly && !plainFallback.length) plainFallback = results.filter((result) => result.hasPlainLyrics);
+      if (index + 1 < queries.length) await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    return plainFallback;
+  }
+
+  async function chooseOnlineLyrics(result: LyricsSearchResult): Promise<void> {
+    lyricsSearchGeneration += 1;
+    lyricsSearching = true;
+    lyricsSearchError = "";
+    try {
+      const record = await getLrclibLyrics(result.id);
+      await persistLyrics(lrclibDocument(record, language, durationSeconds * 1_000));
+      lyricsSearchResults = [];
+    } catch (error) {
+      lyricsSearchError = errorText(error);
+      throw error;
+    } finally {
+      lyricsSearching = false;
+    }
+  }
+
+  async function exportCurrentLyrics(format: "lrc" | "markdown"): Promise<void> {
+    if (!currentTrack || !lyricsDocument) {
+      notify("warn", lyricsTranslate(language, "noLyrics"));
+      return;
+    }
+    const extension = format === "lrc" ? "lrc" : "md";
+    const destination = await save({
+      title: lyricsTranslate(language, format === "lrc" ? "exportSynced" : "exportMarkdown"),
+      defaultPath: `${safeStemExportFolderName(currentTrack.title)}.${extension}`,
+      filters: [{ name: format === "lrc" ? "LRC" : "Markdown", extensions: [extension] }],
+    });
+    if (!destination) return;
+    try {
+      await exportLyrics(destination, currentTrack.title, lyricsDocument, format);
+      notify("success", lyricsTranslate(language, "exported"));
+    } catch (error) {
+      notify("error", t("operationFailed"), errorText(error));
+    }
+  }
+
+  async function persistLyrics(document: LyricsDocument): Promise<void> {
+    if (!project || !currentTrack) return;
+    const packagePath = project.packagePath;
+    const trackId = currentTrack.id;
+    try {
+      const saved = await saveLyrics(packagePath, trackId, document);
+      if (project?.packagePath === packagePath && currentTrack?.id === trackId) {
+        lyricsDocument = saved;
+        lyricsLoadError = "";
+      }
+    } catch (error) {
+      notify("error", t("operationFailed"), errorText(error));
+      throw error;
+    }
+  }
+
+  async function removeCurrentLyrics(): Promise<void> {
+    if (!project || !currentTrack) return;
+    const packagePath = project.packagePath;
+    const trackId = currentTrack.id;
+    try {
+      await deleteLyrics(packagePath, trackId);
+      if (project?.packagePath === packagePath && currentTrack?.id === trackId) lyricsDocument = null;
+    } catch (error) {
+      notify("error", t("operationFailed"), errorText(error));
+      throw error;
+    }
+  }
+
+  function seekFromLyrics(milliseconds: number): void {
+    changeNavigationMode("lyrics");
+    seek(milliseconds / 1_000);
+  }
+
+  function loopFromLyrics(startMs: number, endMs: number): void {
+    const a = Math.max(0, Math.min(startMs / 1_000, durationSeconds));
+    const b = Math.max(0, Math.min(endMs / 1_000, durationSeconds));
+    if (b <= a) return;
+    loopA = a;
+    loopB = b;
+    usingDefaultLoopBounds = a === 0 && b === durationSeconds;
+    loopEnabled = true;
+    applyLoopToEngine();
+    seek(a);
+    schedulePracticeSave(0);
   }
 
   function finishStemPlaybackLock(trackId: string | null): void {
@@ -2485,12 +2671,13 @@
 
   function navigate(direction: -1 | 1): void {
     seek(navigationPosition(
-      preferences.navigationMode,
+      activeNavigationMode,
       currentSeconds,
       direction,
       preferences.navigationTimeSeconds,
       activeBeats,
       timelineChords,
+      lyricNavigationPoints,
     ));
   }
 
@@ -2667,7 +2854,7 @@
 
   function snappedLoopTime(seconds: number): number {
     return loopSnapEnabled
-      ? snappedNavigationPosition(preferences.navigationMode, seconds, activeBeats, timelineChords)
+      ? snappedNavigationPosition(activeNavigationMode, seconds, activeBeats, timelineChords, lyricNavigationPoints)
       : seconds;
   }
 
@@ -3164,7 +3351,7 @@
 
   function navigationSnappedSeekPosition(position: number): number {
     if (activeNavigationMode === "time") return position;
-    return snappedNavigationPosition(preferences.navigationMode, position, activeBeats, timelineChords);
+    return snappedNavigationPosition(activeNavigationMode, position, activeBeats, timelineChords, lyricNavigationPoints);
   }
 
   function seekAndCenterOverview(ratio: number): void {
@@ -3285,30 +3472,29 @@
           {/if}
         </div>
         <div class="panel-title waveform-panel-title">
-          <h2>{t("waveform")}</h2>
+          <h2>{t("audio")}</h2>
           <div class="waveform-header-center">
-            <div class="navigation-controls">
-              <label class="navigation-mode"><span>{t("navigation")}</span><select value={preferences.navigationMode} onchange={(event) => changeNavigationMode(event.currentTarget.value as NavigationMode)} aria-keyshortcuts="N"><option value="time">{t("navigationTime")} · {preferences.navigationTimeSeconds} {t("secondsShort")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option></select></label>
-              <button
-                type="button"
-                class="follow-playhead"
-                class:active={followPlayhead}
-                class:suspended={followPlayhead && waveformFollowSuspended}
-                aria-label={t("followPlayhead")}
-                aria-pressed={followPlayhead}
-                data-tooltip={t("followPlayhead")}
-                onclick={toggleWaveformFollow}
-              ><Icon name="arrows-to-dot" size="13px" /></button>
+            <div class="orchestrator-overview" aria-label={t("loadingTrack")}>
+              <span role="img" class:loading={beatOrchestratorLoading} class:ready={activeBeats.length > 0} class:failed={Boolean(chordAnalysisError)} data-tooltip={`Beat This! · ${beatOrchestratorLoading ? t("analyzingChords") : activeBeats.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`} aria-label={`Beat This! · ${beatOrchestratorLoading ? t("analyzingChords") : activeBeats.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`}><Icon name="metronome" size="12px" /></span>
+              <span role="img" class:loading={beatOrchestratorLoading} class:ready={timelineChords.length > 0} class:failed={Boolean(chordAnalysisError)} data-tooltip={`${t("chords")} · ${beatOrchestratorLoading ? t("analyzingChords") : timelineChords.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`} aria-label={`${t("chords")} · ${beatOrchestratorLoading ? t("analyzingChords") : timelineChords.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`}><Icon name="music" size="12px" /></span>
+              <span role="img" class:loading={lyricsLoading} class:ready={lyricNavigationPoints.length > 0} class:failed={Boolean(lyricsLoadError)} data-tooltip={`${lyricsTranslate(language, "lyrics")} · ${lyricsLoading ? lyricsTranslate(language, "loading") : lyricNavigationPoints.length ? t("ready") : lyricsDocument ? lyricsTranslate(language, "syncedNone") : lyricsLoadError ? t("failed") : lyricsTranslate(language, "noLyrics")}`} aria-label={`${lyricsTranslate(language, "lyrics")} · ${lyricsLoading ? lyricsTranslate(language, "loading") : lyricNavigationPoints.length ? t("ready") : lyricsDocument ? lyricsTranslate(language, "syncedNone") : lyricsLoadError ? t("failed") : lyricsTranslate(language, "noLyrics")}`}><Icon name="microphone" size="11px" /></span>
+              <span role="img" class:loading={mixOrchestratorLoading} class:ready={stems.state === "ready"} class:failed={stems.state === "failed"} data-tooltip={`${t("mix")} · ${mixOrchestratorLoading ? t("working") : stems.state === "ready" ? t("ready") : stems.state === "failed" ? t("failed") : t("idle")}`} aria-label={`${t("mix")} · ${mixOrchestratorLoading ? t("working") : stems.state === "ready" ? t("ready") : stems.state === "failed" ? t("failed") : t("idle")}`}><i class="orchestrator-mix-icon"><Icon name="sliders" size="12px" /></i></span>
             </div>
-            {#if navigationAnalysisPending}<small>{navigationModeLabel(preferences.navigationMode)} · {t("navigationPending")}</small>{/if}
             <div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}</div>
           </div>
-          <span class="zoom-status">
-            <span>{t("zoom")}: <strong>{waveformZoom.toFixed(1)}×</strong></span>
-            <button type="button" class="zoom-preset fit-all" aria-label={t("fitEntireTrack")} data-tooltip={t("fitEntireTrack")} onclick={fitEntireWaveform}><Icon name="arrows-left-right-to-line" size="14px" /></button>
-            <i class="zoom-separator" aria-hidden="true"></i>
-            <button type="button" class="zoom-preset fit-thirty" aria-label={t("fitThirtySeconds")} data-tooltip={t("fitThirtySeconds")} onclick={fitThirtySecondWaveform}><Icon name="stopwatch" size="12px" /><small>30</small></button>
-          </span>
+          <div class="navigation-controls">
+            <label class="navigation-mode"><span>{t("navigation")}</span><select value={activeNavigationMode} onchange={(event) => changeNavigationMode(event.currentTarget.value as NavigationMode)} aria-keyshortcuts="N"><option value="time">{t("navigationTime")} · {preferences.navigationTimeSeconds} {t("secondsShort")}</option><option value="beat" disabled={!availableNavigationModeOptions.includes("beat")}>{t("navigationBeat")}</option><option value="chord" disabled={!availableNavigationModeOptions.includes("chord")}>{t("navigationChord")}</option><option value="lyrics" disabled={!availableNavigationModeOptions.includes("lyrics")}>{lyricsTranslate(language, "navigationLyrics")}</option></select></label>
+            <button
+              type="button"
+              class="follow-playhead"
+              class:active={followPlayhead}
+              class:suspended={followPlayhead && waveformFollowSuspended}
+              aria-label={t("followPlayhead")}
+              aria-pressed={followPlayhead}
+              data-tooltip={t("followPlayhead")}
+              onclick={toggleWaveformFollow}
+            ><Icon name="arrows-to-dot" size="13px" /></button>
+          </div>
         </div>
         {#if waveformChordBlocks.length}
           <div
@@ -3378,7 +3564,15 @@
             {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
           {/if}
         </div>
-        <div class="waveform-help">{t("waveformHelp")} · {t("waveformNavigationHelp")}</div>
+        <div class="waveform-help">
+          <span>{t("waveformHelp")} · {t("waveformNavigationHelp")}</span>
+          <span class="zoom-status">
+            <span>{t("zoom")}: <strong>{waveformZoom.toFixed(1)}×</strong></span>
+            <button type="button" class="zoom-preset fit-all" aria-label={t("fitEntireTrack")} data-tooltip={t("fitEntireTrack")} onclick={fitEntireWaveform}><Icon name="arrows-left-right-to-line" size="14px" /></button>
+            <i class="zoom-separator" aria-hidden="true"></i>
+            <button type="button" class="zoom-preset fit-thirty" aria-label={t("fitThirtySeconds")} data-tooltip={t("fitThirtySeconds")} onclick={fitThirtySecondWaveform}><Icon name="stopwatch" size="12px" /><small>30</small></button>
+          </span>
+        </div>
         <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheel={(event) => navigateWaveformWithWheel(event, true)} onpointerdown={seekFromOverview}>
           {#if waveformLoading}<div class="overview-skeleton"><svg viewBox={`0 0 ${loadingWave.length} 60`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={30 - height * 27} y2={30 + height * 27}></line>{/each}</svg><i></i></div>
           {:else if overviewPeaks.length > 0}
@@ -3445,7 +3639,7 @@
             <button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button>
             <i class="control-separator" aria-hidden="true"></i>
             <button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="rotate-left" size="11px" /></button>
-            <button class:active={loopSnapEnabled} disabled={!loopSnapAvailable} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={preferences.navigationMode === "chord" ? t("loopSnapChordHelp") : t("loopSnapBeatHelp")}><Icon name="magnet" size="12px" /></button>
+            <button class:active={loopSnapEnabled} disabled={!loopSnapAvailable} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={activeNavigationMode === "chord" ? t("loopSnapChordHelp") : activeNavigationMode === "lyrics" ? lyricsTranslate(language, "loopSnapLyricsHelp") : t("loopSnapBeatHelp")}><Icon name="magnet" size="12px" /></button>
           </div>
         </div>
         <div class="practice-center-controls">
@@ -3686,24 +3880,49 @@
             {/if}
           {/if}
         </div>
-        <div class="panel keyboard-panel harmony-view-panel">
+        <div class="panel keyboard-panel harmony-view-panel" class:lyrics-view={detailView === "lyrics"}>
           <div class="panel-title harmony-view-title">
             <div class="harmony-view-tabs" role="group" aria-label={t("instrumentView")} aria-keyshortcuts="I">
-              <button class:active={harmonyView === "piano"} aria-pressed={harmonyView === "piano"} onclick={() => harmonyView = "piano"}><Icon name="keyboard" size=".72rem" />{t("piano")}</button>
-              <button class:active={harmonyView === "guitar"} aria-pressed={harmonyView === "guitar"} onclick={() => harmonyView = "guitar"}><Icon name="guitar" size=".72rem" />{t("guitar")}</button>
-              <button class:active={harmonyView === "ukulele"} aria-pressed={harmonyView === "ukulele"} onclick={() => harmonyView = "ukulele"}><Icon name="guitar" size=".62rem" />{t("ukulele")}</button>
+              <button class:active={detailView === "instrument" && harmonyView === "piano"} aria-pressed={detailView === "instrument" && harmonyView === "piano"} onclick={() => { detailView = "instrument"; harmonyView = "piano"; }}><Icon name="keyboard" size=".72rem" />{t("piano")}</button>
+              <button class:active={detailView === "instrument" && harmonyView === "guitar"} aria-pressed={detailView === "instrument" && harmonyView === "guitar"} onclick={() => { detailView = "instrument"; harmonyView = "guitar"; }}><Icon name="guitar" size=".72rem" />{t("guitar")}</button>
+              <button class:active={detailView === "instrument" && harmonyView === "ukulele"} aria-pressed={detailView === "instrument" && harmonyView === "ukulele"} onclick={() => { detailView = "instrument"; harmonyView = "ukulele"; }}><Icon name="guitar" size=".62rem" />{t("ukulele")}</button>
+              <button class:active={detailView === "lyrics"} aria-pressed={detailView === "lyrics"} onclick={() => detailView = "lyrics"}><Icon name="music" size=".68rem" />{lyricsTranslate(language, "lyrics")}</button>
             </div>
-            <strong
-              class="keyboard-current-chord"
-              class:no-chord={isNoChordLabel(activeChordLabel)}
-              style={`--chord-color:${activeInstrumentColor}`}
-            >{chordDisplayLabel(activeChordLabel)}</strong>
-            <div class="harmony-label-mode" role="group" aria-label={t("instrumentLabels")}>
-              <button class:active={harmonyLabelMode === "notes"} aria-pressed={harmonyLabelMode === "notes"} onclick={() => harmonyLabelMode = "notes"}>{t("noteNames")}</button>
-              <button class:active={harmonyLabelMode === "degrees"} aria-pressed={harmonyLabelMode === "degrees"} onclick={() => harmonyLabelMode = "degrees"}>{t("chordDegrees")}</button>
-            </div>
+            {#if detailView === "instrument"}
+              <strong
+                class="keyboard-current-chord"
+                class:no-chord={isNoChordLabel(activeChordLabel)}
+                style={`--chord-color:${activeInstrumentColor}`}
+              >{chordDisplayLabel(activeChordLabel)}</strong>
+              <div class="harmony-label-mode" role="group" aria-label={t("instrumentLabels")}>
+                <button class:active={harmonyLabelMode === "notes"} aria-pressed={harmonyLabelMode === "notes"} onclick={() => harmonyLabelMode = "notes"}>{t("noteNames")}</button>
+                <button class:active={harmonyLabelMode === "degrees"} aria-pressed={harmonyLabelMode === "degrees"} onclick={() => harmonyLabelMode = "degrees"}>{t("chordDegrees")}</button>
+              </div>
+            {/if}
           </div>
-          {#if harmonyView === "piano"}
+          {#if detailView === "lyrics"}
+            {#key currentTrack.id}
+              <LyricsPanel
+                document={lyricsDocument}
+                language={language}
+                currentMs={currentSeconds * 1_000}
+                durationMs={durationSeconds * 1_000}
+                loading={lyricsLoading}
+                loadError={lyricsLoadError}
+                onSeek={seekFromLyrics}
+                onLoop={loopFromLyrics}
+                onSave={persistLyrics}
+                onDelete={removeCurrentLyrics}
+                initialSearchQuery={currentTrack.title}
+                searchResults={lyricsSearchResults}
+                searching={lyricsSearching}
+                searchError={lyricsSearchError}
+                onSearch={searchOnlineLyrics}
+                onChooseSearchResult={chooseOnlineLyrics}
+                onOpenProvider={openLyricsProvider}
+              />
+            {/key}
+          {:else if harmonyView === "piano"}
             <PianoChord label={activeHarmonyLabel} accessibleLabel={t("chordKeyboard")} accidentals={chordAccidentalMode} positionLabel={t("voicingPosition")} unavailableLabel={t("noVoicing")} emptyLabel={t("noChords")} labelMode={harmonyLabelMode} chordColor={activeInstrumentColor} />
           {:else}
             <FretboardChord
@@ -3805,7 +4024,7 @@
       <div class="preferences-grid" onchange={autosavePreferences}>
         <section><h3>{t("shortcutInterface")}</h3><label>{t("language")}<select value={preferences.language} onchange={(event) => { event.stopPropagation(); changeLanguage(event.currentTarget.value as Language); }}>{#each languageOptions as option}<option value={option.value}>{option.label}</option>{/each}</select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("audio")} · {t("metronome")}</h3><label>{t("masterVolume")}<input class="master-volume-preference" type="range" min="0" max="2" step="0.01" bind:value={preferences.masterVolume} style={`--master-volume-color: ${masterVolumeColor(preferences.masterVolume)}`} ondblclick={() => resetPreferenceVolume("masterVolume")} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} ondblclick={() => resetPreferenceVolume("musicVolume")} /></label><label>{t("loudnessNormalization")}<input type="checkbox" bind:checked={preferences.loudnessNormalization} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} ondblclick={() => resetPreferenceVolume("metronomeVolume")} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
-        <section><h3>{t("navigation")} · {t("loop")}</h3><label>{t("beatModeDefault")}<select bind:value={preferences.beatThisDbn}><option value={false}>Beat This!</option><option value={true}>{t("beatThisDbn")}</option></select></label><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option></select></label><label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label></section>
+        <section><h3>{t("navigation")} · {t("loop")}</h3><label>{t("beatModeDefault")}<select bind:value={preferences.beatThisDbn}><option value={false}>Beat This!</option><option value={true}>{t("beatThisDbn")}</option></select></label><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option><option value="lyrics">{lyricsTranslate(language, "navigationLyrics")}</option></select></label><label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label></section>
         <section><h3>{t("training")}</h3><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section class="preferences-section-wide"><h3>{t("importSettings")} · {t("conversionFormat")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("youtubeAutoSelectBestMatch")}<input type="checkbox" bind:checked={preferences.youtubeAutoSelectBestMatch} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
       </div>

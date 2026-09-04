@@ -9,6 +9,7 @@ mod error;
 mod ffmpeg;
 mod importer;
 mod loudness;
+mod lyrics;
 mod native_menu;
 mod native_menu_translations;
 mod preferences;
@@ -207,6 +208,52 @@ fn reorder_track(
 #[tauri::command]
 fn delete_track(package_path: PathBuf, track_id: uuid::Uuid) -> Result<ProjectSummary, AppError> {
     project::delete_track(&package_path, track_id)
+}
+
+#[tauri::command]
+fn get_lyrics(
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+) -> Result<Option<lyrics::LyricsDocument>, AppError> {
+    lyrics::load(&package_path, track_id)
+}
+
+#[tauri::command]
+fn save_lyrics(
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+    document: lyrics::LyricsDocument,
+) -> Result<lyrics::LyricsDocument, AppError> {
+    lyrics::save(&package_path, track_id, document)
+}
+
+#[tauri::command]
+fn delete_lyrics(package_path: PathBuf, track_id: uuid::Uuid) -> Result<(), AppError> {
+    lyrics::remove(&package_path, track_id)
+}
+
+#[tauri::command]
+async fn search_lrclib_lyrics(query: String) -> Result<Vec<lyrics::LyricsSearchResult>, AppError> {
+    tauri::async_runtime::spawn_blocking(move || lyrics::search_lrclib(&query))
+        .await
+        .map_err(|error| AppError::BackgroundTask(error.to_string()))?
+}
+
+#[tauri::command]
+async fn get_lrclib_lyrics(id: u64) -> Result<lyrics::RemoteLyricsRecord, AppError> {
+    tauri::async_runtime::spawn_blocking(move || lyrics::get_lrclib(id))
+        .await
+        .map_err(|error| AppError::BackgroundTask(error.to_string()))?
+}
+
+#[tauri::command]
+fn export_lyrics(
+    destination: PathBuf,
+    title: String,
+    document: lyrics::LyricsDocument,
+    format: lyrics::LyricsExportFormat,
+) -> Result<(), AppError> {
+    lyrics::export(&destination, &title, &document, format)
 }
 
 #[tauri::command]
@@ -441,6 +488,30 @@ fn open_external_link(target: String) -> Result<(), AppError> {
         }
     };
     open_url_in_browser(url)
+}
+
+#[tauri::command]
+fn open_lrclib_search(query: String) -> Result<(), AppError> {
+    open_url_in_browser(&lrclib_search_url(&query)?)
+}
+
+fn lrclib_search_url(query: &str) -> Result<String, AppError> {
+    if query.trim().is_empty() || query.chars().count() > 512 || query.chars().any(char::is_control)
+    {
+        return Err(AppError::BackgroundTask(
+            "the LRCLIB search query is invalid".into(),
+        ));
+    }
+    let mut encoded = String::with_capacity(query.len());
+    for byte in query.trim().bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            write!(&mut encoded, "%{byte:02X}").expect("writing to a String cannot fail");
+        }
+    }
+    Ok(format!("https://lrclib.net/search/{encoded}"))
 }
 
 #[tauri::command]
@@ -793,6 +864,12 @@ pub fn run() {
             rename_track,
             reorder_track,
             delete_track,
+            get_lyrics,
+            save_lyrics,
+            delete_lyrics,
+            search_lrclib_lyrics,
+            get_lrclib_lyrics,
+            export_lyrics,
             export_playlist,
             export_chords,
             update_practice_state,
@@ -818,6 +895,7 @@ pub fn run() {
             push_frontend_log,
             reveal_project,
             open_external_link,
+            open_lrclib_search,
             open_youtube_video,
             audio_load,
             audio_preload,
@@ -909,5 +987,15 @@ mod tests {
         queue_open_project(PathBuf::from("Band.sac"));
         assert_eq!(take_open_project(), Some(PathBuf::from("Band.sac")));
         assert_eq!(take_open_project(), None);
+    }
+
+    #[test]
+    fn lrclib_search_rejects_untrusted_or_empty_queries() {
+        assert!(lrclib_search_url("").is_err());
+        assert!(lrclib_search_url("line\nbreak").is_err());
+        assert_eq!(
+            lrclib_search_url("Lou Reed").unwrap(),
+            "https://lrclib.net/search/Lou%20Reed"
+        );
     }
 }

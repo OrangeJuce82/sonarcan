@@ -10,7 +10,7 @@
     | "sun" | "moon" | "gear" | "trash" | "grip-lines" | "plus" | "minus"
     | "volume-high" | "volume-xmark" | "github" | "youtube" | "mug-hot" | "play"
     | "pause" | "stop" | "backward" | "forward" | "backward-step" | "forward-step" | "rotate-right"
-    | "rotate-left" | "music" | "book-open" | "metronome" | "lightbulb" | "xmark" | "check" | "arrow-left" | "arrow-right" | "arrow-down"
+    | "rotate-left" | "music" | "microphone" | "book-open" | "metronome" | "lightbulb" | "xmark" | "check" | "arrow-left" | "arrow-right" | "arrow-down"
     | "folder-open" | "floppy-disk" | "file-export" | "cloud-arrow-down"
     | "sliders" | "gauge-high" | "magnifying-glass" | "file" | "terminal" | "keyboard" | "guitar" | "magnet" | "crosshairs" | "pen"
     | "arrows-left-right-to-line" | "stopwatch" | "arrows-to-dot" | "stairs";
@@ -20,6 +20,7 @@
   export let size = "1em";
 
   const icons: Record<IconName, { width: number; height: number; path: string }> = {
+    microphone: { width: 384, height: 512, path: "M192 0C139 0 96 43 96 96l0 160c0 53 43 96 96 96s96-43 96-96l0-160c0-53-43-96-96-96zM64 216c0-13.3-10.7-24-24-24S16 202.7 16 216l0 40c0 89.1 66.2 162.7 152 174.4l0 33.6-48 0c-13.3 0-24 10.7-24 24s10.7 24 24 24l144 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-48 0 0-33.6c85.8-11.7 152-85.3 152-174.4l0-40c0-13.3-10.7-24-24-24s-24 10.7-24 24l0 40c0 70.7-57.3 128-128 128S64 326.7 64 256l0-40z" },
     pen: { width: 512, height: 512, path: "M362.7 19.3l-48.4 48.4 130 130 48.4-48.4c25-25 25-65.5 0-90.5l-39.4-39.5c-25-25-65.5-25-90.5 0zM291.7 90.3L58.6 323.5c-10.4 10.4-17.8 23.3-21.2 37.6L.8 475.8c-2.7 8.5-.4 17.8 5.9 24.1s15.6 8.6 24.1 5.9l114.7-36.7c14.3-3.4 27.2-10.8 37.6-21.2l233.2-233.2-124.6-124.6z" },
     "arrows-left-right-to-line": { width: 576, height: 512, path: "M32 96C14.3 96 0 110.3 0 128L0 384c0 17.7 14.3 32 32 32s32-14.3 32-32l0-256c0-17.7-14.3-32-32-32zM390.6 342.6l64-64c12.5-12.5 12.5-32.8 0-45.3l-64-64c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l9.4 9.4-133.5 0 9.4-9.4c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-64 64c-6 6-9.4 14.1-9.4 22.6s3.4 16.6 9.4 22.6l64 64c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3l-9.4-9.4 133.5 0-9.4 9.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0zM576 128c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 256c0 17.7 14.3 32 32 32s32-14.3 32-32l0-256z" },
     stopwatch: { width: 448, height: 512, path: "M168.5 0c-13.3 0-24 10.7-24 24s10.7 24 24 24l32 0 0 25.3c-108 11.9-192 103.5-192 214.7 0 119.3 96.7 216 216 216s216-96.7 216-216c0-39.8-10.8-77.1-29.6-109.2l28.2-28.2c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-23.4 23.4c-32.9-30.2-75.2-50.3-122-55.5l0-25.3 32 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-112 0zm80 184l0 104c0 13.3-10.7 24-24 24s-24-10.7-24-24l0-104c0-13.3 10.7-24 24-24s24 10.7 24 24z" },

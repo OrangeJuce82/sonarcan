@@ -45,6 +45,20 @@ pub enum AppError {
     ProjectManifestTooLarge(PathBuf),
     #[error("import text exceeds the 1 MiB per-file or 2 MiB total safety limit: {0}")]
     ImportTextTooLarge(PathBuf),
+    #[error("lyrics exceed the 2 MiB safety limit: {0}")]
+    LyricsTooLarge(PathBuf),
+    #[error("lyrics storage is outside the project package: {0}")]
+    LyricsOutsideProject(PathBuf),
+    #[error("invalid lyrics data: {0}")]
+    InvalidLyricsData(String),
+    #[error("lyrics service error: {0}")]
+    LyricsService(String),
+    #[error("invalid lyrics document in {path}: {source}")]
+    InvalidLyrics {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
     #[error(
         "project format version {found} is not supported; this build supports version {supported}"
     )]
