@@ -58,6 +58,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Install uv for the Full worker tests
+        if: matrix.edition == 'full'
+        uses: astral-sh/setup-uv@v9.0.0
       - name: Install Tauri Linux dependencies
         if: runner.os == 'Linux'
         run: |
