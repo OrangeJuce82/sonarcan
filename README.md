@@ -57,9 +57,12 @@ and backend into one directory, verify the checksums, then concatenate them in
 name order. On Linux this reconstructs an installable `.deb`:
 
 ```bash
-sha256sum --check SHA256SUMS-Linux-NVIDIA-GPU.txt
-cat SonArcan-Linux-x86_64-NVIDIA-GPU-*.deb.part-* > SonArcan-NVIDIA-GPU.deb
-sudo apt install ./SonArcan-NVIDIA-GPU.deb
+cd ~/Downloads
+version=v0.1.0-beta.24
+backend=NVIDIA # Replace with AMD for the ROCm release.
+sha256sum --check "SHA256SUMS-Linux-${backend}-GPU.txt"
+cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
+sudo apt install "./SonArcan-${backend}-GPU.deb"
 ```
 
 Replace `NVIDIA` with `AMD` for the ROCm build. On Windows, verify the hashes
@@ -67,12 +70,27 @@ with `Get-FileHash`, concatenate the numbered files as binary data, then extract
 the reconstructed `.zip` and launch `SonArcan NVIDIA GPU.exe`:
 
 ```powershell
-$checksums = Get-Content 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
-foreach ($line in $checksums) { $expected, $file = $line -split '\s+', 2; if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch: $file" } }
-$parts = Get-ChildItem 'SonArcan-Windows-x86_64-NVIDIA-GPU-*.zip.part-*' | Sort-Object Name
-$output = [IO.File]::Create('SonArcan-NVIDIA-GPU.zip')
-try { foreach ($part in $parts) { $input = $part.OpenRead(); try { $input.CopyTo($output) } finally { $input.Dispose() } } } finally { $output.Dispose() }
-Expand-Archive SonArcan-NVIDIA-GPU.zip
+$ErrorActionPreference = 'Stop'
+Set-Location "$HOME\Downloads"
+$version = 'v0.1.0-beta.24'
+$checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
+foreach ($line in Get-Content -LiteralPath $checksumFile) {
+  $expected, $file = $line -split '\s+', 2
+  $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -ne $expected.ToLowerInvariant()) { throw "Checksum mismatch: $file" }
+}
+$parts = @(Get-ChildItem "SonArcan-Windows-x86_64-NVIDIA-GPU-$version.zip.part-*" | Sort-Object Name)
+if ($parts.Count -eq 0) { throw 'No archive parts found' }
+$archive = "SonArcan-NVIDIA-GPU-$version.zip"
+$output = [IO.File]::Create($archive)
+try {
+  foreach ($part in $parts) {
+    $input = $part.OpenRead()
+    try { $input.CopyTo($output) } finally { $input.Dispose() }
+  }
+} finally { $output.Dispose() }
+Expand-Archive -LiteralPath $archive -DestinationPath "SonArcan-NVIDIA-GPU-$version"
+& ".\SonArcan-NVIDIA-GPU-$version\SonArcan NVIDIA GPU.exe"
 ```
 
 Light releases and both macOS releases remain ordinary one-file installers.
@@ -94,16 +112,19 @@ supported NVIDIA Windows/Linux computer, **SonArcan AMD GPU** for supported AMD
 Linux hardware, or **SonArcan Light** everywhere else. Detailed notes for the
 current beta are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-SonArcan is made for musicians who want the useful parts of an audio workstation without the weight of a full DAW. Import a setlist, understand the music, isolate parts, build loops, and practice—all while keeping projects portable and data on your Mac.
+SonArcan is made for musicians who want the useful parts of an audio workstation
+without the weight of a full DAW. Import a setlist, understand the music, build
+loops, and practice while keeping projects portable and data on your computer.
+Full editions also analyze the music and isolate its parts locally.
 
 ## ✨ Highlights
 
 - Import WAV, MP3, FLAC, local files, or YouTube sources into portable `.sac` projects.
 - Play, seek, change gain, and create seamless A/B loops through a dedicated Rust audio engine.
 - Slow down or speed up from 50–200% independently of pitch, with ±12 semitones and fine cent correction.
-- Detect BPM, beats, downbeats, and timed chords locally, with detected timelines and source-aware disposable caches.
-- Separate six stems locally with HTDemucs 6s through MLX or portable Torch, then mix or export them.
-- Practice with a progressive loop trainer, synchronized metronome, waveform, spectrum, and stereo meter.
+- In Full editions, detect BPM, beats, downbeats, and timed chords locally, with detected timelines and source-aware disposable caches.
+- In Full editions, separate six stems locally with HTDemucs 6s through MLX or portable Torch, then mix or export them.
+- Practice with a progressive loop trainer, waveform, spectrum, and stereo meter; Full editions add the synchronized analysis metronome.
 - Keep per-track practice settings, recent projects, diagnostics, and a multilingual interface.
 
 For planned work and known product directions, see the [roadmap](docs/ROADMAP.md).
@@ -127,16 +148,16 @@ A heartfelt thank-you to every maintainer, researcher, tester, and contributor b
 
 ### Requirements
 
-- macOS 14+ on Apple Silicon, Windows x64, or a Linux x64 desktop supported by Tauri 2
+- macOS 14+ on Apple Silicon, macOS 12+ on Intel for Light, Windows x64, or a Linux x64 desktop supported by Tauri 2
 - Node.js 22+ and npm
 - Stable Rust 1.78+ with Cargo
 - `uv` exactly `0.9.26`
-- FFmpeg for development
+- FFmpeg and FFprobe on `PATH` for development fallback
 - [Tauri 2 prerequisites for the target OS](https://v2.tauri.app/start/prerequisites/)
 
-Install the native tools and pinned Python versions. Apple Silicon development
-also prepares MLX; other targets prepare the Torch worker with
-`npm run stems:sync`.
+Install the native tools for your operating system first. The FFmpeg command
+below is macOS-specific; use your distribution package manager on Linux or put
+FFmpeg and FFprobe on `PATH` on Windows.
 
 ```bash
 rustup toolchain install stable
@@ -145,46 +166,120 @@ curl -LsSf https://astral.sh/uv/0.9.26/install.sh | sh
 uv python install 3.13.5
 ```
 
-Prepare a fresh checkout:
+On Windows PowerShell, install the same pinned `uv` release with:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.9.26/install.ps1 | iex"
+uv python install 3.13.5
+```
+
+Every profile starts with a fresh checkout and the frontend dependencies:
 
 ```bash
 npm ci
-npm run stems:sync # use mlx:sync on Apple Silicon
-npm run test:chords
-npm run mlx:model
-npm run quality
 ```
 
-Start the complete desktop application:
+Choose exactly one of the following profiles.
+
+### Apple Silicon Full: MLX + MPS
+
+This is the only source profile that prepares the shared HTDemucs model. MLX
+handles six-stem separation; PyTorch MPS handles Beat and Chords.
 
 ```bash
-npm run tauri dev
+npm run mlx:sync
+npm run mlx:model
+npm run chords:downbeat-model
+npm run python:runtime
+npm run ytdlp:search
+npm run ffmpeg:runtime
+npm run quality
+npm run tauri dev -- --config src-tauri/tauri.macos-arm.conf.json
 ```
 
-`npm run dev` starts only the frontend; playback, project management, analysis, and stems require Tauri and the Rust backend.
+### Windows or Linux Full: Torch GPU
+
+Run `npm run stems:sync`, not `mlx:sync`. These profiles require the verified
+`config.json` and `htdemucs_6s.safetensors` produced by the Apple Silicon
+`prepare-model` release job under `src-tauri/resources/models/demucs-mlx/`.
+Copying an arbitrary model into that directory will fail its identity checks.
+
+For NVIDIA on Linux or in a Unix-like Windows shell:
+
+```bash
+export SONARCAN_EDITION=full
+export SONARCAN_GPU_BACKEND=nvidia
+npm run stems:sync
+npm run chords:downbeat-model
+npm run python:runtime
+npm run verify:gpu-runtime
+npm run ytdlp:search
+npm run ffmpeg:runtime
+npm run quality
+npm run tauri dev -- --config src-tauri/tauri.nvidia-gpu.conf.json
+```
+
+For AMD ROCm on Linux, replace `nvidia` with `amd` and use
+`src-tauri/tauri.amd-gpu.conf.json`. Windows AMD and Intel GPU Full profiles are
+not qualified. Native Windows PowerShell sets the NVIDIA environment with:
+
+```powershell
+$env:SONARCAN_EDITION = 'full'
+$env:SONARCAN_GPU_BACKEND = 'nvidia'
+```
+
+Then run the same `npm` commands without the two `export` lines.
+
+### Light
+
+Light does not prepare MLX, Torch, Beat This!, LV-Chordia, or HTDemucs. It keeps
+playback, projects, imports, lyrics, spectrum, meters, and time-based practice.
+
+```bash
+export SONARCAN_EDITION=light
+npm run ytdlp:search
+npm run python:light-runtime
+npm run verify:light-runtime
+npm run ffmpeg:runtime
+npm run verify:ffmpeg-release
+npm run quality
+npm run tauri dev -- --config src-tauri/tauri.portable.conf.json
+```
+
+Use `src-tauri/tauri.macos-arm-light.conf.json` or
+`src-tauri/tauri.macos-intel-light.conf.json` instead on macOS. In PowerShell,
+set the edition with `$env:SONARCAN_EDITION = 'light'` and omit the `export`
+line.
+
+`npm run dev` starts only the frontend. Playback, project management, native
+menus, analysis, and stems require `npm run tauri dev` and the Rust backend.
 
 ## 📦 Desktop bundles
 
-Releases bundle pinned Python workers, analysis models, and a target-native
-FFmpeg runtime. End users do not need to install Python, `uv`, FFmpeg, or model
-dependencies. The tag workflow builds Apple Silicon Full, NVIDIA Windows/Linux
-GPU, AMD Linux GPU, and Light packages for every supported desktop architecture.
+The contents of a desktop bundle depend on its edition. End users never need to
+install Python, `uv`, FFmpeg, or model dependencies themselves.
 
-```bash
-npm ci
-npm run mlx:sync
-npm run mlx:model
-npm run python:runtime
-npm run ffmpeg:runtime
-npm run quality
-npm run build:macos:dmg
-```
+| Build profile | Targets | Analysis implementation | Bundled resources |
+| --- | --- | --- | --- |
+| **MLX Full** | Apple Silicon | `sonarcan-mlx-worker` for six-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, HTDemucs, Beat This!, LV-Chordia, FFmpeg and yt-dlp |
+| **Torch GPU Full** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for six-stem separation and Beat/Chords | Backend-specific PyTorch runtime, HTDemucs, Beat This!, LV-Chordia, FFmpeg and yt-dlp |
+| **Light** | Apple Silicon, Intel Mac, Windows x64 and Linux x64 | No ML worker and no heavy analysis | Minimal Python runtime for yt-dlp plus FFmpeg; no Torch, MLX or analysis models |
 
-The resulting Apple Silicon DMG is written under `src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/`. GitHub release builds are ad-hoc signed so every embedded executable has a consistent code signature, but they are not notarized or identified by Apple. On first launch, users must explicitly allow SonArcan under **System Settings → Privacy & Security → Open Anyway**. The complete workflow and trust model are documented in the [release guide](docs/RELEASING.md).
+The tag workflow is the authoritative cross-platform build recipe: it chooses
+the correct worker, accelerator runtime, edition environment, resources, and
+Tauri configuration for each target. It verifies the packaged resources before
+leaving the release as a draft for manual smoke testing.
+
+GitHub macOS builds are ad-hoc signed so every embedded executable has a
+consistent code signature, but they are not notarized or identified by Apple.
+On first launch, users must explicitly allow SonArcan under **System Settings →
+Privacy & Security → Open Anyway**. The complete workflow and trust model are
+documented in the [release guide](docs/RELEASING.md).
 
 ## 🎼 Portable projects
 
-A `.sac` project is an inspectable directory that macOS presents as a single SonArcan document:
+A `.sac` project is an inspectable directory. macOS presents it as a single
+SonArcan document package; Windows and Linux keep the same portable contents:
 
 ```text
 My-Band.sac/

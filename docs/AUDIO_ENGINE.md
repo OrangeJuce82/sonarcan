@@ -198,10 +198,12 @@ state; volume and timbre are global preferences.
 The detailed waveform introduces downbeats at `1.5×` zoom and draws every beat
 and chord block once its viewport contains at most 30 seconds. Shorter tracks
 show those details while fitted in full. An independent UI magnet can
-snap A/B placement to the nearest detected beat. It does not synthesize
-subdivisions or alter playback timing. Its enabled state is a global user
-preference, not per-track practice state. Preference controls apply and save
-automatically when changed, and `M` remains the metronome shortcut.
+snap A/B placement to chord boundaries in Chord mode, synchronized line starts
+in Lyrics mode, or the nearest detected beat in Time and Beat modes. It falls
+back to beats while chord data is unavailable, does not synthesize subdivisions,
+and never alters playback timing or source analysis. Its enabled state is a
+global user preference, not per-track practice state. Preference controls apply
+and save automatically when changed, and `M` remains the metronome shortcut.
 
 The metronome is synthesized directly in the CPAL callback. It performs no allocation, locking, or IPC. The user can choose an electronic sine burst, a woodblock made from short modal resonances, or a metallic sound made from inharmonic partials. Each timbre uses a higher pitch and gain for detected downbeats. Beat phase is derived from the detected beat timeline and current source position, which keeps the click aligned after seeks and A/B loop wraps. Playback speed changes the real-time spacing between clicks automatically while preserving alignment with the source waveform.
 

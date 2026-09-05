@@ -1,7 +1,8 @@
 # Development roadmap
 
-**Current focus:** harden the unified import pipeline, background-task lifecycle, and desktop diagnostics.
-**Last updated:** 2026-08-28
+**Current focus:** harden release qualification, background-task lifecycle,
+project recovery, and cross-platform GPU editions.
+**Last updated:** 2026-09-06
 
 **Architecture invariant:** playback and every DSP operation run in the Rust real-time engine. TypeScript/Svelte is only a control surface and must never process audio.
 
@@ -39,7 +40,7 @@
 - [x] parallel audio/waveform loading with modern independent loading states
 - [x] Play preserves a lead-in before A and restarts at A at or after B
 - [x] contextual hover help for practice and transport controls
-- [x] English/French UI, help, dialogs, and native menus
+- [x] twelve-language UI, help, dialogs, native menus, and Arabic RTL layout
 - [x] production Rust time-stretch from 50% to 200% with pitch preservation
 - [x] independent Rust pitch shift from -12 to +12 semitones
 - [x] 1-cent fine tuning and frequency-based pitch regression test
@@ -50,12 +51,12 @@
 - [x] waveform grid driven by individual detected beat timestamps
 - [x] Rust real-time metronome synchronized to detected beats, speed changes, seeks, and loops
 - [x] bounded concurrent background import queue with progress and error diagnostics
-- [ ] background-job cancellation
-- [x] optional HTDemucs 6s separation through the supervised `demucs-mlx` worker
-- [x] pinned Apple MLX, CPython, uv lockfile, model, and release runtime
+- [x] user cancellation for imports plus supervised chord and stem worker termination
+- [x] optional HTDemucs 6s separation through supervised MLX and portable Torch workers
+- [x] pinned target-native CPython, MLX/CUDA/ROCm dependencies, uv lockfile, model, and release runtimes
 - [x] versioned, source-fingerprinted per-track stem cache
 - [x] sample-synchronous vocals/drums/bass/other/guitar/piano real-time mixer
-- [x] structured MLX logs, segment progress, failure reporting, and process cancellation
+- [x] structured worker logs, segment progress, failure reporting, and process cancellation
 - [ ] benchmark HTDemucs cold start and full-song inference across supported Apple-silicon Macs
 - [ ] queued separation jobs when switching tracks during inference
 - [ ] CPU/memory/audio profiling report
@@ -68,7 +69,7 @@
 - [x] inline track-title editing and persistent drag-and-drop playlist ordering
 - [x] per-track position, tempo, loop, trainer, and stem-mix persistence
 - [x] global master/metronome volume and user preferences
-- [ ] playlist reordering and deletion
+- [x] playlist reordering and deletion with project-owned media/cache cleanup
 - [ ] crash-safe recovery and backups
 - [ ] audio-device diagnostics
 - [x] CI native builds on macOS ARM64, Linux x64, and Windows x64
@@ -76,10 +77,11 @@
 ## Phase 2 — learning workflow
 
 - [x] detailed and overview waveform navigation
-- [x] reliable transport, seek, volume, and five-second jumps
+- [x] reliable transport, seek, volume, and configurable time/beat/chord/lyrics navigation
 - [x] restart, advance, and stop end-of-track modes
 - [x] A/B loop with visible boundaries
-- [ ] configurable jumps and optional loop restart delay
+- [x] configurable one-to-sixty-second jumps
+- [ ] optional loop restart delay
 - [x] tempo control with pitch preservation in the initial webview prototype
 - [x] restore tempo control in the Rust engine with production DSP
 - [x] production DSP for independent tempo and pitch
@@ -94,8 +96,11 @@
 ## Phase 3 — analysis and models
 
 - [ ] model manager and compatibility validation
-- [x] stem cache and four-channel vertical stem mixer
-- [ ] chord analysis and editable chord grid
+- [x] stem cache and six-channel vertical stem mixer
+- [x] LV-Chordia chord analysis, three dictionary views, and bounded per-region corrections
+- [x] piano, guitar, and ukulele chord views with validated positions
+- [x] JAMS export of the effective chord timeline
+- [x] plain, LRC, enhanced LRC, and TTML lyrics with optional LRCLIB lookup
 - [ ] PDF export
 
 ## Phase 4 — import and distribution
@@ -107,8 +112,9 @@
 - [x] one-pass remote extraction/conversion and conversion-free copy for conforming local media
 - [x] structured `yt-dlp` diagnostics with actionable user guidance and in-app Rust logs
 - [x] explicit pasted-text analysis without application clipboard monitoring
-- [ ] import cancellation, retry controls, and completed-job pruning
+- [x] import cancellation and automatic completed-job pruning
+- [ ] import retry controls
 - [x] macOS Apple Silicon packaging with MLX
-- [x] retire macOS Intel packaging after current LV-Chordia/Torch wheels stopped supporting it
-- [x] Linux x64 packaging with portable Torch stems
-- [x] Windows x64 packaging with portable Torch stems
+- [x] macOS Intel Light packaging after current LV-Chordia/Torch wheels stopped supporting Full
+- [x] Linux x64 Light, NVIDIA CUDA, and AMD ROCm packaging
+- [x] Windows x64 Light and NVIDIA CUDA packaging

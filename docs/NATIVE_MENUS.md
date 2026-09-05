@@ -7,9 +7,9 @@ SonArcan uses Tauri's native menu layer. Project navigation and application-wide
 | Menu | Responsibilities |
 |---|---|
 | SonArcan | About, Preferences, native application visibility, Quit |
-| File | New, Open, Open Recent, Import Audio, Save As, Rename Project, Close |
+| File | New, Open, Open Recent, Save, Save As, Import Audio, Preferences, Rename Project, Close |
 | Edit | Native Undo, Redo, Cut, Copy, Paste, Select All |
-| View | Waveform zoom and native fullscreen |
+| View | Application console, waveform zoom, and native fullscreen |
 | Playback | Transport jumps and A/B loop actions |
 | Songs | Track import, playlist/stem/chord exports, and current lyrics export |
 | Window | Native minimize and window ordering |
@@ -26,5 +26,6 @@ Recent project paths are persisted by Rust in the platform configuration directo
 - New Project: `CmdOrCtrl+N`
 - Open: `CmdOrCtrl+O`
 - Import Audio: `CmdOrCtrl+I`
+- Save: `CmdOrCtrl+S`
 - Save As: `CmdOrCtrl+Shift+S`
 - Preferences: `CmdOrCtrl+,`

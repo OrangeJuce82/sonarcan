@@ -1,13 +1,15 @@
 # Competitive analysis and product gap backlog
 
-**Snapshot date:** 2026-08-31  
-**Product version reviewed:** `0.1.0-beta.2`  
+**Competitor snapshot date:** 2026-08-31
+
+**SonArcan state refreshed:** 2026-09-06 (`0.1.0-beta.24`)
+
 **Scope:** desktop tools for learning, analysing, isolating, transcribing, and
 rehearsing existing music.
 
 Prices and product plans change. The amounts below are the public French App
-Store or publisher prices visible on the snapshot date, before any future price
-change, promotion, currency conversion, or local tax adjustment.
+Store or publisher prices visible on the competitor snapshot date, before any
+future price change, promotion, currency conversion, or local tax adjustment.
 
 ## Executive summary
 
@@ -29,12 +31,13 @@ Its strongest differentiation is not a single model. It is the combination of:
 - a free MIT-licensed product.
 
 The principal competitive problem is product maturity rather than feature
-ambition. SonArcan is an Apple-silicon-only beta distributed without Apple
-notarization. It lacks several mature practice and transcription workflows:
-named markers and sections, editable chords, multiple saved practice regions,
-count-in, synchronized notes or lyrics, hands-free control, and broader platform
-support. Its model quality also has not yet been demonstrated in a reproducible
-head-to-head benchmark.
+ambition. SonArcan is a cross-platform beta: Full analysis is qualified for
+Apple Silicon, NVIDIA GPUs on Windows/Linux, and AMD GPUs on Linux, while Light
+covers the remaining supported desktop targets. macOS packages are still not
+notarized. The product now supports bounded per-region chord corrections,
+synchronized lyrics, and several open exports, but still lacks named markers
+and sections, multiple saved practice regions, count-in, hands-free control, and
+a reproducible head-to-head model-quality benchmark.
 
 The recommended strategy is therefore to make the existing differentiation
 trustworthy and comfortable before adding more analysis models.
@@ -152,20 +155,20 @@ different implementation; **No** = not currently part of the reviewed product.
 | Local six-stem separation | Yes | No, service-backed | No | No | No | Yes |
 | Stem mixer in the learning workflow | Yes | Yes | Partial | Partial | No | Yes |
 | Timed chord detection | Yes | Yes | Yes | No | Manual aid | Partial |
-| Edit detected chords | No | Partial | Yes | No | Manual notes | Yes, note-level |
+| Edit detected chords | Partial, labels only | Partial | Yes | No | Manual notes | Yes, note-level |
 | Beat/downbeat-synchronized metronome | Yes | Yes | Yes | Partial | No | Partial |
 | Seamless A/B loop | Yes | Yes | Yes | Yes | Yes | Yes |
 | Progressive loop trainer | Yes | Partial | No | Yes | Scriptable/partial | Partial |
 | Named markers and song sections | No | Yes | Yes | Yes | Yes | Yes |
 | Multiple saved practice regions | No | Yes | Yes | Yes | Yes | Yes |
 | Count-in or loop restart delay | No | Yes | Yes | Yes | Partial | Yes |
-| Lyrics, tabs, or timed text notes | No | Yes | Yes | Yes | Yes | Partial |
+| Lyrics, tabs, or timed text notes | Partial, synchronized lyrics | Yes | Yes | Yes | Yes | Partial |
 | MIDI or foot-controller operation | No | No | Partial | Yes | Partial | Yes |
 | Live instrument input or take recording | No | Partial | No | Yes | No | Yes |
-| Chord chart, MIDI, or printable export | No | Partial | Yes | No | Text/manual | Yes |
+| Chord chart, MIDI, or printable export | Partial, JAMS and printable playlist | Partial | Yes | No | Text/manual | Yes |
 | Mobile companion | No | Yes | Yes | Yes | No | Limited |
-| Windows support | No | Yes | No | Partial | Yes | Yes |
-| Linux support | No | No | No | No | Yes | No |
+| Windows support | Yes | Yes | No | Partial | Yes | Yes |
+| Linux support | Yes | No | No | No | Yes | No |
 | Account-free local projects | Yes | No | Yes | Yes | Yes | Partial |
 | Notarized mainstream installation | No | Yes | Yes | Yes | Yes | Yes |
 
@@ -199,7 +202,7 @@ product risk, not implementation novelty.
 - [ ] **Finish retry, pruning, and queuing for background jobs.**
   - Keep the existing import cancellation and supervised analysis termination
     behavior covered by integration tests.
-  - Add bounded retry and completed-import pruning.
+  - Keep automatic completed-import pruning bounded and add explicit retry.
   - Queue separation requests safely across track switches.
   - Resume or discard interrupted work deterministically.
   - Competitive reason: cloud competitors hide job supervision; a local product
@@ -217,10 +220,10 @@ product risk, not implementation novelty.
   - Competitive reason: model names do not demonstrate superiority over Moises,
     Capo, UVR, or RipX.
 
-- [ ] **Reconcile documentation and product state.**
-  - Split completed chord analysis from the still-missing chord editor.
-  - Mark implemented import cancellation, track deletion, and playlist
-    reordering accurately.
+- [x] **Reconcile documentation and product state.**
+  - Distinguish bounded label corrections from structural chord editing.
+  - Record implemented import cancellation, track deletion, playlist
+    reordering, lyrics, exports, and cross-platform editions accurately.
   - Keep supported formats, platforms, release trust, and roadmap checkboxes
     synchronized with each release.
 
@@ -242,9 +245,10 @@ product risk, not implementation novelty.
   - Competitive reason: musicians need time to put their hands back on the
     instrument; Capo, Moises, and Anytune already address this.
 
-- [ ] **Make chord analysis correctable and durable.**
-  - Edit, insert, delete, merge, and split timed chord segments.
-  - Preserve the untouched model result separately from user corrections.
+- [ ] **Complete structural chord editing.**
+  - [x] Correct a region label and apply the same correction to matching regions.
+  - [ ] Insert, delete, merge, and split timed chord segments.
+  - [x] Preserve the untouched model result separately from user corrections.
   - Allow song-key, concert-pitch, spelling, and time-signature overrides.
   - Reproject chord display after pitch changes without rewriting source truth.
   - Ensure a model refresh never destroys user-authored corrections.
@@ -297,12 +301,11 @@ product risk, not implementation novelty.
 
 ### P3 — broaden reach after the Mac product is dependable
 
-- [ ] **Package Windows and Linux builds.**
-  - Preserve the same Rust audio and project boundaries.
-  - Select and benchmark a non-MLX separation runtime rather than pretending the
-    Apple-specific worker is portable.
-  - Resolve the reviewed Linux dependency maintenance notices before release.
-  - Start with playback/practice parity, then qualify model features explicitly.
+- [x] **Package Windows and Linux builds.**
+  - Light packages provide playback and practice without heavy analysis.
+  - NVIDIA CUDA packages cover Windows/Linux and AMD ROCm covers Linux.
+  - Startup probes keep unqualified GPUs out of the analysis path without CPU
+    fallback.
 
 - [ ] **Design an optional mobile companion, not a mandatory cloud service.**
   - Prioritize playback of prepared projects, markers, sections, chords, and
@@ -335,12 +338,12 @@ rehearse music.
 ## Recommended delivery order
 
 1. Notarized release, recovery, job lifecycle, and honest benchmarks.
-2. Markers/sections/regions, count-in, and complete playlist maintenance.
-3. Editable chords and durable user annotations.
-4. Practice, chord, beat, and mix exports.
-5. MIDI/foot control, synchronized text, and device diagnostics.
+2. Markers/sections/regions, count-in, and remaining playlist maintenance.
+3. Structural chord editing and durable user annotations.
+4. Remaining practice, beat, and rendered-mix exports.
+5. MIDI/foot control, timed notes, and device diagnostics.
 6. Optional live input and practice recording.
-7. Windows/Linux packaging, then a deliberately scoped mobile companion.
+7. A deliberately scoped mobile companion and project interchange.
 
 This order closes the largest competitive gaps while protecting real-time audio,
 project safety, privacy, accessibility, and the focused non-DAW positioning.

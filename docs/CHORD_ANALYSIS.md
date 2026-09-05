@@ -81,3 +81,8 @@ state and applied as a presentation overlay for one LV-Chordia vocabulary and
 one existing timed region. They never rewrite the disposable analysis cache or
 alter a model result. Shift-validation can create the same override for every
 region whose currently effective label matches the label selected for editing.
+
+The Songs menu exports the selected dictionary view as a JAMS 0.3.5 chord
+annotation. Export uses the effective labels, including the user's bounded
+corrections, while preserving each segment's model timing and confidence. It
+does not modify the project or its analysis cache.

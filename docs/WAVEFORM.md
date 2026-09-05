@@ -60,15 +60,22 @@ a diagonal trackpad gesture cannot pan and zoom at the same time.
 Zoom is bounded between `1×` and `128×`. Loop markers share the same time-to-screen transform as the playhead so they remain aligned at every zoom level.
 
 Beat This! timestamps appear as light vertical lines behind the detailed
-waveform from `1.5×` zoom onward. Detected downbeats are emphasized. The
-full-song overview and the widest detailed view intentionally omit these lines
-to avoid visual noise. Beat This! provides beats and downbeats but no reliable
-subdivision positions, so SonArcan never invents half-beats from the indicative
-BPM.
+waveform. From `1.5×` zoom, detected downbeats are shown first; every beat is
+revealed once the visible window spans at most 30 seconds. Short tracks can
+therefore show the complete rhythm grid while fully fitted, while wide windows
+on longer tracks omit it to avoid visual noise. Beat This! provides beats and
+downbeats but no reliable subdivision positions, so SonArcan never invents
+half-beats from the indicative BPM.
 
-The optional magnet control snaps A and B to the nearest detected beat when
-they are placed from the playhead or dragged on either waveform. Disabling it
-restores exact free placement. Snapping is presentation-side interaction only:
-it never changes the model timeline, BPM, audio clock, or stored analysis.
+The detailed view also renders the currently visible chord regions in a compact,
+clickable lane. Chords remain visible in windows up to 60 seconds, use the same
+viewport and filtering as the chord panel, and preserve the model boundaries.
+
+The optional magnet control snaps A and B to the active navigation data: chord
+boundaries in Chord mode, synchronized line starts in Lyrics mode, and detected
+beats in Time or Beat mode. It falls back to beats while chord data is still
+unavailable. Disabling it restores exact free placement. Snapping is
+presentation-side interaction only: it never changes a model timeline, BPM,
+audio clock, lyric timing, or stored analysis.
 
 The loading state uses a symmetric waveform-shaped SVG with a moving highlight, matching the geometry of the final peak view. Loop overlays use a separate violet palette so the editable range remains visually distinct from the teal source waveform.

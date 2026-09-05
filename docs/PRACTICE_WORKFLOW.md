@@ -5,13 +5,14 @@ This document translates the useful interaction model observed in musician pract
 ## Core screen hierarchy
 
 1. A detailed waveform provides precise navigation around the playhead.
-2. An overview waveform shows the whole song, loop boundaries, sections, and marks.
+2. An overview waveform shows the whole song, loop boundaries, playhead, and
+   detailed viewport; sections and named marks remain planned.
 3. A read-only Beat This! beat timeline appears behind the detailed waveform
    when zoom permits and drives the Rust metronome.
 4. The practice strip keeps loop, tempo, pitch, and jump controls visible at all times.
 5. The transport remains centered and usable without opening another panel.
 
-## First implementation order
+## Implemented workflow and planned extensions
 
 ### 1. Reliable transport
 
@@ -55,16 +56,15 @@ control and shows a dedicated import action instead of stale practice panels.
 ### 4. Pitch
 
 - adjust in semitones independently from tempo;
-- support fine tuning later;
+- support 1-cent fine tuning;
 - display reset and increment/decrement controls;
 - use a dedicated DSP implementation rather than pretending that playback-rate changes are pitch shifting.
-- provide 1-cent fine tuning for historical or otherwise slightly detuned recordings.
 
 ## Numeric control interaction
 
 Every adjustable integer or floating-point parameter uses the same interaction model: `+` and `−` apply one configured step, vertical dragging changes the value continuously by steps, the mouse wheel changes a focused value, and double-click restores its default. The detected BPM is not adjustable. The pitch control uses 1-cent steps; speed, volume, metronome volume, and Loop Trainer settings use domain-appropriate steps.
 
-### 5. Marks and navigation
+### 5. Planned marks and sections
 
 - create a named mark at the current position;
 - jump to previous or next mark;
@@ -85,7 +85,6 @@ The implemented Loop Trainer performs the first three operations directly in the
 
 - The visual language remains SonArcan's dark teal and amber design.
 - Controls use text labels and tooltips where an icon would be ambiguous.
-- The first webview player validates interaction behavior only.
 - The dedicated Rust audio engine is required for sample-accurate looping, production-quality time-stretch, pitch shifting, metronome synchronization, and dropout diagnostics.
 
 ## Current keyboard shortcuts
@@ -99,3 +98,9 @@ The implemented Loop Trainer performs the first three operations directly in the
 | Set loop A/B | A / B |
 | Clear loop | Escape |
 | Toggle metronome | M |
+| Toggle Beat This! minimal/DBN timeline | Alt/Option+M |
+| Toggle chord editing | E |
+| Adjust tempo / pitch / waveform zoom | Hold T / P / Z, then use arrows, `+`, `−`, or Delete/Backspace to reset |
+| Choose metronome sound or volume | Hold M, then use vertical or horizontal arrows; Delete/Backspace resets volume |
+| Toggle contextual help | H |
+| Toggle application console | C |

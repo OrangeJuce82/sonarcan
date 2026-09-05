@@ -14,10 +14,16 @@ normal playback.
 3. Structured progress is reported while HTDemucs separates vocals, drums, bass, other, guitar, and piano.
 4. The vertical mixer becomes available when all six cached buffers are complete.
 5. Later activations for the same unmodified source load the project cache instead of running inference again.
+6. The mixer header can export all six cached sources as lossless 32-bit float
+   WAV files or high-quality MP3 files without changing the project cache.
 
 The mixer presents vocals, drums, bass, guitar, piano, then other. Each channel provides a vertical gain fader from 0% to 200%, pan, a bounded LED peak meter, mute, solo, a fixed identifying color, and a user-editable lower label. Double-click resets gain to 0 dB and pan to center. Multiple channels may be soloed. Names, pan, gain, mute, and solo are saved in the track practice state. Master gain, playback speed, pitch, loops, Loop Trainer, and the metronome remain global and are applied after stem summing.
 
 The header switch is a real-time bypass after generation. Switching it off restores the original track without dropping the six decoded buffers and disables all controls inside the mixer; switching it back on therefore does not start Python, reload the model, or reread the cache. Cancelling while separation is still running remains destructive and terminates the worker.
+
+Stem export uses the user-visible channel names, sanitizes and deduplicates the
+filenames, writes into a new destination directory, and never replaces an
+existing directory. MP3 export requires the verified FFmpeg runtime.
 
 ## Implementation constraints
 
