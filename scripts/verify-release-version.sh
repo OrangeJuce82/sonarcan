@@ -128,4 +128,9 @@ if ! grep -Fq 'sha256sum --check' "$repository_root/RELEASE_NOTES.md" \
   echo "Release notes must include Linux and Windows multipart reconstruction commands." >&2
   exit 1
 fi
+if ! grep -Fq 'rm -f "$portable_path"' "$release_workflow" \
+  || ! grep -Fq 'Remove-Item -LiteralPath $archive -Force' "$release_workflow"; then
+  echo "Multipart GPU jobs must discard their oversized source archives before upload." >&2
+  exit 1
+fi
 echo "Release version $package_version is consistent."

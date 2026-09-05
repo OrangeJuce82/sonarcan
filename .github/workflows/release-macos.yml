@@ -302,7 +302,7 @@ jobs:
           test -n "$deb_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
-          rm -rf "$verification_root"
+          rm -rf "$verification_root" src-tauri/resources/python-runtime src-tauri/resources/models
 
   release-windows:
     name: Release Windows x64 Light
@@ -436,12 +436,14 @@ jobs:
           test -n "$deb_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
+          rm -rf "$verification_root"
 
           backend_name="$(printf '%s' '${{ matrix.backend }}' | tr '[:lower:]' '[:upper:]')"
           portable_name="SonArcan-Linux-x86_64-${backend_name}-GPU-${GITHUB_REF_NAME}.deb"
           portable_path="$RUNNER_TEMP/$portable_name"
           mv "$deb_path" "$portable_path"
           split -b 1800M -d -a 3 "$portable_path" "$portable_path.part-"
+          rm -f "$portable_path"
           checksum_path="$RUNNER_TEMP/SHA256SUMS-Linux-${backend_name}-GPU.txt"
           (cd "$RUNNER_TEMP" && sha256sum "$portable_name".part-* > "$(basename "$checksum_path")")
           (cd "$RUNNER_TEMP" && sha256sum --check "$(basename "$checksum_path")")
@@ -452,7 +454,6 @@ jobs:
             test "$attempt" -lt 3 || exit 1
             sleep "$((attempt * 10))"
           done
-          rm -rf "$verification_root"
 
   release-windows-gpu:
     name: Release Windows x64 NVIDIA GPU
@@ -518,10 +519,13 @@ jobs:
           Copy-Item "src-tauri/resources/ytdlp-search" $portableRoot -Recurse
           Copy-Item "src-tauri/resources/audio-tools" $portableRoot -Recurse
           npm run verify:bundled-release -- "$portableRoot"
+          Remove-Item -LiteralPath "src-tauri/resources/python-runtime" -Recurse -Force
+          Remove-Item -LiteralPath "src-tauri/resources/models" -Recurse -Force
 
           $archive = "$portableRoot.zip"
           tar.exe -a -cf $archive -C (Split-Path $portableRoot -Parent) (Split-Path $portableRoot -Leaf)
           if ($LASTEXITCODE -ne 0) { throw "Zip64 packaging failed with exit code $LASTEXITCODE" }
+          Remove-Item -LiteralPath $portableRoot -Recurse -Force
           $input = [System.IO.File]::OpenRead($archive)
           try {
             $buffer = New-Object byte[] (8MB)
@@ -546,6 +550,7 @@ jobs:
           } finally {
             $input.Dispose()
           }
+          Remove-Item -LiteralPath $archive -Force
           $parts = Get-ChildItem "$archive.part-*" | Sort-Object Name
           if (-not $parts) { throw "The multipart Windows archive is missing" }
           $checksum = Join-Path $env:RUNNER_TEMP "SHA256SUMS-Windows-NVIDIA-GPU.txt"
