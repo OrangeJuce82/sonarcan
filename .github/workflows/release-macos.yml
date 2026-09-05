@@ -242,7 +242,7 @@ jobs:
     name: Release Linux x64 Light
     needs: prepare-model
     timeout-minutes: 120
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     env:
       SONARCAN_EDITION: light
     steps:
@@ -363,7 +363,7 @@ jobs:
           - label: AMD GPU
             backend: amd
             config: src-tauri/tauri.amd-gpu.conf.json
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     env:
       SONARCAN_EDITION: full
       SONARCAN_GPU_BACKEND: ${{ matrix.backend }}

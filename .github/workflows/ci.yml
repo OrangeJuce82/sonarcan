@@ -35,7 +35,7 @@ jobs:
       matrix:
         include:
           - name: Linux x64
-            os: ubuntu-24.04
+            os: ubuntu-22.04
             edition: light
           - name: Windows x64
             os: windows-2025
