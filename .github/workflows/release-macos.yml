@@ -170,9 +170,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "$GITHUB_REF_NAME" \
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt \
-            --clobber
+          for attempt in 1 2 3; do
+            if gh release upload "$GITHUB_REF_NAME" \
+              src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt \
+              --clobber; then
+              exit 0
+            fi
+            test "$attempt" -lt 3 || exit 1
+            sleep "$((attempt * 10))"
+          done
 
   release-macos-light:
     name: Release ${{ matrix.label }}
@@ -411,6 +417,10 @@ jobs:
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
       - run: npm run quality
+      - name: Free build caches before the large GPU package
+        run: |
+          uv cache clean
+          cargo clean --manifest-path src-tauri/Cargo.toml
       # GPU runtimes are larger than GitHub's 2 GiB per-asset limit. Build and
       # verify the native DEB, then split it into downloadable release volumes.
       - name: Build GPU DEB
@@ -433,7 +443,13 @@ jobs:
           checksum_path="$RUNNER_TEMP/SHA256SUMS-Linux-${backend_name}-GPU.txt"
           (cd "$RUNNER_TEMP" && sha256sum "$portable_name".part-* > "$(basename "$checksum_path")")
           (cd "$RUNNER_TEMP" && sha256sum --check "$(basename "$checksum_path")")
-          gh release upload "$GITHUB_REF_NAME" "$portable_path".part-* "$checksum_path" --clobber
+          for attempt in 1 2 3; do
+            if gh release upload "$GITHUB_REF_NAME" "$portable_path".part-* "$checksum_path" --clobber; then
+              break
+            fi
+            test "$attempt" -lt 3 || exit 1
+            sleep "$((attempt * 10))"
+          done
           rm -rf "$verification_root"
 
   release-windows-gpu:
@@ -477,6 +493,10 @@ jobs:
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
       - run: npm run quality
+      - name: Free build caches before the large GPU package
+        run: |
+          uv cache clean
+          cargo clean --manifest-path src-tauri/Cargo.toml
       # NSIS cannot create installers above 2 GiB. Keep this edition portable
       # and split its Zip64 archive below GitHub's per-asset size limit.
       - name: Build portable NVIDIA GPU application
@@ -506,9 +526,10 @@ jobs:
               $partPath = "$archive.part-$($partNumber.ToString('000'))"
               $output = [System.IO.File]::Create($partPath)
               try {
-                $remaining = [Math]::Min(1800MB, $input.Length - $input.Position)
+                $remaining = [Math]::Min([long](1800MB), [long]($input.Length - $input.Position))
                 while ($remaining -gt 0) {
-                  $read = $input.Read($buffer, 0, [Math]::Min($buffer.Length, $remaining))
+                  $readSize = [int][Math]::Min([long]$buffer.Length, [long]$remaining)
+                  $read = $input.Read($buffer, 0, $readSize)
                   if ($read -le 0) { throw "Unexpected end of the portable archive" }
                   $output.Write($buffer, 0, $read)
                   $remaining -= $read
@@ -529,5 +550,9 @@ jobs:
             "$hash  $($_.Name)"
           } | Set-Content -Encoding ascii $checksum
           $assets = @($parts.FullName) + @($checksum)
-          gh release upload $env:GITHUB_REF_NAME @assets --clobber
-          if ($LASTEXITCODE -ne 0) { throw "GitHub release upload failed with exit code $LASTEXITCODE" }
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { throw "GitHub release upload failed after three attempts" }
+            Start-Sleep -Seconds ($attempt * 10)
+          }
