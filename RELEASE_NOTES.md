@@ -30,6 +30,16 @@ Light is the smallest and safest download for older hardware. It physically
 excludes Torch, MLX, the analysis models, and the chord-instrument frontend
 assets rather than merely hiding them.
 
+## GPU download format
+
+CUDA and ROCm runtimes are too large for GitHub's 2 GiB limit per release file.
+Each GPU package is therefore portable and split into numbered `part-000`,
+`part-001`, … files, accompanied by a platform/backend-specific `SHA256SUMS`
+file. Download every part for one edition, verify every checksum, and concatenate
+the parts in filename order. The result is a `.deb` on Linux or a `.zip`
+on Windows. The README contains copy-and-paste reconstruction commands. Light
+and macOS downloads remain conventional single-file installers.
+
 ## Other fixes
 
 - Windows desktop builds no longer leave a console window open.

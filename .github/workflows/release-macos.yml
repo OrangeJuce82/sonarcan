@@ -411,24 +411,29 @@ jobs:
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
       - run: npm run quality
-      - name: Build GPU DEB and upload it to the draft release
-        uses: tauri-apps/tauri-action@v1
+      # GPU runtimes are larger than GitHub's 2 GiB per-asset limit. Build and
+      # verify the native DEB, then split it into downloadable release volumes.
+      - name: Build GPU DEB
+        run: npm exec tauri build -- --target x86_64-unknown-linux-gnu --bundles deb --config ${{ matrix.config }}
+      - name: Verify and upload multipart Linux GPU application
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: SonArcan ${{ github.ref_name }}
-          generateReleaseNotes: false
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target x86_64-unknown-linux-gnu --bundles deb --config ${{ matrix.config }}
-      - name: Verify packaged Linux GPU application
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           verification_root="$(mktemp -d)"
           deb_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -n "$deb_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
+
+          backend_name="$(printf '%s' '${{ matrix.backend }}' | tr '[:lower:]' '[:upper:]')"
+          portable_name="SonArcan-Linux-x86_64-${backend_name}-GPU-${GITHUB_REF_NAME}.deb"
+          portable_path="$RUNNER_TEMP/$portable_name"
+          mv "$deb_path" "$portable_path"
+          split -b 1800M -d -a 3 "$portable_path" "$portable_path.part-"
+          checksum_path="$RUNNER_TEMP/SHA256SUMS-Linux-${backend_name}-GPU.txt"
+          (cd "$RUNNER_TEMP" && sha256sum "$portable_name".part-* > "$(basename "$checksum_path")")
+          (cd "$RUNNER_TEMP" && sha256sum --check "$(basename "$checksum_path")")
+          gh release upload "$GITHUB_REF_NAME" "$portable_path".part-* "$checksum_path" --clobber
           rm -rf "$verification_root"
 
   release-windows-gpu:
@@ -472,23 +477,57 @@ jobs:
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
       - run: npm run quality
-      - name: Build NVIDIA GPU bundle and upload it to the draft release
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: SonArcan ${{ github.ref_name }}
-          generateReleaseNotes: false
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target x86_64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.nvidia-gpu.conf.json
-      - name: Install and verify packaged Windows GPU application
+      # NSIS cannot create installers above 2 GiB. Keep this edition portable
+      # and split its Zip64 archive below GitHub's per-asset size limit.
+      - name: Build portable NVIDIA GPU application
+        run: npm exec tauri build -- --target x86_64-pc-windows-msvc --no-bundle --config src-tauri/tauri.nvidia-gpu.conf.json
+      - name: Verify and upload multipart Windows GPU application
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
-          if (-not $installer) { throw "NSIS installer is missing" }
-          $installRoot = Join-Path $env:RUNNER_TEMP "sonarcan-nvidia-release-verification"
-          $process = Start-Process -FilePath $installer.FullName -ArgumentList "/S", "/D=$installRoot" -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($process.ExitCode)" }
-          npm run verify:bundled-release -- "$installRoot"
+          $portableRoot = Join-Path $env:RUNNER_TEMP "SonArcan-Windows-x86_64-NVIDIA-GPU-$env:GITHUB_REF_NAME"
+          New-Item -ItemType Directory -Path $portableRoot | Out-Null
+          Copy-Item "src-tauri/target/x86_64-pc-windows-msvc/release/sonarcan.exe" (Join-Path $portableRoot "SonArcan NVIDIA GPU.exe")
+          Copy-Item "src-tauri/resources/python-runtime" $portableRoot -Recurse
+          Copy-Item "src-tauri/resources/models" $portableRoot -Recurse
+          Copy-Item "src-tauri/resources/ytdlp-search" $portableRoot -Recurse
+          Copy-Item "src-tauri/resources/audio-tools" $portableRoot -Recurse
+          npm run verify:bundled-release -- "$portableRoot"
+
+          $archive = "$portableRoot.zip"
+          tar.exe -a -cf $archive -C (Split-Path $portableRoot -Parent) (Split-Path $portableRoot -Leaf)
+          if ($LASTEXITCODE -ne 0) { throw "Zip64 packaging failed with exit code $LASTEXITCODE" }
+          $input = [System.IO.File]::OpenRead($archive)
+          try {
+            $buffer = New-Object byte[] (8MB)
+            $partNumber = 0
+            while ($input.Position -lt $input.Length) {
+              $partPath = "$archive.part-$($partNumber.ToString('000'))"
+              $output = [System.IO.File]::Create($partPath)
+              try {
+                $remaining = [Math]::Min(1800MB, $input.Length - $input.Position)
+                while ($remaining -gt 0) {
+                  $read = $input.Read($buffer, 0, [Math]::Min($buffer.Length, $remaining))
+                  if ($read -le 0) { throw "Unexpected end of the portable archive" }
+                  $output.Write($buffer, 0, $read)
+                  $remaining -= $read
+                }
+              } finally {
+                $output.Dispose()
+              }
+              $partNumber++
+            }
+          } finally {
+            $input.Dispose()
+          }
+          $parts = Get-ChildItem "$archive.part-*" | Sort-Object Name
+          if (-not $parts) { throw "The multipart Windows archive is missing" }
+          $checksum = Join-Path $env:RUNNER_TEMP "SHA256SUMS-Windows-NVIDIA-GPU.txt"
+          $parts | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content -Encoding ascii $checksum
+          $assets = @($parts.FullName) + @($checksum)
+          gh release upload $env:GITHUB_REF_NAME @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release upload failed with exit code $LASTEXITCODE" }

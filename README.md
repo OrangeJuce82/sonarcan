@@ -50,6 +50,33 @@ separate. Windows AMD and Intel GPUs are not qualified in this beta; choose
 Light on those systems. SonArcan never silently falls back to the CPU for heavy
 analysis jobs.
 
+GPU runtimes exceed GitHub's 2 GiB limit for a single release asset. Their
+portable package is consequently published as numbered `part-000`, `part-001`,
+… files plus a `SHA256SUMS` file. Download every part for the chosen platform
+and backend into one directory, verify the checksums, then concatenate them in
+name order. On Linux this reconstructs an installable `.deb`:
+
+```bash
+sha256sum --check SHA256SUMS-Linux-NVIDIA-GPU.txt
+cat SonArcan-Linux-x86_64-NVIDIA-GPU-*.deb.part-* > SonArcan-NVIDIA-GPU.deb
+sudo apt install ./SonArcan-NVIDIA-GPU.deb
+```
+
+Replace `NVIDIA` with `AMD` for the ROCm build. On Windows, verify the hashes
+with `Get-FileHash`, concatenate the numbered files as binary data, then extract
+the reconstructed `.zip` and launch `SonArcan NVIDIA GPU.exe`:
+
+```powershell
+$checksums = Get-Content 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
+foreach ($line in $checksums) { $expected, $file = $line -split '\s+', 2; if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch: $file" } }
+$parts = Get-ChildItem 'SonArcan-Windows-x86_64-NVIDIA-GPU-*.zip.part-*' | Sort-Object Name
+$output = [IO.File]::Create('SonArcan-NVIDIA-GPU.zip')
+try { foreach ($part in $parts) { $input = $part.OpenRead(); try { $input.CopyTo($output) } finally { $input.Dispose() } } } finally { $output.Dispose() }
+Expand-Archive SonArcan-NVIDIA-GPU.zip
+```
+
+Light releases and both macOS releases remain ordinary one-file installers.
+
 ## Choose an edition
 
 | Feature | Full / GPU | Light or degraded mode |
@@ -141,7 +168,7 @@ npm run tauri dev
 Releases bundle pinned Python workers, analysis models, and a target-native
 FFmpeg runtime. End users do not need to install Python, `uv`, FFmpeg, or model
 dependencies. The tag workflow builds Apple Silicon Full, NVIDIA Windows/Linux
-GPU, AMD Linux GPU, and Light installers for every supported desktop architecture.
+GPU, AMD Linux GPU, and Light packages for every supported desktop architecture.
 
 ```bash
 npm ci

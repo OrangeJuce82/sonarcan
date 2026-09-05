@@ -16,21 +16,26 @@ it without isolation.
 
 CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,
-execute their self-tests, and upload platform installers to one draft release.
+execute their self-tests, and upload platform packages to one draft release.
 Apple Silicon bundle verification also executes the same MPS and MLX
 accelerator probes used at application startup. Hosted Windows/Linux runners do
 not have production GPUs, so their release gate verifies the pinned CUDA/ROCm
 runtime identity and CPU-loadable model contracts; the app then executes both
 production graphs on the end-user GPU before enabling analysis.
 After packaging, the release gate inspects the macOS applications, extracts the
-Linux DEB, and silently installs the Windows NSIS package in the disposable
-runner. It then executes the embedded chord/downbeat, stem, FFmpeg, FFprobe, and
-yt-dlp health checks from those packaged locations. A missing, foreign-architecture,
-or non-relocatable runtime therefore fails the release while it is still a draft.
+Linux packages, and silently installs the Windows Light NSIS package in the
+disposable runner. The Windows GPU portable tree is verified before its Zip64
+archive is split. It then executes the embedded chord/downbeat, stem, FFmpeg,
+FFprobe, and yt-dlp health checks from those packaged locations. A missing,
+foreign-architecture, or non-relocatable runtime therefore fails the release
+while it is still a draft.
 
-Linux releases currently publish a verified DEB. AppImage publication is paused
-because Tauri's upstream `linuxdeploy` path can fail after a valid DEB has already
-been produced; that optional format must not block the supported Linux release.
+Linux Light publishes a verified DEB. Linux GPU editions publish verified DEBs
+split into numbered volumes smaller than 2 GiB. Windows GPU publishes
+a similarly split portable Zip64 archive because NSIS and GitHub Release assets
+both have 2 GiB limits. Each multipart package includes SHA-256 hashes for all
+parts. Parts must be concatenated byte-for-byte in filename order before use;
+the reconstructed archive itself is never uploaded as an oversized asset.
 
 ## What is pinned
 
@@ -135,7 +140,8 @@ embedded-runtime signing script use the same ad-hoc identity.
    runtime and media tool is verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
    declaration, shared-model identity, and bundled executables.
-7. Download and smoke-test every draft installer. On macOS, verify with
+7. Download and smoke-test every draft package. Reconstruct every multipart GPU
+   package and verify the supplied part hashes first. On macOS, verify with
    `codesign --verify --deep --strict --verbose=2 /Applications/SonArcan.app`,
    confirm that Gatekeeper initially blocks the unidentified build, authorize it
    with **System Settings → Privacy & Security → Open Anyway**, confirm that
