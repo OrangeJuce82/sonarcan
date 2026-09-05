@@ -85,6 +85,9 @@ capability IPC but never runs an accelerator probe. Its bundle maps a minimal
 Python standard-library runtime to the normal runtime location for `yt-dlp` and
 omits every analysis model and package. Full and Light share the project schema;
 Light neither consumes nor deletes cached analysis created by Full.
+The Light Vite build also aliases the Piano and fretted-instrument components to
+empty compile-time implementations, so their chord corpus and presentation CSS
+cannot enter the shipped frontend. Bundle verification rejects that corpus.
 
 In full mode, the analysis workspace places the six-stem mixer beside a right-hand column
 containing the spectrum and stereo meter. Beneath it, the chord grid and a
