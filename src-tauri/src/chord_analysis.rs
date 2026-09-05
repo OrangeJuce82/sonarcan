@@ -12,6 +12,9 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use std::time::{Duration, Instant};
+
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use uuid::Uuid;
@@ -241,6 +244,49 @@ fn resolve_downbeat_model(app: &AppHandle) -> Result<PathBuf, AppError> {
             .ok_or_else(|| {
                 AppError::ChordAnalysis("the bundled Beat This! model is unavailable".into())
             });
+    }
+}
+
+pub fn accelerator_self_test(app: &AppHandle) -> bool {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let Ok(worker) = resolve_worker(app) else {
+            return false;
+        };
+        let Ok(downbeat_model) = resolve_downbeat_model(app) else {
+            return false;
+        };
+        let Ok(mut child) = Command::new(&worker.executable)
+            .args(&worker.prefix_arguments)
+            .arg("--accelerator-self-test")
+            .arg("--downbeat-model")
+            .arg(downbeat_model)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            return false;
+        };
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) if started.elapsed() < Duration::from_secs(30) => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return false;
+                }
+            }
+        }
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        let _ = app;
+        false
     }
 }
 

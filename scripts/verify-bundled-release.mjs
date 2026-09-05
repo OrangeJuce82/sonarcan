@@ -12,8 +12,7 @@ if (!existsSync(root) || !statSync(root).isDirectory()) {
 
 function findResourceRoot(directory, depth = 0) {
   if (depth > 10) return undefined;
-  const beatModel = join(directory, "models", "beat-this", "final0.ckpt");
-  if (existsSync(beatModel) && existsSync(join(directory, "python-runtime"))) return directory;
+  if (existsSync(join(directory, "python-runtime")) && existsSync(join(directory, "audio-tools"))) return directory;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
     const found = findResourceRoot(join(directory, entry.name), depth + 1);
@@ -47,26 +46,45 @@ if (!resources) throw new Error(`could not locate SonArcan resources inside ${ro
 const windows = process.platform === "win32";
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
 const suffix = windows ? ".exe" : "";
+const fullEdition = existsSync(join(resources, "models", "beat-this", "final0.ckpt"));
 const sharedPython = required(
   windows
     ? join(resources, "python-runtime", "runtime", "python.exe")
     : join(resources, "python-runtime", "runtime", "bin", "python3.13"),
   "bundled shared Python 3.13",
 );
-const beatModel = required(join(resources, "models", "beat-this", "final0.ckpt"), "Beat This model");
-const chordOutput = run(sharedPython, [
-  "-m", "sonarcan_chord_worker.worker", "--self-test", "--downbeat-model", beatModel,
-], "bundled chord/downbeat worker", true);
-const chordHealth = JSON.parse(chordOutput);
-if (!chordHealth.ok || chordHealth.modes?.join(",") !== "complete,essential,standard") {
-  throw new Error("bundled chord/downbeat worker returned an invalid contract");
+if (fullEdition) {
+  const beatModel = required(join(resources, "models", "beat-this", "final0.ckpt"), "Beat This model");
+  const chordOutput = run(sharedPython, [
+    "-m", "sonarcan_chord_worker.worker", "--self-test", "--downbeat-model", beatModel,
+  ], "bundled chord/downbeat worker", true);
+  const chordHealth = JSON.parse(chordOutput);
+  if (!chordHealth.ok || chordHealth.modes?.join(",") !== "complete,essential,standard") {
+    throw new Error("bundled chord/downbeat worker returned an invalid contract");
+  }
+  const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
+  const model = required(join(resources, "models", "demucs-mlx", "htdemucs_6s.safetensors"), "HTDemucs model");
+  run(sharedPython, [
+    "-m", stemModule, "self-test", "--model-dir", dirname(model),
+  ], `bundled ${appleSilicon ? "MLX" : "Torch"} stem worker`);
+  if (appleSilicon) {
+    const chordAcceleratorOutput = run(sharedPython, [
+      "-m", "sonarcan_chord_worker.worker", "--accelerator-self-test", "--downbeat-model", beatModel,
+    ], "bundled MPS chord/downbeat accelerator", true);
+    const chordAccelerator = JSON.parse(chordAcceleratorOutput);
+    if (!chordAccelerator.accelerated || chordAccelerator.backend !== "MPS") {
+      throw new Error("bundled chord/downbeat worker did not qualify MPS");
+    }
+    run(sharedPython, [
+      "-m", stemModule, "accelerator-self-test", "--model-dir", dirname(model),
+    ], "bundled MLX stem accelerator");
+  }
+} else {
+  run(sharedPython, [
+    "-c",
+    "import importlib.util; forbidden=('torch','mlx','lv_chordia','beat_this','demucs_mlx'); assert not any(importlib.util.find_spec(name) for name in forbidden)",
+  ], "Light runtime heavy-package exclusion");
 }
-
-const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
-const model = required(join(resources, "models", "demucs-mlx", "htdemucs_6s.safetensors"), "HTDemucs model");
-run(sharedPython, [
-  "-m", stemModule, "self-test", "--model-dir", dirname(model),
-], `bundled ${appleSilicon ? "MLX" : "Torch"} stem worker`);
 
 const ffmpeg = required(join(resources, "audio-tools", "bin", `ffmpeg${suffix}`), "bundled FFmpeg");
 const ffprobe = required(join(resources, "audio-tools", "bin", `ffprobe${suffix}`), "bundled FFprobe");
@@ -81,5 +99,7 @@ console.log(JSON.stringify({
   resources,
   platform: process.platform,
   architecture: process.arch,
-  stemBackend: appleSilicon ? "MLX" : "Torch",
+  edition: fullEdition ? "full" : "light",
+  stemBackend: fullEdition ? appleSilicon ? "MLX" : "Torch" : null,
+  analysisAcceleratorQualified: fullEdition && appleSilicon,
 }));

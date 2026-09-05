@@ -4,7 +4,7 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { handleWindowCloseRequest, projectOpenDialogOptions } from "./lib/applicationLifecycle";
-  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openLrclibSearch, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openLrclibSearch, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
   import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, importRelevanceLevel, importRelevancePercent, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
@@ -40,6 +40,9 @@
 
   let project: ProjectSummary | null = null;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
+  let analysisFeaturesAvailable = false;
+  let applicationEdition: "full" | "light" = "full";
+  let degradedAnalysisNoticeVisible = false;
   let runtimeOs = "macos";
   let toasts: ToastMessage[] = [];
   let nextToastId = 1;
@@ -160,7 +163,7 @@
   let stemGenerationStarting = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, youtubeAutoSelectBestMatch: true, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 1, musicVolume: 1, loudnessNormalization: true, metronomeVolume: 0.55, metronomeSound: "electronic", beatThisDbn: true, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, youtubeAutoSelectBestMatch: true, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 1, musicVolume: 1, loudnessNormalization: true, metronomeVolume: 0.55, metronomeSound: "electronic", beatThisDbn: true, defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, degradedAnalysisNoticeSeen: false, lightEditionNoticeSeen: false, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let preferences: UserPreferences = { ...defaultUserPreferences };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
@@ -259,8 +262,12 @@
     || chordAnalysis.dbnBeats.length
   ));
   $: lyricNavigationPoints = lyricsNavigationPositions(lyricsDocument, durationSeconds);
-  $: availableNavigationModeOptions = availableNavigationModes(activeBeats, timelineChords, lyricNavigationPoints);
-  $: activeNavigationMode = effectiveNavigationMode(preferences.navigationMode, activeBeats, timelineChords, lyricNavigationPoints);
+  $: availableNavigationModeOptions = analysisFeaturesAvailable
+    ? availableNavigationModes(activeBeats, timelineChords, lyricNavigationPoints)
+    : ["time"];
+  $: activeNavigationMode = analysisFeaturesAvailable
+    ? effectiveNavigationMode(preferences.navigationMode, activeBeats, timelineChords, lyricNavigationPoints)
+    : "time";
   $: loopSnapAvailable = activeNavigationMode === "chord"
     ? Boolean(timelineChords.length || activeBeats.length)
     : activeNavigationMode === "lyrics"
@@ -274,6 +281,10 @@
   }
 
   function refreshDisplayedBpm(): void {
+    if (!analysisFeaturesAvailable) {
+      detectedBpm = null;
+      return;
+    }
     detectedBpm = localBpmAt(activeBeats, currentSeconds, playbackRate)
       ?? (activeBeatTimeline.bpm === null ? null : activeBeatTimeline.bpm * playbackRate);
   }
@@ -287,6 +298,7 @@
   }
 
   function applyParameterShortcut(parameter: ParameterShortcut, action: ParameterShortcutAction, key: string): void {
+    if (parameter === "metronomeVolume" && !analysisFeaturesAvailable) return;
     const direction = action === "increment" ? 1 : -1;
     if (parameter === "tempo") {
       if (action === "reset") resetPlaybackRate();
@@ -855,6 +867,7 @@
   }
 
   function changeNavigationMode(mode: NavigationMode): void {
+    if (!analysisFeaturesAvailable && mode !== "time") return;
     if (!navigationModeAvailable(mode, activeBeats, timelineChords, lyricNavigationPoints)) return;
     if (mode === "lyrics") detailView = "lyrics";
     if (preferences.navigationMode === mode) return;
@@ -963,7 +976,7 @@
       void openRequestedProject();
     });
     const handleKeydown = (event: KeyboardEvent): void => {
-      if (shouldToggleBeatThisDbnShortcut(event)) {
+      if (analysisFeaturesAvailable && shouldToggleBeatThisDbnShortcut(event)) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) toggleBeatThisDbn();
@@ -976,6 +989,7 @@
         return;
       }
       const parameter = parameterShortcutForKey(event.key);
+      if (parameter === "metronomeVolume" && !analysisFeaturesAvailable) return;
       if (parameter && shouldHandleParameterShortcut(event)) {
         event.preventDefault();
         event.stopPropagation();
@@ -994,7 +1008,7 @@
         return;
       }
       if (document.querySelector("dialog[open]")) return;
-      if (shouldToggleChordEditModeShortcut(event)) {
+      if (analysisFeaturesAvailable && shouldToggleChordEditModeShortcut(event)) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) toggleChordEditMode();
@@ -1015,7 +1029,7 @@
         event.preventDefault();
         if (!event.repeat) cycleNavigationMode();
       }
-      else if (key === "i") {
+      else if (key === "i" && analysisFeaturesAvailable) {
         event.preventDefault();
         if (!event.repeat) cycleHarmonyView();
       }
@@ -1193,7 +1207,13 @@
 
   async function loadUserPreferences(): Promise<void> {
     try {
-      preferences = await getPreferences();
+      const [savedPreferences, capabilities] = await Promise.all([
+        getPreferences(),
+        getAnalysisCapabilities(),
+      ]);
+      preferences = savedPreferences;
+      analysisFeaturesAvailable = capabilities.accelerated;
+      applicationEdition = capabilities.edition;
       language = preferences.language;
       volume = preferences.masterVolume;
       musicVolume = preferences.musicVolume;
@@ -1208,6 +1228,16 @@
       await audioSetMusicVolume(musicVolume);
       await audioSetLoudnessNormalization(preferences.loudnessNormalization);
       await audioSetMetronome(false, metronomeVolume, metronomeSound);
+      const noticeSeen = applicationEdition === "light"
+        ? preferences.lightEditionNoticeSeen
+        : preferences.degradedAnalysisNoticeSeen;
+      if (!analysisFeaturesAvailable && !noticeSeen) {
+        degradedAnalysisNoticeVisible = true;
+        preferences = applicationEdition === "light"
+          ? { ...preferences, lightEditionNoticeSeen: true }
+          : { ...preferences, degradedAnalysisNoticeSeen: true };
+        preferences = await savePreferences(preferences);
+      }
     } catch {
       applyTheme();
       notify("warn", t("preferencesLoadFallback"));
@@ -1230,7 +1260,7 @@
     void audioSetVolume(volume);
     void audioSetMusicVolume(musicVolume);
     void audioSetLoudnessNormalization(preferences.loudnessNormalization);
-    void audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
+    void audioSetMetronome(analysisFeaturesAvailable && metronomeEnabled, metronomeVolume, metronomeSound);
     if (chordAnalysis) {
       const timeline = beatTimelineFor(chordAnalysis, {
         beatThisDbn: beatModeForTrack(beatThisDbnOverride, preferences.beatThisDbn),
@@ -2050,7 +2080,7 @@
     loopB = loopBounds.b;
     currentSeconds = trackLoadPosition(loopEnabled, loopA, preferences.loopLoadPosition);
     usingDefaultLoopBounds = track.practice.loopASeconds === null && track.practice.loopBSeconds === null;
-    metronomeEnabled = track.practice.metronomeEnabled ?? false;
+    metronomeEnabled = analysisFeaturesAvailable && (track.practice.metronomeEnabled ?? false);
     metronomeVolume = preferences.metronomeVolume;
     metronomeSound = preferences.metronomeSound;
     beatThisDbnOverride = track.practice.beatThisDbn ?? null;
@@ -2251,7 +2281,7 @@
   }
 
   async function enableStems(options: { resumePlayback?: boolean } = {}): Promise<void> {
-    if (!project || !currentTrack) return;
+    if (!analysisFeaturesAvailable || !project || !currentTrack) return;
     if (stemPlaybackLocked || stems.state === "separating") return;
     const trackId = currentTrack.id;
     const packagePath = project.packagePath;
@@ -2439,6 +2469,7 @@
   }
 
   async function loadTrackChords(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
+    if (!analysisFeaturesAvailable) return;
     chordsLoading = true;
     tempoLoading = true;
     chordAnalysisError = "";
@@ -2486,7 +2517,7 @@
       await audioSetPlaybackRate(playbackRate);
       await audioSetPitch(pitchSemitones);
       await audioSetBeatTimeline([], []);
-      await audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
+      await audioSetMetronome(analysisFeaturesAvailable && metronomeEnabled, metronomeVolume, metronomeSound);
       await audioSetLoopTrainer(trainerEnabled, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, loopA, loopB);
       await audioSetEndBehavior(endBehavior);
       if (!stillSelected()) return;
@@ -2713,6 +2744,7 @@
   }
 
   function toggleMetronome(): void {
+    if (!analysisFeaturesAvailable) return;
     if (!canToggleMetronome(metronomeEnabled, activeBeats)) return;
     metronomeEnabled = !metronomeEnabled;
     void audioSetMetronome(metronomeEnabled, metronomeVolume, metronomeSound);
@@ -3475,15 +3507,19 @@
           <h2>{t("audio")}</h2>
           <div class="waveform-header-center">
             <div class="orchestrator-overview" aria-label={t("loadingTrack")}>
+              {#if analysisFeaturesAvailable}
               <span role="img" class:loading={beatOrchestratorLoading} class:ready={activeBeats.length > 0} class:failed={Boolean(chordAnalysisError)} data-tooltip={`Beat This! · ${beatOrchestratorLoading ? t("analyzingChords") : activeBeats.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`} aria-label={`Beat This! · ${beatOrchestratorLoading ? t("analyzingChords") : activeBeats.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`}><Icon name="metronome" size="12px" /></span>
               <span role="img" class:loading={beatOrchestratorLoading} class:ready={timelineChords.length > 0} class:failed={Boolean(chordAnalysisError)} data-tooltip={`${t("chords")} · ${beatOrchestratorLoading ? t("analyzingChords") : timelineChords.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`} aria-label={`${t("chords")} · ${beatOrchestratorLoading ? t("analyzingChords") : timelineChords.length ? t("ready") : chordAnalysisError ? t("failed") : t("notAnalyzed")}`}><Icon name="music" size="12px" /></span>
+              {/if}
               <span role="img" class:loading={lyricsLoading} class:ready={lyricNavigationPoints.length > 0} class:failed={Boolean(lyricsLoadError)} data-tooltip={`${lyricsTranslate(language, "lyrics")} · ${lyricsLoading ? lyricsTranslate(language, "loading") : lyricNavigationPoints.length ? t("ready") : lyricsDocument ? lyricsTranslate(language, "syncedNone") : lyricsLoadError ? t("failed") : lyricsTranslate(language, "noLyrics")}`} aria-label={`${lyricsTranslate(language, "lyrics")} · ${lyricsLoading ? lyricsTranslate(language, "loading") : lyricNavigationPoints.length ? t("ready") : lyricsDocument ? lyricsTranslate(language, "syncedNone") : lyricsLoadError ? t("failed") : lyricsTranslate(language, "noLyrics")}`}><Icon name="microphone" size="11px" /></span>
+              {#if analysisFeaturesAvailable}
               <span role="img" class:loading={mixOrchestratorLoading} class:ready={stems.state === "ready"} class:failed={stems.state === "failed"} data-tooltip={`${t("mix")} · ${mixOrchestratorLoading ? t("working") : stems.state === "ready" ? t("ready") : stems.state === "failed" ? t("failed") : t("idle")}`} aria-label={`${t("mix")} · ${mixOrchestratorLoading ? t("working") : stems.state === "ready" ? t("ready") : stems.state === "failed" ? t("failed") : t("idle")}`}><i class="orchestrator-mix-icon"><Icon name="sliders" size="12px" /></i></span>
+              {/if}
             </div>
             <div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}</div>
           </div>
           <div class="navigation-controls">
-            <label class="navigation-mode"><span>{t("navigation")}</span><select value={activeNavigationMode} onchange={(event) => changeNavigationMode(event.currentTarget.value as NavigationMode)} aria-keyshortcuts="N"><option value="time">{t("navigationTime")} · {preferences.navigationTimeSeconds} {t("secondsShort")}</option><option value="beat" disabled={!availableNavigationModeOptions.includes("beat")}>{t("navigationBeat")}</option><option value="chord" disabled={!availableNavigationModeOptions.includes("chord")}>{t("navigationChord")}</option><option value="lyrics" disabled={!availableNavigationModeOptions.includes("lyrics")}>{lyricsTranslate(language, "navigationLyrics")}</option></select></label>
+            <label class="navigation-mode"><span>{t("navigation")}</span><select value={activeNavigationMode} onchange={(event) => changeNavigationMode(event.currentTarget.value as NavigationMode)} aria-keyshortcuts="N"><option value="time">{t("navigationTime")} · {preferences.navigationTimeSeconds} {t("secondsShort")}</option>{#if analysisFeaturesAvailable}<option value="beat" disabled={!availableNavigationModeOptions.includes("beat")}>{t("navigationBeat")}</option><option value="chord" disabled={!availableNavigationModeOptions.includes("chord")}>{t("navigationChord")}</option><option value="lyrics" disabled={!availableNavigationModeOptions.includes("lyrics")}>{lyricsTranslate(language, "navigationLyrics")}</option>{/if}</select></label>
             <button
               type="button"
               class="follow-playhead"
@@ -3653,7 +3689,7 @@
           <NumericControl label={t("tempo")} value={playbackRate} defaultValue={1} minimum={0.5} maximum={2} step={0.01} buttonStep={0.05} shiftButtonStep={0.01} display={(value) => `${Math.round(value * 100)}%`} onChange={setPlaybackRate} tooltip={t("numericHelp")} />
           <NumericControl label={t("pitch")} value={pitchSemitones} defaultValue={0} minimum={-12} maximum={12} step={0.01} buttonStep={1} shiftButtonStep={0.01} display={formatPitch} onChange={setPitch} tooltip={t("pitchFineHelp")} />
         </div>
-        <div class="practice-right-controls">
+        {#if analysisFeaturesAvailable}<div class="practice-right-controls">
           <div class="control-block bpm-indicator" aria-live="polite" data-tooltip={t("bpmEstimateHelp")}>
             <span class="control-block-label">{t("gridTempo")}</span>
             {#if tempoLoading}
@@ -3670,11 +3706,12 @@
               <label class="metronome-volume" data-tooltip={t("metronomeVolume")}><Icon name="volume-high" size="11px" /><input aria-label={t("metronomeVolume")} type="range" min="0" max="1" step="0.01" value={metronomeVolume} oninput={(event) => changeMetronomeVolume(Number(event.currentTarget.value))} ondblclick={() => changeMetronomeVolume(defaultMetronomeVolume)} /></label>
             </div>
           </div>
-        </div>
+        </div>{/if}
         <div class="transport-trainer-progress"><i style={`width:${Math.max(0, Math.min(100, trainerLoopCount / trainerRepetitions * 100))}%`}></i></div>
       </div>
 
       <div class="analysis-grid">
+        {#if analysisFeaturesAvailable}
         <div class="panel stem-panel" class:stem-bypassed={stems.state === "ready" && !stems.enabled}>
           <div class="panel-title stem-panel-title">
             <label class="stem-switch" data-tooltip={t("stemSwitchHelp")}>
@@ -3723,6 +3760,34 @@
             </div>
           {/if}
         </div>
+        {:else}
+        <div class="panel keyboard-panel harmony-view-panel lyrics-view">
+          <div class="panel-title harmony-view-title">
+            <h2>{lyricsTranslate(language, "lyrics")}</h2>
+          </div>
+          {#key currentTrack.id}
+            <LyricsPanel
+              document={lyricsDocument}
+              language={language}
+              currentMs={currentSeconds * 1_000}
+              durationMs={durationSeconds * 1_000}
+              loading={lyricsLoading}
+              loadError={lyricsLoadError}
+              onSeek={seekFromLyrics}
+              onLoop={loopFromLyrics}
+              onSave={persistLyrics}
+              onDelete={removeCurrentLyrics}
+              initialSearchQuery={currentTrack.title}
+              searchResults={lyricsSearchResults}
+              searching={lyricsSearching}
+              searchError={lyricsSearchError}
+              onSearch={searchOnlineLyrics}
+              onChooseSearchResult={chooseOnlineLyrics}
+              onOpenProvider={openLyricsProvider}
+            />
+          {/key}
+        </div>
+        {/if}
         <div class="analysis-visuals">
           <div class="spectrum panel">
             <div class="panel-title"><h2>{t("spectrum")}</h2><span>30 Hz — 20 kHz · FFT 2048</span></div>
@@ -3741,6 +3806,7 @@
         </div>
       </div>
 
+      {#if analysisFeaturesAvailable}
       <div class="harmony-grid">
         <div class="panel chord-panel">
           <div class="panel-title chord-panel-title">
@@ -3943,6 +4009,7 @@
           {/if}
         </div>
       </div>
+      {/if}
       {:else}
         <div class="no-track-stage panel" role="region" aria-labelledby="no-track-title">
           <span class="no-track-icon" aria-hidden="true"><Icon name="music" size="42px" /></span>
@@ -3992,8 +4059,15 @@
     </Modal>
   {/if}
 
+  {#if degradedAnalysisNoticeVisible}
+    <Modal title={t(applicationEdition === "light" ? "lightEditionTitle" : "degradedAnalysisTitle")} closeLabel={t("close")} close={() => degradedAnalysisNoticeVisible = false}>
+      <p>{t(applicationEdition === "light" ? "lightEditionMessage" : "degradedAnalysisMessage")}</p>
+      <div class="modal-actions"><button class="primary" onclick={() => degradedAnalysisNoticeVisible = false}>{t("close")}</button></div>
+    </Modal>
+  {/if}
+
   {#if diagnosticInfo}
-    <Modal title={t("diagnostics")} closeLabel={t("close")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
+    <Modal title={t("diagnostics")} closeLabel={t("close")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>Edition</dt><dd>{applicationEdition === "light" ? "Light" : "Full"}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
   {/if}
 
   {#if stemExportVisible}
@@ -4021,10 +4095,11 @@
 
   {#if preferencesVisible}
     <Modal title={t("preferences")} closeLabel={t("close")} wide close={() => preferencesVisible = false}>
+      <p class="edition-badge">SonArcan {applicationEdition === "light" ? "Light" : "Full"}</p>
       <div class="preferences-grid" onchange={autosavePreferences}>
         <section><h3>{t("shortcutInterface")}</h3><label>{t("language")}<select value={preferences.language} onchange={(event) => { event.stopPropagation(); changeLanguage(event.currentTarget.value as Language); }}>{#each languageOptions as option}<option value={option.value}>{option.label}</option>{/each}</select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
-        <section><h3>{t("audio")} · {t("metronome")}</h3><label>{t("masterVolume")}<input class="master-volume-preference" type="range" min="0" max="2" step="0.01" bind:value={preferences.masterVolume} style={`--master-volume-color: ${masterVolumeColor(preferences.masterVolume)}`} ondblclick={() => resetPreferenceVolume("masterVolume")} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} ondblclick={() => resetPreferenceVolume("musicVolume")} /></label><label>{t("loudnessNormalization")}<input type="checkbox" bind:checked={preferences.loudnessNormalization} /></label><label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} ondblclick={() => resetPreferenceVolume("metronomeVolume")} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label></section>
-        <section><h3>{t("navigation")} · {t("loop")}</h3><label>{t("beatModeDefault")}<select bind:value={preferences.beatThisDbn}><option value={false}>Beat This!</option><option value={true}>{t("beatThisDbn")}</option></select></label><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option><option value="lyrics">{lyricsTranslate(language, "navigationLyrics")}</option></select></label><label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label></section>
+        <section><h3>{t("audio")}{#if analysisFeaturesAvailable} · {t("metronome")}{/if}</h3><label>{t("masterVolume")}<input class="master-volume-preference" type="range" min="0" max="2" step="0.01" bind:value={preferences.masterVolume} style={`--master-volume-color: ${masterVolumeColor(preferences.masterVolume)}`} ondblclick={() => resetPreferenceVolume("masterVolume")} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} ondblclick={() => resetPreferenceVolume("musicVolume")} /></label><label>{t("loudnessNormalization")}<input type="checkbox" bind:checked={preferences.loudnessNormalization} /></label>{#if analysisFeaturesAvailable}<label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} ondblclick={() => resetPreferenceVolume("metronomeVolume")} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label>{/if}</section>
+        <section><h3>{t("navigation")} · {t("loop")}</h3>{#if analysisFeaturesAvailable}<label>{t("beatModeDefault")}<select bind:value={preferences.beatThisDbn}><option value={false}>Beat This!</option><option value={true}>{t("beatThisDbn")}</option></select></label><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option><option value="lyrics">{lyricsTranslate(language, "navigationLyrics")}</option></select></label>{/if}<label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label></section>
         <section><h3>{t("training")}</h3><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section class="preferences-section-wide"><h3>{t("importSettings")} · {t("conversionFormat")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("youtubeAutoSelectBestMatch")}<input type="checkbox" bind:checked={preferences.youtubeAutoSelectBestMatch} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
       </div>
@@ -4064,20 +4139,20 @@
           <dt>{t("zoom")} −</dt><dd><kbd>Z</kbd><span>+</span><kbd>↓</kbd><span>{t("or")}</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
           <dt>{t("fitThirtySeconds")}</dt><dd><kbd>Z</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
         </dl></section>
-        <section><h3>{t("metronome")}</h3><dl class="shortcut-list">
+        {#if analysisFeaturesAvailable}<section><h3>{t("metronome")}</h3><dl class="shortcut-list">
           <dt>{t("metronome")}</dt><dd><kbd>M</kbd></dd>
           <dt>{t("beatThisDbn")}</dt><dd><kbd>Alt</kbd><span>+</span><kbd>M</kbd></dd>
           <dt>{t("metronomeSound")}</dt><dd><kbd>M</kbd><span>+</span><kbd>↑</kbd><span>{t("or")}</span><kbd>↓</kbd></dd>
           <dt>{t("metronomeVolume")} +</dt><dd><kbd>M</kbd><span>+</span><kbd>→</kbd><span>{t("or")}</span><kbd>+</kbd></dd>
           <dt>{t("metronomeVolume")} −</dt><dd><kbd>M</kbd><span>+</span><kbd>←</kbd><span>{t("or")}</span><kbd>−</kbd></dd>
           <dt>{t("metronomeVolume")} · 55%</dt><dd><kbd>M</kbd><span>+</span><kbd>{shortcutKeys.backspace}</kbd><span>{t("or")}</span><kbd>{shortcutKeys.delete}</kbd></dd>
-        </dl></section>
-        <section><h3>{t("instrumentView")}</h3><dl class="shortcut-list">
+        </dl></section>{/if}
+        {#if analysisFeaturesAvailable}<section><h3>{t("instrumentView")}</h3><dl class="shortcut-list">
           <dt>{t("changeInstrumentView")}</dt><dd><kbd>I</kbd></dd>
         </dl></section>
         <section><h3>{t("chords")}</h3><dl class="shortcut-list">
           <dt>{t("chordEditMode")}</dt><dd><kbd>E</kbd></dd>
-        </dl></section>
+        </dl></section>{/if}
         <section><h3>{t("shortcutInterface")}</h3><dl class="shortcut-list">
           <dt>{t("showConsole")}</dt><dd><kbd>C</kbd></dd>
           <dt>{t("showHelp")}</dt><dd><kbd>H</kbd></dd>

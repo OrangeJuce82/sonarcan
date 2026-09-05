@@ -101,6 +101,13 @@ export interface DiagnosticsSnapshot {
   rustLog: string;
 }
 
+export interface AnalysisCapabilities {
+  accelerated: boolean;
+  backend: string | null;
+  edition: "full" | "light";
+  reason: "editionLight" | "acceleratorUnavailable" | null;
+}
+
 export interface WaveformPeak {
   min: number;
   max: number;
@@ -200,7 +207,7 @@ export type Mp3Quality = "vbrHigh" | "kbps320" | "kbps256" | "kbps192";
 export type LoopLoadPosition = "beginning" | "loopStart";
 export type TimeDisplay = "simple" | "precise";
 export type NavigationMode = "time" | "beat" | "chord" | "lyrics";
-export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
+export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; degradedAnalysisNoticeSeen: boolean; lightEditionNoticeSeen: boolean; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
 export type ImportJobState = "queued" | "downloading" | "converting" | "importing" | "completed" | "failed";
 export interface ImportJob { id: string; label: string; state: ImportJobState; progress: number; error: string | null; suggestion: string | null; diagnostic: string | null; }
 export interface ImportCandidate { input: string; title: string; detail: string; kind: "local" | "video" | "playlist" | "search"; matchScore?: number; thumbnailUrl?: string; videoId?: string; }

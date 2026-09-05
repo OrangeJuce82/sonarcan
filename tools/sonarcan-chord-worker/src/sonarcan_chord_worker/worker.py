@@ -101,14 +101,46 @@ def _timed(segment: dict, label: str) -> dict:
     }
 
 
+def accelerator_self_test(downbeat_model: Path) -> dict:
+    """Exercise the qualified production accelerators before enabling analysis."""
+    import torch
+    from beat_this.inference import load_model
+    from lv_chordia.chord_recognition import load_ensemble
+
+    if not torch.backends.mps.is_available():
+        raise RuntimeError("the qualified MPS accelerator is unavailable")
+    device = torch.device("mps")
+    with torch.inference_mode():
+        chord_input = torch.zeros((1, 16, 252), dtype=torch.float32, device=device)
+        for member in load_ensemble(False, device=device):
+            outputs = member.net(chord_input)
+            if not all(torch.isfinite(output).all().item() for output in outputs):
+                raise RuntimeError("LV-Chordia accelerator self-test produced invalid values")
+        beat_model = load_model(str(downbeat_model), device)
+        beat_outputs = beat_model(torch.zeros((1, 16, 128), dtype=torch.float32, device=device))
+        if not all(torch.isfinite(output).all().item() for output in beat_outputs.values()):
+            raise RuntimeError("Beat This! accelerator self-test produced invalid values")
+        torch.mps.synchronize()
+
+    return {"accelerated": True, "backend": "MPS"}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="SonArcan LV-Chordia production worker")
     parser.add_argument("audio", nargs="?", type=Path)
     parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="auto")
     parser.add_argument("--downbeat-model", type=Path)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--accelerator-self-test", action="store_true")
     args = parser.parse_args()
     try:
+        if args.accelerator_self_test:
+            if args.downbeat_model is None:
+                parser.error("--downbeat-model is required")
+            verify_checkpoints()
+            verify_downbeat_checkpoint(args.downbeat_model)
+            print(json.dumps(accelerator_self_test(args.downbeat_model), separators=(",", ":")))
+            return 0
         if args.self_test:
             verify_checkpoints()
             if args.downbeat_model is None:

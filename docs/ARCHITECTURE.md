@@ -69,15 +69,34 @@ rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
-The analysis workspace places the six-stem mixer beside a right-hand column
-containing the spectrum and stereo meter. Beneath it, the chord grid and an
+Heavy analysis is capability-gated once per application launch. SonArcan enables
+Beat This!, LV-Chordia, and six-stem separation only after the platform backend
+has been release-qualified and a bounded on-device inference probe succeeds.
+The probe exercises the production accelerator and rejects invalid values,
+timeouts, missing drivers, unavailable devices, and silent CPU fallback. Rust
+keeps the result as session state and rejects analysis IPC when the probe has not
+succeeded, independently of UI visibility. In degraded mode the UI does not
+render Beat, Chords, Mix, BPM, or the analysis-driven metronome; navigation is
+Time-only, while playback, lyrics, spectrum, and the stereo meter remain
+available. The explanation is persisted as a once-per-user-profile notice.
+The compile-time `SONARCAN_EDITION` contract defaults to `full` for development
+and accepts only `full` or `light`. Light reports its edition through the same
+capability IPC but never runs an accelerator probe. Its bundle maps a minimal
+Python standard-library runtime to the normal runtime location for `yt-dlp` and
+omits every analysis model and package. Full and Light share the project schema;
+Light neither consumes nor deletes cached analysis created by Full.
+
+In full mode, the analysis workspace places the six-stem mixer beside a right-hand column
+containing the spectrum and stereo meter. Beneath it, the chord grid and a
 multi-view harmony panel use a 40/60 split. The chord panel wraps segments into a vertically
 scrollable grid. Playback can follow the active segment automatically. Standard (`submission`) is the default;
 Essentiel and Complet expose the other native model views. The
 panel can filter the uncalibrated model score, color by score or root, show a
 consistent sharp or flat spelling, follow the playback pitch transposition, and
 switch to an alphabetical repertoire of unique chords.
-The audio header exposes one user navigation mode: Time, Beat, Chord, or Lyrics. Left
+In degraded mode, the lyrics panel occupies the mixer's column, the spectrum
+and stereo meter retain the right-hand column, and the lower harmony row is omitted.
+In full mode, the audio header exposes one user navigation mode: Time, Beat, Chord, or Lyrics. Left
 and Right, the transport jump buttons, and waveform clicks share that mode.
 Time uses a configurable one-to-sixty-second step and defaults to ten seconds;
 Beat, Chord, and Lyrics activate when their bounded navigation points become
@@ -245,8 +264,10 @@ than one notification per track.
 The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
 
 Six-stem inference is an implementation detail behind one Rust stem service.
-Apple Silicon selects the MLX worker; Windows and Linux select the portable
-Torch worker. Both receive only canonical project media/model paths
+After the startup capability probe succeeds, Apple Silicon selects the MLX
+worker. A portable Torch worker remains packaged for qualification work, but
+Windows and Linux do not invoke it in the current beta because CPU-only heavy
+analysis is not an accepted user experience. Both workers receive only canonical project media/model paths
 through direct argument arrays, return the same bounded NDJSON protocol, and
 load the same verified `htdemucs_6s.safetensors`. The portable worker reverses
 the deterministic convolution/attention layout mapping used during MLX

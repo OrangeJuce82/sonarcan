@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,7 @@ const MAX_STEM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const PCM_HEADER_BYTES: u64 = 8 + 4 + 8;
 const STEM_EXPORT_ORDER: [usize; STEM_COUNT] = [0, 1, 2, 4, 5, 3];
+const ACCELERATOR_SELF_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -159,6 +160,43 @@ impl StemBackend {
         match self {
             Self::Mlx => "mlx",
             Self::Torch => "torch",
+        }
+    }
+}
+
+pub fn accelerator_self_test(app: &AppHandle) -> bool {
+    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return false;
+    }
+    let Ok(worker) = resolve_worker(app) else {
+        return false;
+    };
+    if !matches!(worker.backend, StemBackend::Mlx) {
+        return false;
+    }
+    let mut command = Command::new(&worker.executable);
+    command
+        .args(&worker.prefix_arguments)
+        .arg("accelerator-self-test")
+        .arg("--model-dir")
+        .arg(&worker.model_dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let Ok(mut child) = command.spawn() else {
+        return false;
+    };
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if started.elapsed() < ACCELERATOR_SELF_TEST_TIMEOUT => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
         }
     }
 }

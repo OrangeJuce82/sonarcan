@@ -66,12 +66,24 @@ if ! grep -Fq -- '--self-test --downbeat-model "$app_bundle/Contents/Resources/m
   echo "The bundled chord/downbeat self-test must receive the bundled Beat This! model." >&2
   exit 1
 fi
+if ! grep -Fq -- '--accelerator-self-test' "$repository_root/scripts/verify-bundled-release.mjs" \
+  || ! grep -Fq -- '"accelerator-self-test"' "$repository_root/scripts/verify-bundled-release.mjs"; then
+  echo "The bundled Apple Silicon release must qualify both MPS and MLX accelerators." >&2
+  exit 1
+fi
 if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
   echo "Bundled runtime verification must not write bytecode after signing." >&2
   exit 1
 fi
-if grep -Fq 'x86_64-apple-darwin' "$release_workflow"; then
-  echo "The release workflow must not publish unsupported Intel macOS bundles." >&2
+if ! grep -Fq 'x86_64-apple-darwin' "$release_workflow" \
+  || ! grep -Fq 'macos-15-intel' "$release_workflow" \
+  || ! grep -Fq 'tauri.macos-intel-light.conf.json' "$release_workflow"; then
+  echo "The release workflow must publish the supported Intel macOS Light bundle on an Intel runner." >&2
+  exit 1
+fi
+if ! grep -Fq 'SONARCAN_EDITION: light' "$release_workflow" \
+  || ! grep -Fq 'npm run python:light-runtime' "$release_workflow"; then
+  echo "Portable release jobs must build the Light edition and its minimal runtime." >&2
   exit 1
 fi
 if ! grep -Fq 'torch==2.13.0+cpu; sys_platform == '\''linux'\'' or sys_platform == '\''win32'\''' "$portable_worker"; then

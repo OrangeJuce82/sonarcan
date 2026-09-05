@@ -51,6 +51,37 @@ struct DiagnosticsSnapshot {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AnalysisCapabilities {
+    accelerated: bool,
+    backend: Option<&'static str>,
+    edition: &'static str,
+    reason: Option<&'static str>,
+}
+
+#[derive(Default)]
+struct AnalysisCapabilityState(AtomicBool);
+
+fn application_edition() -> &'static str {
+    option_env!("SONARCAN_EDITION").unwrap_or("full")
+}
+
+fn accelerated_analysis_available() -> bool {
+    application_edition() == "full" && cfg!(all(target_os = "macos", target_arch = "aarch64"))
+}
+
+fn require_accelerated_analysis(state: &AnalysisCapabilityState) -> Result<(), AppError> {
+    state.0.load(Ordering::Acquire).then_some(()).ok_or_else(|| {
+        let reason = if application_edition() == "light" {
+            "Chord, beat, and separated-track analysis is not included in SonArcan Light."
+        } else {
+            "Chord, beat, and separated-track analysis is disabled because no qualified GPU backend is available on this platform."
+        };
+        AppError::BackgroundTask(reason.into())
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StartupProject {
     project: ProjectSummary,
     unavailable_project_path: Option<PathBuf>,
@@ -688,7 +719,13 @@ fn audio_spectrum(engine: State<'_, audio_engine::AudioEngine>) -> spectrum::Spe
 }
 
 #[tauri::command]
-fn stem_start(app: AppHandle, package_path: PathBuf, track_id: uuid::Uuid) -> Result<(), AppError> {
+fn stem_start(
+    app: AppHandle,
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+    capability: State<'_, AnalysisCapabilityState>,
+) -> Result<(), AppError> {
+    require_accelerated_analysis(&capability)?;
     app.state::<stems::StemService>()
         .start(app.clone(), package_path, track_id)
 }
@@ -788,7 +825,9 @@ async fn analyze_chords(
     app: AppHandle,
     package_path: PathBuf,
     track_id: uuid::Uuid,
+    capability: State<'_, AnalysisCapabilityState>,
 ) -> Result<chord_contract::ChordAnalysis, AppError> {
+    require_accelerated_analysis(&capability)?;
     info!(project = %package_path.display(), %track_id, "analyzing timed chords");
     let generation = app.state::<chord_analysis::ChordAnalysisService>().begin();
     tauri::async_runtime::spawn_blocking(move || {
@@ -820,6 +859,35 @@ fn diagnostics_snapshot() -> DiagnosticsSnapshot {
     }
 }
 
+#[tauri::command]
+async fn analysis_capabilities(
+    app: AppHandle,
+    state: State<'_, AnalysisCapabilityState>,
+) -> Result<AnalysisCapabilities, AppError> {
+    // A platform is enabled only after both release qualification and a
+    // bounded on-device inference test at application startup.
+    let accelerated = if accelerated_analysis_available() {
+        tauri::async_runtime::spawn_blocking(move || {
+            chord_analysis::accelerator_self_test(&app) && stems::accelerator_self_test(&app)
+        })
+        .await
+        .unwrap_or(false)
+    } else {
+        false
+    };
+    state.0.store(accelerated, Ordering::Release);
+    Ok(AnalysisCapabilities {
+        accelerated,
+        backend: accelerated.then_some("MLX / MPS"),
+        edition: application_edition(),
+        reason: (!accelerated).then_some(if application_edition() == "light" {
+            "editionLight"
+        } else {
+            "acceleratorUnavailable"
+        }),
+    })
+}
+
 pub fn run() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("sonarcan=info"));
@@ -843,6 +911,7 @@ pub fn run() {
             app.manage(audio_engine::AudioEngine::new()?);
             app.manage(stems::StemService::default());
             app.manage(chord_analysis::ChordAnalysisService::default());
+            app.manage(AnalysisCapabilityState::default());
             app.manage(preferences::PreferencesStore::load());
             app.manage(importer::ImportService::default());
             app.manage(youtube_search::YoutubeSearchService::default());
@@ -913,6 +982,7 @@ pub fn run() {
             audio_set_loop_trainer,
             audio_set_end_behavior,
             audio_status,
+            analysis_capabilities,
             system_metrics,
             audio_spectrum,
             stem_start,
@@ -962,6 +1032,25 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heavy_analysis_requires_a_successful_startup_probe() {
+        let capability = AnalysisCapabilityState::default();
+        assert!(require_accelerated_analysis(&capability).is_err());
+
+        capability.0.store(true, Ordering::Release);
+        assert!(require_accelerated_analysis(&capability).is_ok());
+    }
+
+    #[test]
+    fn build_edition_has_a_consistent_analysis_contract() {
+        assert!(matches!(application_edition(), "full" | "light"));
+        if application_edition() == "light" {
+            assert!(!accelerated_analysis_available());
+        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            assert!(accelerated_analysis_available());
+        }
+    }
 
     #[test]
     fn bounds_import_text_files_before_loading_them_into_ipc() {

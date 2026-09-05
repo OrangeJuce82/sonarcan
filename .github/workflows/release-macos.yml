@@ -68,6 +68,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     env:
+      SONARCAN_EDITION: full
       # Apple Silicon requires signed executable code. The ad-hoc identity keeps
       # the bundle internally consistent without claiming Apple verification.
       APPLE_SIGNING_IDENTITY: "-"
@@ -173,11 +174,77 @@ jobs:
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/SHA256SUMS.txt \
             --clobber
 
+  release-macos-light:
+    name: Release ${{ matrix.label }}
+    needs: prepare-model
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon Light
+            runner: macos-15
+            target: aarch64-apple-darwin
+            config: src-tauri/tauri.macos-arm-light.conf.json
+          - label: macOS Intel Light
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            config: src-tauri/tauri.macos-intel-light.conf.json
+    runs-on: ${{ matrix.runner }}
+    env:
+      SONARCAN_EDITION: light
+      APPLE_SIGNING_IDENTITY: "-"
+      SONARCAN_PYTHON_RUNTIME_DIR: ${{ github.workspace }}/src-tauri/resources/light-python-runtime/runtime
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.9.26"
+          enable-cache: true
+      - run: uv python install 3.13.5
+      - run: npm ci
+      - run: npm run verify:release-version
+      - run: npm run ytdlp:search
+      - run: npm run python:light-runtime
+      - run: npm run verify:light-runtime
+      - run: npm run ffmpeg:runtime
+      - run: npm run verify:ffmpeg-release
+      - run: npm run quality
+      - name: Ad-hoc sign Light release binaries
+        run: npm run sign:release-resources
+      - name: Build Light app and DMG
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: SonArcan ${{ github.ref_name }}
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: --target ${{ matrix.target }} --bundles app,dmg --config ${{ matrix.config }}
+      - name: Verify packaged Light application
+        run: |
+          app_bundle="src-tauri/target/${{ matrix.target }}/release/bundle/macos/SonArcan Light.app"
+          codesign --verify --deep --strict --verbose=2 "$app_bundle"
+          npm run verify:bundled-release -- "$app_bundle"
+          test ! -e "$app_bundle/Contents/Resources/models"
+
   release-linux:
     name: Release Linux x64
     needs: prepare-model
     timeout-minutes: 120
     runs-on: ubuntu-24.04
+    env:
+      SONARCAN_EDITION: light
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -191,10 +258,6 @@ jobs:
         with:
           version: "0.9.26"
           enable-cache: true
-          cache-dependency-glob: |
-            tools/sonarcan-python-runtime/uv.lock
-            tools/sonarcan-torch-worker/uv.lock
-            tools/sonarcan-chord-worker/uv.lock
       - name: Install Tauri Linux dependencies
         run: |
           sudo apt-get update
@@ -208,20 +271,12 @@ jobs:
       - run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
-      - uses: actions/download-artifact@v7
-        with:
-          name: htdemucs-6s-model
-          path: src-tauri/resources/models/demucs-mlx
-      - run: npm run chords:downbeat-model
-      - run: npm run python:runtime
-      - run: npm run verify:chord-release
-      - run: npm run verify:stem-release
       - run: npm run ytdlp:search
       - run: npm run verify:ytdlp-search-release
+      - run: npm run python:light-runtime
+      - run: npm run verify:light-runtime
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - name: Qualify portable separation performance
-        run: npm run qualify:stem-performance
       - run: npm run quality
       - name: Build DEB and upload it to the draft release
         uses: tauri-apps/tauri-action@v1
@@ -248,6 +303,8 @@ jobs:
     needs: prepare-model
     timeout-minutes: 120
     runs-on: windows-2025
+    env:
+      SONARCAN_EDITION: light
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -261,27 +318,15 @@ jobs:
         with:
           version: "0.9.26"
           enable-cache: true
-          cache-dependency-glob: |
-            tools/sonarcan-python-runtime/uv.lock
-            tools/sonarcan-torch-worker/uv.lock
-            tools/sonarcan-chord-worker/uv.lock
       - run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
-      - uses: actions/download-artifact@v7
-        with:
-          name: htdemucs-6s-model
-          path: src-tauri/resources/models/demucs-mlx
-      - run: npm run chords:downbeat-model
-      - run: npm run python:runtime
-      - run: npm run verify:chord-release
-      - run: npm run verify:stem-release
       - run: npm run ytdlp:search
       - run: npm run verify:ytdlp-search-release
+      - run: npm run python:light-runtime
+      - run: npm run verify:light-runtime
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - name: Qualify portable separation performance
-        run: npm run qualify:stem-performance
       - run: npm run quality
       - name: Build bundle and upload it to the draft release
         uses: tauri-apps/tauri-action@v1

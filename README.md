@@ -13,9 +13,37 @@
 </div>
 
 > [!NOTE]
-> SonArcan targets macOS 14+ on Apple Silicon, Windows x64, and Linux x64. MLX
-> remains the optimized stem backend on Apple Silicon; Windows and Linux use the
-> portable Torch backend with the exact same bundled model.
+> SonArcan Full targets macOS 14+ on Apple Silicon. SonArcan Light targets
+> Apple Silicon, macOS Intel, Windows x64, and Linux x64 without bundling the
+> heavy analysis models or runtimes.
+
+## Minimum and recommended configuration
+
+| Platform | Minimum for playback, lyrics, spectrum and meters | Required for Beat, Chords and Mix | Recommended |
+| --- | --- | --- | --- |
+| macOS Apple Silicon Full | macOS 14, M1, 8 GB RAM | A working, qualified MLX/MPS accelerator | M2 or newer, 16 GB RAM |
+| macOS Apple Silicon Light | macOS 14, M1, 8 GB RAM | Not included | 16 GB RAM for large projects |
+| macOS Intel Light | macOS 12, Intel x64, 8 GB RAM | Not included | macOS 13+, 16 GB RAM |
+| Windows Light | Windows 10 1903 or newer, x64, 8 GB RAM | Not included | Windows 11, 16 GB RAM |
+| Linux Light | x64 desktop supported by the packaged DEB, 8 GB RAM | Not included | Current distribution, 16 GB RAM |
+
+SonArcan Full checks the production accelerator and model graphs once when the
+application starts. If no compatible and qualified GPU backend is available,
+it enters a safe degraded mode for the complete session: Beat, Chords, Mix,
+BPM, and the analysis-driven metronome are not shown and cannot be started.
+Playback, time navigation, lyrics, spectrum, and the stereo meter remain
+available. The explanatory message is shown only once per user profile.
+
+SonArcan Light is a deliberately smaller edition. It keeps playback, imports,
+projects, time navigation, loops, training, pitch/tempo controls, lyrics,
+spectrum, and the stereo meter, but does not include Beat, Chords, Mix, BPM, or
+the analysis metronome. Full and Light use the same `.sac` project format and
+never delete analysis data produced by another edition.
+
+The current beta has a qualified Full backend on Apple Silicon. Windows and
+Linux Full GPU editions will be published only after their WebGPU backend passes
+model parity, stability, and performance qualification on production hardware;
+SonArcan never silently falls back to the CPU for these heavy jobs.
 
 SonArcan is made for musicians who want the useful parts of an audio workstation without the weight of a full DAW. Import a setlist, understand the music, isolate parts, build loops, and practice—all while keeping projects portable and data on your Mac.
 

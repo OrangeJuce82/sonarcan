@@ -546,6 +546,7 @@ button:disabled { opacity: .4; cursor: default; }
 .training-settings-form input { width: 88px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font: inherit; text-align: right; }
 .training-settings-form b { min-width: 13px; color: var(--muted); font-size: .68rem; }
 .preferences-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.edition-badge { width: fit-content; margin: 0 0 12px; padding: 4px 9px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 999px; color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
 .preferences-grid section { display: grid; align-content: start; gap: 9px; padding: 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
 .preferences-grid .preferences-section-wide { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 16px; }
 .preferences-grid .preferences-section-wide h3 { grid-column: 1 / -1; }

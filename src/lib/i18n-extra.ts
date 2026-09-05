@@ -2,6 +2,7 @@
 // Every locale is complete: i18n tests reject missing or extra message keys.
 export const additionalMessages = {
   es: {
+    degradedAnalysisTitle: "Experiencia limitada en este equipo", degradedAnalysisMessage: "No hay un acelerador GPU compatible y validado. Para proteger la estabilidad del sistema, se han desactivado Beat, Acordes, Mezcla, BPM y el metrónomo de análisis. La reproducción, la navegación temporal, las letras, el espectro y el medidor estéreo siguen disponibles.", lightEditionTitle: "SonArcan Light", lightEditionMessage: "Esta edición ligera omite intencionadamente Beat, Acordes, Mezcla, BPM y el metrónomo de análisis. La reproducción, la navegación temporal, las letras, el espectro y el medidor estéreo siguen disponibles.",
     resetChordEdits: "Restaurar los acordes del análisis original",
     chordEditMode: "Modo de edición de acordes", chordEditModeHelp: "Activar o desactivar la edición de acordes (E)", noChord: "Sin acorde",
     exportChords: "Exportar acordes", exportChordsUnavailable: "Analice esta pista antes de exportar sus acordes.", exportChordsDestination: "Exportar acordes como JAMS", chordExportComplete: "Los acordes se exportaron a un archivo JAMS.", musicVolume: "Volumen de la música", musicVolumeHelp: "Volumen del audio original o de la mezcla activa de pistas separadas; no afecta al metrónomo",
@@ -317,6 +318,7 @@ export const additionalMessages = {
     noMatchingLogs: "Ningún registro coincide con estos filtros.",
   },
   de: {
+    degradedAnalysisTitle: "Eingeschränkte Nutzung auf diesem Computer", degradedAnalysisMessage: "Es ist kein kompatibler und geprüfter GPU-Beschleuniger verfügbar. Zum Schutz der Systemstabilität wurden Beat, Akkorde, Mix, BPM und das Analyse-Metronom deaktiviert. Wiedergabe, Zeitnavigation, Liedtexte, Spektrum und Stereoanzeige bleiben verfügbar.", lightEditionTitle: "SonArcan Light", lightEditionMessage: "Diese schlanke Edition enthält bewusst keine Beat-, Akkord-, Mix-, BPM- oder Analyse-Metronomfunktionen. Wiedergabe, Zeitnavigation, Liedtexte, Spektrum und Stereoanzeige bleiben verfügbar.",
     resetChordEdits: "Akkorde der ursprünglichen Analyse wiederherstellen",
     chordEditMode: "Akkord-Bearbeitungsmodus", chordEditModeHelp: "Akkordbearbeitung ein- oder ausschalten (E)", noChord: "Kein Akkord",
     exportChords: "Akkorde exportieren", exportChordsUnavailable: "Analysieren Sie den Titel, bevor Sie seine Akkorde exportieren.", exportChordsDestination: "Akkorde als JAMS exportieren", chordExportComplete: "Die Akkorde wurden als JAMS-Datei exportiert.", musicVolume: "Musiklautstärke", musicVolumeHelp: "Lautstärke des Originals oder des aktiven Mixes der getrennten Spuren; das Metronom bleibt unverändert",
@@ -632,6 +634,7 @@ export const additionalMessages = {
     noMatchingLogs: "Keine Protokolle entsprechen diesen Filtern.",
   },
   pt: {
+    degradedAnalysisTitle: "Experiência limitada neste computador", degradedAnalysisMessage: "Nenhum acelerador GPU compatível e validado está disponível. Para proteger a estabilidade do sistema, Beat, Acordes, Mix, BPM e o metrônomo de análise foram desativados. Reprodução, navegação por tempo, letras, espectro e medidor estéreo continuam disponíveis.", lightEditionTitle: "SonArcan Light", lightEditionMessage: "Esta edição leve não inclui intencionalmente Beat, Acordes, Mix, BPM nem o metrônomo de análise. Reprodução, navegação por tempo, letras, espectro e medidor estéreo continuam disponíveis.",
     resetChordEdits: "Restaurar os acordes da análise original",
     chordEditMode: "Modo de edição de acordes", chordEditModeHelp: "Ativar ou desativar a edição de acordes (E)", noChord: "Sem acorde",
     exportChords: "Exportar acordes", exportChordsUnavailable: "Analise esta faixa antes de exportar os acordes.", exportChordsDestination: "Exportar acordes como JAMS", chordExportComplete: "Os acordes foram exportados para um arquivo JAMS.", musicVolume: "Volume da música", musicVolumeHelp: "Volume do áudio original ou do mix ativo das faixas separadas; o metrônomo não é afetado",
@@ -947,6 +950,7 @@ export const additionalMessages = {
     noMatchingLogs: "Nenhum registro corresponde a esses filtros.",
   },
   it: {
+    degradedAnalysisTitle: "Esperienza limitata su questo computer", degradedAnalysisMessage: "Non è disponibile un acceleratore GPU compatibile e qualificato. Per proteggere la stabilità del sistema, Beat, Accordi, Mix, BPM e il metronomo di analisi sono stati disattivati. Riproduzione, navigazione temporale, testi, spettro e misuratore stereo restano disponibili.", lightEditionTitle: "SonArcan Light", lightEditionMessage: "Questa edizione leggera omette intenzionalmente Beat, Accordi, Mix, BPM e il metronomo di analisi. Riproduzione, navigazione temporale, testi, spettro e misuratore stereo restano disponibili.",
     resetChordEdits: "Ripristina gli accordi dell’analisi originale",
     chordEditMode: "Modalità modifica accordi", chordEditModeHelp: "Attiva o disattiva la modifica degli accordi (E)", noChord: "Nessun accordo",
     exportChords: "Esporta accordi", exportChordsUnavailable: "Analizza questa traccia prima di esportarne gli accordi.", exportChordsDestination: "Esporta accordi come JAMS", chordExportComplete: "Gli accordi sono stati esportati in un file JAMS.", musicVolume: "Volume musica", musicVolumeHelp: "Volume dell’audio originale o del mix attivo delle tracce separate; il metronomo non cambia",
@@ -1262,6 +1266,7 @@ export const additionalMessages = {
     noMatchingLogs: "Nessun registro corrisponde a questi filtri.",
   },
   zh: {
+    degradedAnalysisTitle: "此电脑上的体验受限", degradedAnalysisMessage: "没有可用且经过验证的兼容 GPU 加速器。为保护系统稳定性，节拍、和弦、混音、BPM 和分析节拍器已被禁用。播放、时间导航、歌词、频谱和立体声电平表仍然可用。", lightEditionTitle: "SonArcan Light", lightEditionMessage: "此轻量版特意不包含节拍、和弦、混音、BPM 和分析节拍器。播放、时间导航、歌词、频谱和立体声电平表仍然可用。",
     resetChordEdits: "恢复原始分析的和弦",
     chordEditMode: "和弦编辑模式", chordEditModeHelp: "启用或停用和弦编辑（E）", noChord: "无和弦",
     exportChords: "导出和弦", exportChordsUnavailable: "请先分析此曲目，再导出和弦。", exportChordsDestination: "将和弦导出为 JAMS", chordExportComplete: "和弦已导出为 JAMS 文件。", musicVolume: "音乐音量", musicVolumeHelp: "原始音频或当前分离音轨混音的音量；不影响节拍器",
@@ -1577,6 +1582,7 @@ export const additionalMessages = {
     noMatchingLogs: "没有日志与这些过滤器匹配。",
   },
   ja: {
+    degradedAnalysisTitle: "このコンピューターでは機能が制限されます", degradedAnalysisMessage: "互換性が確認された GPU アクセラレーターを利用できません。システムの安定性を守るため、ビート、コード、ミックス、BPM、解析メトロノームを無効にしました。再生、時間ナビゲーション、歌詞、スペクトラム、ステレオメーターは引き続き利用できます。", lightEditionTitle: "SonArcan Light", lightEditionMessage: "この軽量版にはビート、コード、ミックス、BPM、解析メトロノームは含まれていません。再生、時間ナビゲーション、歌詞、スペクトラム、ステレオメーターは引き続き利用できます。",
     resetChordEdits: "元の解析のコードに戻す",
     chordEditMode: "コード編集モード", chordEditModeHelp: "コード編集をオンまたはオフにします（E）", noChord: "コードなし",
     exportChords: "コードを書き出す", exportChordsUnavailable: "コードを書き出す前にこの曲を解析してください。", exportChordsDestination: "コードを JAMS で書き出す", chordExportComplete: "コードを JAMS ファイルに書き出しました。", musicVolume: "音楽の音量", musicVolumeHelp: "原音または有効な分離トラックのミックス音量。メトロノームには影響しません",
@@ -1892,6 +1898,7 @@ export const additionalMessages = {
     noMatchingLogs: "これらのフィルターに一致するログはありません。",
   },
   ko: {
+    degradedAnalysisTitle: "이 컴퓨터에서는 일부 기능이 제한됩니다", degradedAnalysisMessage: "호환성과 안정성이 검증된 GPU 가속기를 사용할 수 없습니다. 시스템 안정성을 위해 비트, 코드, 믹스, BPM 및 분석 메트로놈을 비활성화했습니다. 재생, 시간 탐색, 가사, 스펙트럼 및 스테레오 미터는 계속 사용할 수 있습니다.", lightEditionTitle: "SonArcan Light", lightEditionMessage: "이 경량판에는 비트, 코드, 믹스, BPM 및 분석 메트로놈이 포함되지 않습니다. 재생, 시간 탐색, 가사, 스펙트럼 및 스테레오 미터는 계속 사용할 수 있습니다.",
     resetChordEdits: "원본 분석의 코드 복원",
     chordEditMode: "코드 편집 모드", chordEditModeHelp: "코드 편집을 켜거나 끕니다(E)", noChord: "코드 없음",
     exportChords: "코드 내보내기", exportChordsUnavailable: "코드를 내보내기 전에 이 트랙을 분석하세요.", exportChordsDestination: "코드를 JAMS로 내보내기", chordExportComplete: "코드를 JAMS 파일로 내보냈습니다.", musicVolume: "음악 볼륨", musicVolumeHelp: "원본 오디오 또는 활성화된 분리 트랙 믹스의 볼륨이며 메트로놈에는 영향을 주지 않습니다",
@@ -2207,6 +2214,7 @@ export const additionalMessages = {
     noMatchingLogs: "이 필터와 일치하는 로그가 없습니다.",
   },
   ar: {
+    degradedAnalysisTitle: "تجربة محدودة على هذا الكمبيوتر", degradedAnalysisMessage: "لا يتوفر مسرّع GPU متوافق ومختبَر. لحماية استقرار النظام، تم تعطيل الإيقاع والأوتار والمزج وBPM ومسرع الإيقاع التحليلي. تبقى ميزات التشغيل والتنقل الزمني والكلمات والطيف ومقياس الستيريو متاحة.", lightEditionTitle: "SonArcan Light", lightEditionMessage: "لا تتضمن هذه النسخة الخفيفة عمدًا الإيقاع أو الأوتار أو المزج أو BPM أو مسرع الإيقاع التحليلي. تبقى ميزات التشغيل والتنقل الزمني والكلمات والطيف ومقياس الستيريو متاحة.",
     resetChordEdits: "استعادة أوتار التحليل الأصلي",
     chordEditMode: "وضع تحرير الأوتار", chordEditModeHelp: "تشغيل تحرير الأوتار أو إيقافه (E)", noChord: "بدون وتر",
     exportChords: "تصدير الأوتار", exportChordsUnavailable: "حلّل هذا المقطع قبل تصدير أوتاره.", exportChordsDestination: "تصدير الأوتار بصيغة JAMS", chordExportComplete: "تم تصدير الأوتار إلى ملف JAMS.", musicVolume: "مستوى صوت الموسيقى", musicVolumeHelp: "مستوى صوت التسجيل الأصلي أو مزيج المسارات المنفصلة النشط؛ لا يتأثر المسرع",
@@ -2522,6 +2530,7 @@ export const additionalMessages = {
     noMatchingLogs: "لا توجد سجلات تتطابق مع عوامل التصفية هذه.",
   },
   hi: {
+    degradedAnalysisTitle: "इस कंप्यूटर पर सीमित अनुभव", degradedAnalysisMessage: "कोई संगत और सत्यापित GPU एक्सेलरेटर उपलब्ध नहीं है। सिस्टम की स्थिरता के लिए Beat, Chords, Mix, BPM और विश्लेषण मेट्रोनोम बंद कर दिए गए हैं। प्लेबैक, समय नेविगेशन, गीत, स्पेक्ट्रम और स्टीरियो मीटर उपलब्ध रहेंगे।", lightEditionTitle: "SonArcan Light", lightEditionMessage: "इस हल्के संस्करण में Beat, Chords, Mix, BPM और विश्लेषण मेट्रोनोम जानबूझकर शामिल नहीं हैं। प्लेबैक, समय नेविगेशन, गीत, स्पेक्ट्रम और स्टीरियो मीटर उपलब्ध रहेंगे।",
     resetChordEdits: "मूल विश्लेषण के कॉर्ड पुनर्स्थापित करें",
     chordEditMode: "कॉर्ड संपादन मोड", chordEditModeHelp: "कॉर्ड संपादन चालू या बंद करें (E)", noChord: "कोई कॉर्ड नहीं",
     exportChords: "कॉर्ड निर्यात करें", exportChordsUnavailable: "कॉर्ड निर्यात करने से पहले इस ट्रैक का विश्लेषण करें।", exportChordsDestination: "कॉर्ड को JAMS के रूप में निर्यात करें", chordExportComplete: "कॉर्ड JAMS फ़ाइल में निर्यात किए गए।", musicVolume: "संगीत का वॉल्यूम", musicVolumeHelp: "मूल ऑडियो या सक्रिय अलग किए गए ट्रैक के मिक्स का वॉल्यूम; मेट्रोनोम पर असर नहीं पड़ता",
@@ -2837,6 +2846,7 @@ export const additionalMessages = {
     noMatchingLogs: "कोई भी लॉग इन फ़िल्टर से मेल नहीं खाता.",
   },
   id: {
+    degradedAnalysisTitle: "Pengalaman terbatas di komputer ini", degradedAnalysisMessage: "Tidak ada akselerator GPU kompatibel dan teruji yang tersedia. Untuk menjaga kestabilan sistem, Beat, Chord, Mix, BPM, dan metronom analisis telah dinonaktifkan. Pemutaran, navigasi waktu, lirik, spektrum, dan meter stereo tetap tersedia.", lightEditionTitle: "SonArcan Light", lightEditionMessage: "Edisi ringan ini sengaja tidak menyertakan Beat, Chord, Mix, BPM, dan metronom analisis. Pemutaran, navigasi waktu, lirik, spektrum, dan meter stereo tetap tersedia.",
     resetChordEdits: "Pulihkan akor dari analisis asli",
     chordEditMode: "Mode edit akor", chordEditModeHelp: "Aktifkan atau nonaktifkan pengeditan akor (E)", noChord: "Tanpa akor",
     exportChords: "Ekspor akor", exportChordsUnavailable: "Analisis trek ini sebelum mengekspor akornya.", exportChordsDestination: "Ekspor akor sebagai JAMS", chordExportComplete: "Akor telah diekspor ke berkas JAMS.", musicVolume: "Volume musik", musicVolumeHelp: "Volume audio asli atau mix trek terpisah yang aktif; metronom tidak terpengaruh",

@@ -73,6 +73,7 @@ src-tauri/gen/schemas/
 src-tauri/resources/chord-runtime/runtime/
 src-tauri/resources/mlx-runtime/runtime/
 src-tauri/resources/python-runtime/runtime/
+src-tauri/resources/light-python-runtime/runtime/
 src-tauri/resources/stem-runtime/runtime/
 
 # Release resources are reproducibly downloaded or built by the preparation

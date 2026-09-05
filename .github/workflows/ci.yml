@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
   pull_request:
     branches:
       - main
@@ -35,11 +36,19 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-24.04
+            edition: light
           - name: Windows x64
             os: windows-2025
+            edition: light
           - name: macOS Apple Silicon
             os: macos-15
+            edition: full
+          - name: macOS Intel Light
+            os: macos-15-intel
+            edition: light
     runs-on: ${{ matrix.os }}
+    env:
+      SONARCAN_EDITION: ${{ matrix.edition }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

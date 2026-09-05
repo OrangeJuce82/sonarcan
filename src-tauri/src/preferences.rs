@@ -31,6 +31,8 @@ pub struct UserPreferences {
     pub loop_snap_enabled: bool,
     pub navigation_mode: NavigationMode,
     pub navigation_time_seconds: u32,
+    pub degraded_analysis_notice_seen: bool,
+    pub light_edition_notice_seen: bool,
     pub default_trainer_start_rate: f64,
     pub default_trainer_repetitions: u32,
     pub default_trainer_increment: f64,
@@ -122,6 +124,8 @@ impl Default for UserPreferences {
             loop_snap_enabled: true,
             navigation_mode: NavigationMode::Time,
             navigation_time_seconds: 10,
+            degraded_analysis_notice_seen: false,
+            light_edition_notice_seen: false,
             default_trainer_start_rate: 0.5,
             default_trainer_repetitions: 1,
             default_trainer_increment: 0.05,
@@ -268,6 +272,32 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert!(preferences.loop_snap_enabled);
+    }
+
+    #[test]
+    fn older_preferences_show_the_degraded_analysis_notice_once() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored
+            .as_object_mut()
+            .unwrap()
+            .remove("degradedAnalysisNoticeSeen");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert!(!preferences.degraded_analysis_notice_seen);
+    }
+
+    #[test]
+    fn older_preferences_show_the_light_edition_notice_once() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored
+            .as_object_mut()
+            .unwrap()
+            .remove("lightEditionNoticeSeen");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert!(!preferences.light_edition_notice_seen);
     }
 
     #[test]

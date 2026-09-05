@@ -7,7 +7,8 @@ Compressed media is decoded on Tauri's blocking worker pool, never on the UI thr
 Development builds use light optimization for SonArcan and full optimization for third-party audio and DSP crates. On the 175-second MP3 used for the August 2026 loading benchmark, waveform availability improved from about 10.26 seconds with the default debug profile to about 208 ms (172 ms decode plus 36 ms reduction). The release build measured 127 ms overall (123 ms decode plus 4 ms reduction). Beat This! analysis starts only after the selected audio is ready, so it cannot compete with the initial decode. Release optimization remains unchanged.
 
 Chord and downbeat recognition are not part of playback or decoded-audio
-ownership. After the selected track is ready, one supervised process runs
+ownership. They are available only after the once-per-launch accelerator probe
+succeeds; otherwise no inference process is started. After the selected track is ready, one supervised process runs
 LV-Chordia first and Beat This! second. This avoids simultaneous pressure on the
 same CPU or accelerator while retaining both outputs for downstream features.
 Failure of one model retains the other model's result and emits a bounded warning.
@@ -45,10 +46,11 @@ The real-time callback never locks or reads this cache. It only sees the selecte
 
 ## Optional cross-platform HTDemucs 6s stem mode
 
-Stem mode is disabled by default and never delays ordinary track loading. On an
-Apple-silicon Mac it starts `sonarcan-mlx-worker` with the exact `demucs-mlx`
-environment. Windows and Linux start `sonarcan-torch-worker` with the pinned
-CPU-only Torch environment. Both use one six-stem protocol and one cache.
+Stem mode is disabled by default and never delays ordinary track loading. After
+the startup accelerator probe succeeds, an Apple-silicon Mac starts
+`sonarcan-mlx-worker` with the exact `demucs-mlx` environment. Windows and Linux
+do not start the bundled CPU-only Torch worker in the current beta. Both worker
+implementations use one six-stem protocol and one cache.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.
 

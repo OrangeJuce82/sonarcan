@@ -41,6 +41,7 @@ const localDependencies = [
   "tools/sonarcan-torch-worker/.venv",
   "tools/sonarcan-python-runtime/.venv",
   "src-tauri/resources/python-runtime/runtime",
+  "src-tauri/resources/light-python-runtime/runtime",
   "src-tauri/resources/audio-tools/bin",
   "src-tauri/resources/audio-tools/licenses",
   "src-tauri/resources/audio-tools/manifest.json",

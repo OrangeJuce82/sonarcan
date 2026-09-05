@@ -229,12 +229,38 @@ def separate(input_path: Path, output_dir: Path, model_dir: Path, batch_size: in
     emit("complete", stage="complete", progress=1.0, stems=list(STEM_NAMES))
 
 
+def accelerator_self_test(model_dir: Path) -> None:
+    """Load the production graph and execute a finite MLX operation."""
+    validate_runtime_versions()
+    validate_model_files(model_dir)
+
+    import mlx.core as mx
+    import numpy as np
+    from demucs_mlx.mlx_convert import load_mlx_model
+
+    model = load_mlx_model(
+        MODEL_NAME,
+        cache_dir=str(model_dir),
+        auto_convert=False,
+        verbose=False,
+    )
+    if tuple(model.sources) != ("drums", "bass", "other", "vocals", "guitar", "piano"):
+        raise RuntimeError("demucs-mlx returned an unexpected stem order")
+    value = mx.matmul(mx.ones((4, 4)), mx.ones((4, 4)))
+    mx.eval(value)
+    if not np.isfinite(np.asarray(value)).all():
+        raise RuntimeError("MLX accelerator self-test produced invalid values")
+    emit("ready", model=MODEL_NAME, stems=list(STEM_NAMES), backend="MLX")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sonarcan-mlx-worker")
     parser.add_argument("--version", action="store_true")
     subcommands = parser.add_subparsers(dest="command")
     health = subcommands.add_parser("self-test")
     health.add_argument("--model-dir", type=Path, required=True)
+    accelerator = subcommands.add_parser("accelerator-self-test")
+    accelerator.add_argument("--model-dir", type=Path, required=True)
     command = subcommands.add_parser("separate")
     command.add_argument("--input", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
@@ -258,6 +284,9 @@ def run(arguments: Sequence[str] | None = None) -> int:
             validate_runtime_versions()
             validate_model_files(args.model_dir)
             emit("ready", model=MODEL_NAME, stems=list(STEM_NAMES))
+            return 0
+        if args.command == "accelerator-self-test":
+            accelerator_self_test(args.model_dir)
             return 0
         if args.command == "separate":
             separate(args.input, args.output, args.model_dir, args.batch_size)

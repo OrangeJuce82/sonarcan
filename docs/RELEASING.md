@@ -2,13 +2,13 @@
 
 ## Supported releases
 
-The tag workflow produces native bundles for Apple Silicon
-(`aarch64-apple-darwin`), Windows x64 (`x86_64-pc-windows-msvc`), and Linux x64
-(`x86_64-unknown-linux-gnu`). Apple Silicon bundles contain MLX; Windows and
-Linux contain portable CPU Torch. Both backends load the same converted model
-resource and expose the complete six-stem feature. Each bundle contains one
-target-native shared Python 3.13 runtime; never copy that runtime between
-targets or combine target architectures into a universal macOS binary.
+The tag workflow produces a Full MLX bundle for Apple Silicon plus Light bundles
+for Apple Silicon, Intel macOS, Windows x64, and Linux x64. Full contains the
+analysis runtime and models. Light contains only a target-native minimal Python
+3.13 standard library for the pinned `yt-dlp` artifact and excludes Torch, MLX,
+LV-Chordia, Beat This!, Demucs, NumPy, SciPy, and their model files. Never copy a
+runtime between targets or combine target architectures into a universal macOS
+binary.
 The pinned `madmom` revision omits its setuptools, NumPy, and Cython build
 requirements, so release assembly bootstraps those exact inputs before building
 it without isolation.
@@ -16,6 +16,9 @@ it without isolation.
 CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,
 execute their self-tests, and upload platform installers to one draft release.
+Apple Silicon bundle verification also executes the same MPS and MLX
+accelerator probes used at application startup; a bundle that would enter
+degraded mode on the release runner is rejected.
 After packaging, the release gate inspects the macOS applications, extracts the
 Linux DEB, and silently installs the Windows NSIS package in the disposable
 runner. It then executes the embedded chord/downbeat, stem, FFmpeg, FFprobe, and

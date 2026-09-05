@@ -10,6 +10,9 @@
       "resources/models/demucs-mlx": null,
       "resources/models/beat-this": null,
       "resources/light-python-runtime": "python-runtime"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
     }
   }
 }

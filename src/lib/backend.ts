@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Language } from "./i18n";
 import type { JamsChordSegment } from "./chordExport";
-import type { AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
+import type { AnalysisCapabilities, AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -141,6 +141,7 @@ export const audioSetEndBehavior = (behavior: EndBehavior): Promise<void> => inv
 export const audioSpectrum = (): Promise<SpectrumFrame> => invoke("audio_spectrum");
 export const audioStatus = (): Promise<AudioStatus> => invoke("audio_status");
 export const systemMetrics = (): Promise<SystemMetrics> => invoke("system_metrics");
+export const getAnalysisCapabilities = (): Promise<AnalysisCapabilities> => invoke("analysis_capabilities");
 export const stemStart = (packagePath: string, trackId: string): Promise<void> => invoke("stem_start", { packagePath, trackId });
 export const stemStatus = (): Promise<StemStatus> => invoke("stem_status");
 export const stemDisable = (): Promise<void> => invoke("stem_disable");

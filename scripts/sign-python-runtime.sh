@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
-python_runtime_dir="$repository_root/src-tauri/resources/python-runtime/runtime"
+python_runtime_dir="${SONARCAN_PYTHON_RUNTIME_DIR:-$repository_root/src-tauri/resources/python-runtime/runtime}"
 audio_tools_dir="$repository_root/src-tauri/resources/audio-tools/bin"
 identity="${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY is required}"
 signed_count=0
@@ -29,8 +29,12 @@ if [[ "$signed_count" -eq 0 ]]; then
 fi
 if [[ -d "$python_runtime_dir/lib/python3.13/site-packages/sonarcan_mlx_worker" ]]; then
   refresher=("$python_runtime_dir/bin/python3.13" -m sonarcan_mlx_worker.refresh_records)
-else
+elif [[ -d "$python_runtime_dir/lib/python3.13/site-packages/sonarcan_torch_worker" ]]; then
   refresher=("$python_runtime_dir/bin/python3.13" -m sonarcan_torch_worker.refresh_records)
+else
+  refresher=()
 fi
-"${refresher[@]}" "$python_runtime_dir/lib/python3.13/site-packages"
+if [[ "${#refresher[@]}" -gt 0 ]]; then
+  "${refresher[@]}" "$python_runtime_dir/lib/python3.13/site-packages"
+fi
 echo "Signed and verified $signed_count release resource binaries."
