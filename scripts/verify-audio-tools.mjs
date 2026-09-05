@@ -11,6 +11,12 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const expectedArchitecture = process.platform === "darwin" && process.arch === "x64" ? "x86_64" : process.arch;
 if (manifest.architecture !== expectedArchitecture) throw new Error("audio-tools architecture does not match this build host");
 if (manifest.platform && manifest.platform !== process.platform) throw new Error("audio-tools platform does not match this build host");
+if (process.platform === "darwin") {
+  const expectedMinimumMacosVersion = process.arch === "x64" ? "12.0" : "14.0";
+  if (manifest.minimumMacosVersion !== expectedMinimumMacosVersion) {
+    throw new Error(`audio-tools requires macOS ${manifest.minimumMacosVersion ?? "unknown"}; expected ${expectedMinimumMacosVersion}`);
+  }
+}
 const suffix = process.platform === "win32" ? ".exe" : "";
 for (const name of ["ffmpeg", "ffprobe"]) {
   const executable = join(directory, "bin", `${name}${suffix}`);

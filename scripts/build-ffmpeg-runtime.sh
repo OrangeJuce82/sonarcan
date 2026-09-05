@@ -7,14 +7,22 @@ ffmpeg_version="8.0.3"
 ffmpeg_sha256="6136812ea6d4e68bdba27e33c2a94382711cdf4f8602ffef056ff792bd6f9818"
 lame_version="3.100"
 lame_sha256="ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
-minimum_macos_version="14.0"
-
 machine="$(uname -m)"
 if [[ "$(uname -s)" != "Darwin" || ( "$machine" != "arm64" && "$machine" != "x86_64" ) ]]; then
   echo "The bundled macOS FFmpeg runtime must be assembled on an ARM64 or Intel Mac." >&2
   exit 1
 fi
 ffmpeg_arch="$machine"
+minimum_macos_version="14.0"
+ffmpeg_assembly_flag="--disable-x86asm"
+if [[ "$machine" == "x86_64" ]]; then
+  minimum_macos_version="12.0"
+  if command -v nasm >/dev/null 2>&1; then
+    ffmpeg_assembly_flag="--enable-x86asm"
+  else
+    echo "nasm is unavailable; building the Intel FFmpeg runtime without x86 assembly."
+  fi
+fi
 
 build_root="$(mktemp -d "${TMPDIR:-/tmp}/sonarcan-ffmpeg.XXXXXX")"
 trap 'rm -rf "$build_root"' EXIT
@@ -72,6 +80,7 @@ tar -xJf "$ffmpeg_archive" -C "$build_root"
     --disable-ffplay \
     --disable-network \
     --enable-libmp3lame \
+    "$ffmpeg_assembly_flag" \
     --extra-cflags="-I$prefix/include" \
     --extra-ldflags="-L$prefix/lib"
   make -j "$(sysctl -n hw.logicalcpu)" ffmpeg ffprobe
