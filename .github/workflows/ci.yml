@@ -73,6 +73,7 @@ jobs:
       - run: npm run test
       - run: npm run test:mlx
       - run: npm run test:stems
+      - run: npm run test:chords
       - run: npm run format:rust
       - run: npm run lint:rust
       - run: npm run test:rust
