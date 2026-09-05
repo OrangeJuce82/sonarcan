@@ -139,6 +139,18 @@ export function moveWaveformViewport(start: number, zoom: number, delta: number)
   };
 }
 
+export function waveformClickPosition(
+  durationSeconds: number,
+  viewportStart: number,
+  viewportZoom: number,
+  pointerRatio: number,
+): number {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 0;
+  const viewport = normalizedViewport(viewportStart, viewportZoom);
+  const ratio = clamp(Number.isFinite(pointerRatio) ? pointerRatio : 0, 0, 1);
+  return clamp((viewport.start + ratio / viewport.zoom) * durationSeconds, 0, durationSeconds);
+}
+
 export function waveformWheelAxis(
   deltaX: number,
   deltaY: number,

@@ -28,6 +28,12 @@ test("translations and writing direction follow the selected locale", () => {
   assert.equal(languageDirection("ja"), "ltr");
 });
 
+test("French startup loading states are translated", () => {
+  assert.equal(translate("fr", "checkingProjects"), "Recherche des projets récents…");
+  assert.equal(translate("fr", "loadingRecentProject"), "Chargement du dernier projet…");
+  assert.equal(translate("fr", "noProject"), "Préparation d’un projet temporaire…");
+});
+
 test("recent preference actions are translated in every supported language", () => {
   for (const language of languages) {
     assert.ok(translate(language, "resetPreferences").trim().length > 0, language);

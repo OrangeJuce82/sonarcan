@@ -27,9 +27,10 @@
   import Toaster from "./lib/Toaster.svelte";
   import LyricsPanel from "./lib/LyricsPanel.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
-  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
+  import { projectStartupAction, type ProjectStartupAction } from "./lib/projectStartup";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
   import { chordSegmentsForJams } from "./lib/chordExport";
   import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
@@ -39,6 +40,9 @@
   import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, LyricsDocument, LyricsSearchResult, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
+  let startupProjectAction: ProjectStartupAction = "checking";
+  let preferencesReady = false;
+  let applicationReady = false;
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
   let analysisFeaturesAvailable = false;
   let applicationEdition: "full" | "light" = "full";
@@ -1085,7 +1089,11 @@
     const handleUnhandledRejection = (event: PromiseRejectionEvent): void => console.error("Unhandled promise rejection", event.reason);
     window.addEventListener("error", handleWindowError);
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
-    void loadUserPreferences().finally(() => void restoreLastProject());
+    void loadUserPreferences().finally(async () => {
+      preferencesReady = true;
+      await restoreLastProject();
+      applicationReady = true;
+    });
     const finishPlaylistDrag = (): void => finishTrackDrag();
     const handleWindowPointerDown = (event: PointerEvent): void => {
       trackContextMenu = null;
@@ -1317,6 +1325,8 @@
   async function restoreLastProject(): Promise<void> {
     if (project) return;
     try {
+      const recentProjects = await listRecentProjects().catch(() => []);
+      startupProjectAction = projectStartupAction(recentProjects);
       const initialized = await initializeProject();
       if (project) return;
       if (await ensureProjectAccess(initialized.project.packagePath)) {
@@ -3311,8 +3321,8 @@
     if (!dragMoved) {
       const bounds = target.getBoundingClientRect();
       const local = (event.clientX - bounds.left) / bounds.width;
-      const position = (waveformStart + local / waveformZoom) * durationSeconds;
-      seek(navigationSnappedSeekPosition(position));
+      const position = waveformClickPosition(durationSeconds, waveformStart, waveformZoom, local);
+      seek(position);
     }
     waveformDragPointerId = null;
     dragMoved = false;
@@ -3381,13 +3391,8 @@
     seekAndCenterOverview(overviewRatio(event));
   }
 
-  function navigationSnappedSeekPosition(position: number): number {
-    if (activeNavigationMode === "time") return position;
-    return snappedNavigationPosition(activeNavigationMode, position, activeBeats, timelineChords, lyricNavigationPoints);
-  }
-
   function seekAndCenterOverview(ratio: number): void {
-    const position = navigationSnappedSeekPosition(ratio * durationSeconds);
+    const position = waveformClickPosition(durationSeconds, 0, 1, ratio);
     seek(position);
     const span = 1 / waveformZoom;
     const positionRatio = durationSeconds > 0 ? position / durationSeconds : ratio;
@@ -3397,7 +3402,8 @@
 
 <svelte:head><title>SonArcan</title></svelte:head>
 
-<main class="shell" class:console-open={consoleVisible} class:help-open={helpVisible} spellcheck="false">
+<main class="shell" class:booting={!applicationReady} class:console-open={consoleVisible} class:help-open={helpVisible} spellcheck="false">
+  {#if applicationReady}
   <header class="topbar">
     <div class="project-header">
       {#if project}
@@ -3422,7 +3428,7 @@
           </button>
         </div>
       {:else}
-        <span class="project-empty">{t("noProject")}</span>
+        <span class="project-empty">{t(startupProjectAction === "checking" ? "checkingProjects" : startupProjectAction === "restoreRecent" ? "loadingRecentProject" : "noProject")}</span>
       {/if}
     </div>
     <div class="header-metrics" aria-label={t("systemMetrics")}>
@@ -4227,6 +4233,14 @@
   {#if trackContextMenu}
     <div class="context-menu" role="menu" tabindex="-1" style={`left:${trackContextMenu.x}px;top:${trackContextMenu.y}px`} onpointerdown={(event) => event.stopPropagation()}>
       <button onclick={() => { const track = project?.tracks.find((item) => item.id === trackContextMenu?.trackId); if (track) void removeTrack(track); }}>{t("removeTrack")}</button>
+    </div>
+  {/if}
+  {:else}
+    <div class="application-bootstrap" role="status" aria-label="SonArcan">
+      <span class="application-bootstrap-mark" aria-hidden="true"><Icon name="music" size="28px" /></span>
+      <strong>SonArcan</strong>
+      <i aria-hidden="true"></i>
+      {#if preferencesReady}<small>{t(startupProjectAction === "checking" ? "checkingProjects" : startupProjectAction === "restoreRecent" ? "loadingRecentProject" : "noProject")}</small>{/if}
     </div>
   {/if}
 </main>

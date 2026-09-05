@@ -106,7 +106,9 @@ switch to an alphabetical repertoire of unique chords.
 In degraded mode, the lyrics panel occupies the mixer's column, the spectrum
 and stereo meter retain the right-hand column, and the lower harmony row is omitted.
 In full mode, the audio header exposes one user navigation mode: Time, Beat, Chord, or Lyrics. Left
-and Right, the transport jump buttons, and waveform clicks share that mode.
+and Right and the transport jump buttons share that mode. Waveform clicks always
+seek to the exact pointed position, independently of the navigation mode and loop
+magnetism.
 Time uses a configurable one-to-sixty-second step and defaults to ten seconds;
 Beat, Chord, and Lyrics activate when their bounded navigation points become
 available. The selector visibly remains on Time while the preferred mode is being
@@ -200,6 +202,13 @@ temporary package is persisted continuously and remembered like any other
 project, so it reopens after a restart while it still exists. If the operating
 system removed it, startup reports the unavailable path, forgets that stale
 entry, and creates a fresh temporary project without failing.
+While this startup work is pending, the header distinguishes checking recent
+projects, restoring the latest project, and creating a temporary project.
+The application shell is not rendered until saved user preferences have been
+loaded and applied and the startup project has been activated. A neutral branded
+bootstrap view avoids exposing default language, theme, audio settings, or an
+empty-project workspace before the configured interface is ready. Once the
+language is known, that view reports the localized project-loading state.
 
 On macOS, opening an associated `.sac` package can deliver the native document
 event before Tauri has run application setup. That path is retained in a small

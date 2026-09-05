@@ -18,6 +18,7 @@ import {
   shouldApplyAudioStatusPosition,
   trackLoadPosition,
   visiblePeaks,
+  waveformClickPosition,
   waveformShowsChords,
   waveformViewportForWindow,
   waveformWheelAxis,
@@ -140,6 +141,12 @@ test("waveform viewport movement preserves its span and stays in bounds", () => 
   assert.deepEqual(moveWaveformViewport(0.25, 4, 0.1), { start: 0.35, zoom: 4 });
   assert.deepEqual(moveWaveformViewport(0.75, 4, 0.5), { start: 0.75, zoom: 4 });
   assert.deepEqual(moveWaveformViewport(0.25, 4, -0.5), { start: 0, zoom: 4 });
+});
+
+test("waveform clicks keep their exact position without navigation snapping", () => {
+  assert.equal(waveformClickPosition(120, 0.25, 4, 0.4), 42);
+  assert.equal(waveformClickPosition(120, 0, 1, 0.333), 39.96);
+  assert.equal(waveformClickPosition(120, 0.75, 4, 2), 120);
 });
 
 test("the default waveform window fits thirty seconds or the whole short track", () => {

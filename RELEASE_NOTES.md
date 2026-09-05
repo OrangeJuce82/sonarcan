@@ -1,4 +1,4 @@
-# SonArcan 0.1.0-beta.24
+# SonArcan 0.1.0-beta.25
 
 This beta introduces platform-specific Full GPU and Light releases. Choose the
 installer whose name matches your computer; all editions share the same `.sac`
@@ -46,7 +46,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.24
+version=v0.1.0-beta.25
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -63,7 +63,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.24'
+$version = 'v0.1.0-beta.25'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -88,6 +88,11 @@ PowerShell stops before reconstruction if a part is missing or altered.
 
 ## Other fixes
 
+- Waveform clicks now seek to the exact pointed position without beat, chord,
+  or lyric snapping; keyboard and transport navigation remain unchanged.
+- Startup now loads and applies user preferences before rendering the workspace,
+  then keeps a localized bootstrap screen visible until the recent or temporary
+  project is active.
 - Windows desktop builds no longer leave a console window open.
 - Intel macOS FFmpeg assembly now falls back safely when NASM is unavailable.
 - Full and Light editions use distinct product names and bundle identifiers.
