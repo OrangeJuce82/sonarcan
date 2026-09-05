@@ -26,9 +26,9 @@
 | macOS Intel Light | macOS 12, Intel x64, 8 GB RAM | Not included | macOS 13+, 16 GB RAM |
 | Windows NVIDIA GPU | Windows 10 1903 or newer, x64, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Windows 11, 8 GB GPU memory, 32 GB RAM |
 | Windows Light | Windows 10 1903 or newer, x64, 8 GB RAM | Not included | Windows 11, 16 GB RAM |
-| Linux NVIDIA GPU | x64, glibc 2.28+, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Current distribution, 8 GB GPU memory, 32 GB RAM |
-| Linux AMD GPU | x64, glibc 2.28+, 16 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | Current distribution, 8 GB GPU memory, 32 GB RAM |
-| Linux Light | x64 desktop supported by the packaged DEB, 8 GB RAM | Not included | Current distribution, 16 GB RAM |
+| Linux NVIDIA GPU | Ubuntu 22.04-compatible x64 desktop, glibc 2.35+, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Ubuntu 22.04 or newer, 8 GB GPU memory, 32 GB RAM |
+| Linux AMD GPU | Ubuntu 22.04-compatible x64 desktop, glibc 2.35+, 16 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | Ubuntu 22.04.5 or newer, 8 GB GPU memory, 32 GB RAM |
+| Linux Light | Ubuntu 22.04-compatible x64 desktop, glibc 2.35+, 8 GB RAM | Not included | Ubuntu 22.04 or newer, 16 GB RAM |
 
 SonArcan Full checks the production accelerator and model graphs once when the
 application starts. If no compatible and qualified GPU backend is available,

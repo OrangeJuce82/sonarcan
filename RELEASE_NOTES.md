@@ -13,9 +13,10 @@ project format.
 | SonArcan AMD GPU | Linux x64 with a ROCm 7.2-compatible AMD GPU | Yes, after the startup probe succeeds | PyTorch ROCm 7.2 |
 | SonArcan Light | Apple-silicon Mac, Intel Mac, Windows x64, or Linux x64 | No | No ML runtime or models |
 
-There is no AMD GPU edition for Windows in this beta because the official
-PyTorch ROCm packages are Linux-only. Use SonArcan Light on an AMD-only Windows
-computer. Intel GPUs are not qualified yet.
+There is no AMD GPU edition for Windows in this beta. AMD's Windows support is
+currently limited to selected recent GPUs and requires a separate Python 3.12
+runtime, which has not yet completed SonArcan's release qualification. Use
+SonArcan Light on an AMD-only Windows computer. Intel GPUs are not qualified yet.
 
 Full GPU releases never run Beat, Chords, or Mix silently on the CPU. At every
 application launch, SonArcan exercises the actual production model graphs on the detected
