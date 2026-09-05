@@ -165,15 +165,9 @@ impl StemBackend {
 }
 
 pub fn accelerator_self_test(app: &AppHandle) -> bool {
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        return false;
-    }
     let Ok(worker) = resolve_worker(app) else {
         return false;
     };
-    if !matches!(worker.backend, StemBackend::Mlx) {
-        return false;
-    }
     let mut command = Command::new(&worker.executable);
     command
         .args(&worker.prefix_arguments)

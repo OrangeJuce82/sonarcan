@@ -15,6 +15,7 @@
     "test:chords": "uv run --project tools/sonarcan-chord-worker --locked python -m unittest discover -s tools/sonarcan-chord-worker/tests -v",
     "chords:downbeat-model": "node scripts/prepare-beat-this-model.mjs",
     "python:runtime": "node scripts/build-python-runtime.mjs",
+    "verify:gpu-runtime": "node scripts/verify-gpu-runtime.mjs",
     "python:light-runtime": "node scripts/build-light-python-runtime.mjs",
     "verify:light-runtime": "node scripts/verify-light-runtime.mjs",
     "verify:light-frontend": "node scripts/verify-light-frontend.mjs",

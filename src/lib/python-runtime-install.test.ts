@@ -15,6 +15,18 @@ test("Apple Silicon keeps its locked default index", () => {
   assert.deepEqual(runtimePipArguments("darwin"), []);
 });
 
+test("NVIDIA releases select the pinned CUDA 12.6 wheel index", () => {
+  assert.deepEqual(runtimePipArguments("linux", "nvidia"), ["--torch-backend", "cu126"]);
+  assert.deepEqual(runtimePipArguments("win32", "nvidia"), ["--torch-backend", "cu126"]);
+});
+
+test("AMD releases retain the locked ROCm index", () => {
+  assert.deepEqual(runtimePipArguments("linux", "amd"), [
+    "--index",
+    "https://download.pytorch.org/whl/rocm7.2",
+  ]);
+});
+
 test("madmom's undeclared build dependencies are bootstrapped explicitly", () => {
   assert.deepEqual(madmomBuildDependencies, [
     "setuptools==80.9.0",

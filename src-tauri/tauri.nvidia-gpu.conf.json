@@ -1,0 +1,8 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SonArcan NVIDIA GPU",
+  "identifier": "music.sonarcan.desktop.nvidia",
+  "build": {
+    "beforeBuildCommand": "npm run verify:stem-release && npm run verify:chord-release && npm run verify:gpu-runtime && npm run verify:ytdlp-search-release && npm run verify:ffmpeg-release && npm run build"
+  }
+}

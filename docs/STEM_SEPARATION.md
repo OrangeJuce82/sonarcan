@@ -2,8 +2,8 @@
 
 SonArcan provides an optional six-channel practice mixer backed by one
 `htdemucs_6s` model. Qualified Apple Silicon uses Apple MLX. The portable Torch
-implementation remains available for release qualification, but the current
-beta publishes Windows and Linux as Light editions without this worker. The feature is deliberately opt-in because
+implementation uses NVIDIA CUDA on Windows/Linux and AMD ROCm on Linux. Light
+editions omit this worker. The feature is deliberately opt-in because
 source separation consumes substantially more compute and disk space than
 normal playback.
 
@@ -28,9 +28,10 @@ The header switch is a real-time bypass after generation. Switching it off resto
 - Cache artifacts are generated data and may be removed safely; SonArcan will regenerate them on demand.
 - Validation and cache-write durations are logged separately with the model name. Matching stereo stems avoid a redundant alignment copy, and cache PCM is encoded and written in bounded blocks.
 
-All release workers share one target-native Python 3.13.5 runtime. Linux and
-Windows still resolve CPU-only Torch from PyTorch's CPU index for packaging and
-qualification, but user-facing heavy analysis remains gated off. uv is used
+All release workers share one target-native Python 3.13.5 runtime. NVIDIA GPU
+releases resolve CUDA 12.6 Torch, and AMD Linux resolves ROCm 7.2 Torch. The
+runtime identity is checked during packaging and the production graph is checked
+on the user's GPU before analysis is enabled. uv is used
 only on development and build machines. The model config
 records and validates the official source identity and generated Safetensors
 SHA-256. Torch reconstructs the upstream module from that same file and rejects

@@ -1,10 +1,11 @@
 /**
  * @param {NodeJS.Platform} platform
+ * @param {"nvidia" | "amd" | undefined} [gpuBackend]
  */
-export function runtimePipArguments(platform) {
-  return platform !== "darwin"
-    ? ["--torch-backend", "cpu"]
-    : [];
+export function runtimePipArguments(platform, gpuBackend) {
+  if (gpuBackend === "nvidia") return ["--torch-backend", "cu126"];
+  if (gpuBackend === "amd") return ["--index", "https://download.pytorch.org/whl/rocm7.2"];
+  return platform !== "darwin" ? ["--torch-backend", "cpu"] : [];
 }
 
 export const madmomBuildDependencies = [

@@ -80,7 +80,9 @@ render Beat, Chords, Mix, BPM, or the analysis-driven metronome; navigation is
 Time-only, while playback, lyrics, spectrum, and the stereo meter remain
 available. The explanation is persisted as a once-per-user-profile notice.
 The compile-time `SONARCAN_EDITION` contract defaults to `full` for development
-and accepts only `full` or `light`. Light reports its edition through the same
+and accepts only `full` or `light`. Full Windows/Linux release builds also pin
+`SONARCAN_GPU_BACKEND` to `nvidia` or `amd`; source builds without that explicit
+qualification cannot accidentally enable portable GPU analysis. Light reports its edition through the same
 capability IPC but never runs an accelerator probe. Its bundle maps a minimal
 Python standard-library runtime to the normal runtime location for `yt-dlp` and
 omits every analysis model and package. Full and Light share the project schema;
@@ -88,6 +90,10 @@ Light neither consumes nor deletes cached analysis created by Full.
 The Light Vite build also aliases the Piano and fretted-instrument components to
 empty compile-time implementations, so their chord corpus and presentation CSS
 cannot enter the shipped frontend. Bundle verification rejects that corpus.
+Apple Silicon uses MLX for stems and MPS for chord/rhythm analysis. NVIDIA
+Windows/Linux releases use CUDA 12.6, while AMD Linux releases use ROCm 7.2
+through PyTorch's CUDA-compatible device API. All backends execute both model
+probes on the end-user accelerator before Rust opens the analysis IPC gate.
 
 In full mode, the analysis workspace places the six-stem mixer beside a right-hand column
 containing the spectrum and stereo meter. Beneath it, the chord grid and a
@@ -268,9 +274,9 @@ The application console is a bounded diagnostic view, not a real-time sink. Rust
 
 Six-stem inference is an implementation detail behind one Rust stem service.
 After the startup capability probe succeeds, Apple Silicon selects the MLX
-worker. A portable Torch worker remains packaged for qualification work, but
-Windows and Linux do not invoke it in the current beta because CPU-only heavy
-analysis is not an accepted user experience. Both workers receive only canonical project media/model paths
+worker. NVIDIA Windows/Linux select the CUDA worker and AMD Linux selects the
+ROCm worker. CPU-only heavy analysis is not an accepted user experience, so a
+failed accelerator probe closes the service gate. Both workers receive only canonical project media/model paths
 through direct argument arrays, return the same bounded NDJSON protocol, and
 load the same verified `htdemucs_6s.safetensors`. The portable worker reverses
 the deterministic convolution/attention layout mapping used during MLX

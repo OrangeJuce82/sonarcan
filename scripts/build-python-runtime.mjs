@@ -5,7 +5,19 @@ import { fileURLToPath } from "node:url";
 import { madmomBuildDependencies, runtimePipArguments } from "./python-runtime-install.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const project = join(repositoryRoot, "tools/sonarcan-python-runtime");
+const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
+if (gpuBackend && !["nvidia", "amd"].includes(gpuBackend)) {
+  throw new Error(`unsupported SONARCAN_GPU_BACKEND: ${gpuBackend}`);
+}
+if (gpuBackend && process.platform === "darwin") {
+  throw new Error("SONARCAN_GPU_BACKEND is only valid for Windows and Linux runtimes");
+}
+const runtimeProject = gpuBackend === "nvidia"
+  ? "sonarcan-python-runtime-cuda"
+  : gpuBackend === "amd"
+    ? "sonarcan-python-runtime-rocm"
+    : "sonarcan-python-runtime";
+const project = join(repositoryRoot, `tools/${runtimeProject}`);
 const runtime = join(repositoryRoot, "src-tauri/resources/python-runtime/runtime");
 const requirements = join(runtime, "requirements.lock.txt");
 const beatModel = join(repositoryRoot, "src-tauri/resources/models/beat-this/final0.ckpt");
@@ -58,7 +70,7 @@ run("uv", [
   "--no-build-isolation-package", "madmom",
   "--reinstall-package", "sonarcan-lv-chordia-worker",
   "--reinstall-package", stemPackage,
-  ...runtimePipArguments(process.platform), "--requirement", requirements,
+  ...runtimePipArguments(process.platform, gpuBackend), "--requirement", requirements,
 ], { cwd: project });
 
 const sitePackages = process.platform === "win32"
@@ -75,5 +87,12 @@ run(runtimePython, [
 run(runtimePython, [
   "-m", stemModule, "self-test", "--model-dir", stemModel,
 ]);
+if (gpuBackend) {
+  const expected = gpuBackend === "nvidia" ? "CUDA" : "ROCm";
+  run(runtimePython, [
+    "-c",
+    `import torch; assert torch.version.cuda if ${JSON.stringify(gpuBackend)} == 'nvidia' else torch.version.hip; print('${expected} runtime present')`,
+  ]);
+}
 
-console.log(`Pinned shared Python 3.13 runtime assembled in ${runtime}`);
+console.log(`Pinned ${gpuBackend ?? (appleSilicon ? "apple" : "cpu")} Python 3.13 runtime assembled in ${runtime}`);

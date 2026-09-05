@@ -32,6 +32,8 @@ const generatedArtifacts = [
   "tools/sonarcan-torch-worker/build",
   "tools/sonarcan-mlx-worker/build",
   "tools/sonarcan-python-runtime/build",
+  "tools/sonarcan-python-runtime-cuda/build",
+  "tools/sonarcan-python-runtime-rocm/build",
 ];
 
 const localDependencies = [
@@ -40,6 +42,8 @@ const localDependencies = [
   "tools/sonarcan-chord-worker/.venv",
   "tools/sonarcan-torch-worker/.venv",
   "tools/sonarcan-python-runtime/.venv",
+  "tools/sonarcan-python-runtime-cuda/.venv",
+  "tools/sonarcan-python-runtime-rocm/.venv",
   "src-tauri/resources/python-runtime/runtime",
   "src-tauri/resources/light-python-runtime/runtime",
   "src-tauri/resources/audio-tools/bin",

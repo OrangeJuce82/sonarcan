@@ -10,6 +10,8 @@ release_tag="${GITHUB_REF_NAME:-v$package_version}"
 release_workflow="$repository_root/.github/workflows/release-macos.yml"
 portable_worker="$repository_root/tools/sonarcan-torch-worker/pyproject.toml"
 shared_runtime="$repository_root/tools/sonarcan-python-runtime/uv.lock"
+cuda_runtime="$repository_root/tools/sonarcan-python-runtime-cuda/uv.lock"
+rocm_runtime="$repository_root/tools/sonarcan-python-runtime-rocm/uv.lock"
 
 if [[ "$package_version" != "$tauri_version" || "$package_version" != "$cargo_version" ]]; then
   echo "package.json, tauri.conf.json and Cargo.toml versions must match." >&2
@@ -86,8 +88,8 @@ if ! grep -Fq 'SONARCAN_EDITION: light' "$release_workflow" \
   echo "Portable release jobs must build the Light edition and its minimal runtime." >&2
   exit 1
 fi
-if ! grep -Fq 'torch==2.13.0+cpu; sys_platform == '\''linux'\'' or sys_platform == '\''win32'\''' "$portable_worker"; then
-  echo "Linux and Windows releases must pin the exact portable CPU Torch build." >&2
+if ! grep -Fq '"torch==2.13.0"' "$portable_worker"; then
+  echo "The portable worker must pin Torch while allowing release projects to select a backend." >&2
   exit 1
 fi
 if ! grep -Fq 'version = "2.13.0+cpu"' "$shared_runtime" \
@@ -95,6 +97,29 @@ if ! grep -Fq 'version = "2.13.0+cpu"' "$shared_runtime" \
   || ! grep -Fq 'source = { registry = "https://download.pytorch.org/whl/cpu" }' "$shared_runtime" \
   || grep -Fq 'name = "nvidia-' "$shared_runtime"; then
   echo "The shared runtime must resolve CPU-only Torch audio packages without NVIDIA packages on Linux and Windows." >&2
+  exit 1
+fi
+if ! grep -Fq 'version = "2.13.0+cu126"' "$cuda_runtime" \
+  || ! grep -Fq 'source = { registry = "https://download.pytorch.org/whl/cu126" }' "$cuda_runtime" \
+  || ! grep -Fq 'name = "nvidia-cudnn-cu12"' "$cuda_runtime"; then
+  echo "The NVIDIA release runtime must be locked to the CUDA 12.6 PyTorch graph." >&2
+  exit 1
+fi
+if ! grep -Fq 'version = "2.13.0+rocm7.2"' "$rocm_runtime" \
+  || ! grep -Fq 'source = { registry = "https://download.pytorch.org/whl/rocm7.2" }' "$rocm_runtime" \
+  || ! grep -Fq 'name = "triton-rocm"' "$rocm_runtime"; then
+  echo "The AMD Linux release runtime must be locked to the ROCm 7.2 PyTorch graph." >&2
+  exit 1
+fi
+if ! grep -Fq 'release-windows-gpu:' "$release_workflow" \
+  || ! grep -Fq 'release-linux-gpu:' "$release_workflow" \
+  || ! grep -Fq 'SONARCAN_GPU_BACKEND: nvidia' "$release_workflow" \
+  || ! grep -Fq 'backend: amd' "$release_workflow"; then
+  echo "The release workflow must publish Windows NVIDIA and Linux NVIDIA/AMD GPU editions." >&2
+  exit 1
+fi
+if ! grep -Fq -- '--notes-file RELEASE_NOTES.md' "$release_workflow"; then
+  echo "The release workflow must publish the curated edition notes." >&2
   exit 1
 fi
 echo "Release version $package_version is consistent."

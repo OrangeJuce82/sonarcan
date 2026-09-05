@@ -10,6 +10,7 @@ from sonarcan_torch_worker.worker import (
     INFERENCE_OVERLAP,
     MODEL_NAME,
     MODEL_SOURCE,
+    build_parser,
     inference_settings,
     mlx_parameter_name,
     validate_model_files,
@@ -18,6 +19,13 @@ from sonarcan_torch_worker.worker import (
 
 
 class WorkerTests(unittest.TestCase):
+    def test_exposes_a_bounded_accelerator_probe_command(self) -> None:
+        parsed = build_parser().parse_args([
+            "accelerator-self-test", "--model-dir", "/tmp/model",
+        ])
+        self.assertEqual(parsed.command, "accelerator-self-test")
+        self.assertEqual(parsed.model_dir, Path("/tmp/model"))
+
     def test_uses_the_documented_fast_cpu_inference_settings(self) -> None:
         self.assertEqual(inference_settings("cpu"), (CPU_SHIFTS, INFERENCE_OVERLAP))
         self.assertEqual(inference_settings("mps"), (ACCELERATOR_SHIFTS, INFERENCE_OVERLAP))

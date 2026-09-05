@@ -56,7 +56,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release_args=(--draft --generate-notes --title "SonArcan $GITHUB_REF_NAME")
+          release_args=(--draft --notes-file RELEASE_NOTES.md --title "SonArcan $GITHUB_REF_NAME")
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             release_args+=(--prerelease)
           fi
@@ -130,7 +130,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: SonArcan ${{ github.ref_name }}
-          generateReleaseNotes: true
+          generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.macos-arm.conf.json
@@ -227,7 +227,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: SonArcan ${{ github.ref_name }}
-          generateReleaseNotes: true
+          generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target ${{ matrix.target }} --bundles app,dmg --config ${{ matrix.config }}
@@ -239,7 +239,7 @@ jobs:
           test ! -e "$app_bundle/Contents/Resources/models"
 
   release-linux:
-    name: Release Linux x64
+    name: Release Linux x64 Light
     needs: prepare-model
     timeout-minutes: 120
     runs-on: ubuntu-24.04
@@ -285,7 +285,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: SonArcan ${{ github.ref_name }}
-          generateReleaseNotes: true
+          generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target x86_64-unknown-linux-gnu --bundles deb --config src-tauri/tauri.portable.conf.json
@@ -299,7 +299,7 @@ jobs:
           rm -rf "$verification_root"
 
   release-windows:
-    name: Release Windows x64
+    name: Release Windows x64 Light
     needs: prepare-model
     timeout-minutes: 120
     runs-on: windows-2025
@@ -335,7 +335,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: SonArcan ${{ github.ref_name }}
-          generateReleaseNotes: true
+          generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target x86_64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.portable.conf.json
@@ -345,6 +345,150 @@ jobs:
           $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
           if (-not $installer) { throw "NSIS installer is missing" }
           $installRoot = Join-Path $env:RUNNER_TEMP "sonarcan-release-verification"
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList "/S", "/D=$installRoot" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($process.ExitCode)" }
+          npm run verify:bundled-release -- "$installRoot"
+
+  release-linux-gpu:
+    name: Release Linux x64 ${{ matrix.label }}
+    needs: prepare-model
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: NVIDIA GPU
+            backend: nvidia
+            config: src-tauri/tauri.nvidia-gpu.conf.json
+          - label: AMD GPU
+            backend: amd
+            config: src-tauri/tauri.amd-gpu.conf.json
+    runs-on: ubuntu-24.04
+    env:
+      SONARCAN_EDITION: full
+      SONARCAN_GPU_BACKEND: ${{ matrix.backend }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: |
+            tools/sonarcan-python-runtime-cuda/uv.lock
+            tools/sonarcan-python-runtime-rocm/uv.lock
+            tools/sonarcan-chord-worker/uv.lock
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libfuse2 \
+            patchelf
+      - run: uv python install 3.13.5
+      - run: npm ci
+      - run: npm run verify:release-version
+      - uses: actions/download-artifact@v7
+        with:
+          name: htdemucs-6s-model
+          path: src-tauri/resources/models/demucs-mlx
+      - run: npm run chords:downbeat-model
+      - run: npm run python:runtime
+      - run: npm run verify:stem-release
+      - run: npm run verify:chord-release
+      - run: npm run verify:gpu-runtime
+      - run: npm run ytdlp:search
+      - run: npm run verify:ytdlp-search-release
+      - run: npm run ffmpeg:runtime
+      - run: npm run verify:ffmpeg-release
+      - run: npm run quality
+      - name: Build GPU DEB and upload it to the draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: SonArcan ${{ github.ref_name }}
+          generateReleaseNotes: false
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: --target x86_64-unknown-linux-gnu --bundles deb --config ${{ matrix.config }}
+      - name: Verify packaged Linux GPU application
+        run: |
+          verification_root="$(mktemp -d)"
+          deb_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$deb_path"
+          dpkg-deb -x "$deb_path" "$verification_root/deb"
+          npm run verify:bundled-release -- "$verification_root/deb"
+          rm -rf "$verification_root"
+
+  release-windows-gpu:
+    name: Release Windows x64 NVIDIA GPU
+    needs: prepare-model
+    timeout-minutes: 180
+    runs-on: windows-2025
+    env:
+      SONARCAN_EDITION: full
+      SONARCAN_GPU_BACKEND: nvidia
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: |
+            tools/sonarcan-python-runtime-cuda/uv.lock
+            tools/sonarcan-chord-worker/uv.lock
+      - run: uv python install 3.13.5
+      - run: npm ci
+      - run: npm run verify:release-version
+      - uses: actions/download-artifact@v7
+        with:
+          name: htdemucs-6s-model
+          path: src-tauri/resources/models/demucs-mlx
+      - run: npm run chords:downbeat-model
+      - run: npm run python:runtime
+      - run: npm run verify:stem-release
+      - run: npm run verify:chord-release
+      - run: npm run verify:gpu-runtime
+      - run: npm run ytdlp:search
+      - run: npm run verify:ytdlp-search-release
+      - run: npm run ffmpeg:runtime
+      - run: npm run verify:ffmpeg-release
+      - run: npm run quality
+      - name: Build NVIDIA GPU bundle and upload it to the draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: SonArcan ${{ github.ref_name }}
+          generateReleaseNotes: false
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: --target x86_64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.nvidia-gpu.conf.json
+      - name: Install and verify packaged Windows GPU application
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer is missing" }
+          $installRoot = Join-Path $env:RUNNER_TEMP "sonarcan-nvidia-release-verification"
           $process = Start-Process -FilePath $installer.FullName -ArgumentList "/S", "/D=$installRoot" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "NSIS installation failed with exit code $($process.ExitCode)" }
           npm run verify:bundled-release -- "$installRoot"

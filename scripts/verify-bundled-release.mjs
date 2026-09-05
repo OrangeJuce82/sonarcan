@@ -45,6 +45,7 @@ if (!resources) throw new Error(`could not locate SonArcan resources inside ${ro
 
 const windows = process.platform === "win32";
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
+const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
 const suffix = windows ? ".exe" : "";
 const fullEdition = existsSync(join(resources, "models", "beat-this", "final0.ckpt"));
 const sharedPython = required(
@@ -78,6 +79,11 @@ if (fullEdition) {
     run(sharedPython, [
       "-m", stemModule, "accelerator-self-test", "--model-dir", dirname(model),
     ], "bundled MLX stem accelerator");
+  } else if (gpuBackend) {
+    const qualification = gpuBackend === "nvidia"
+      ? "assert torch.version.cuda and not torch.version.hip"
+      : "assert torch.version.hip";
+    run(sharedPython, ["-c", `import torch; ${qualification}`], `bundled ${gpuBackend} GPU runtime`);
   }
 } else {
   run(sharedPython, [
@@ -101,5 +107,5 @@ console.log(JSON.stringify({
   architecture: process.arch,
   edition: fullEdition ? "full" : "light",
   stemBackend: fullEdition ? appleSilicon ? "MLX" : "Torch" : null,
-  analysisAcceleratorQualified: fullEdition && appleSilicon,
+  analysisAcceleratorQualified: fullEdition && (appleSilicon || Boolean(gpuBackend)),
 }));

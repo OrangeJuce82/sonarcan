@@ -66,7 +66,25 @@ fn application_edition() -> &'static str {
 }
 
 fn accelerated_analysis_available() -> bool {
-    application_edition() == "full" && cfg!(all(target_os = "macos", target_arch = "aarch64"))
+    if application_edition() != "full" {
+        return false;
+    }
+    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        || (cfg!(any(target_os = "windows", target_os = "linux"))
+            && cfg!(target_arch = "x86_64")
+            && matches!(option_env!("SONARCAN_GPU_BACKEND"), Some("nvidia" | "amd")))
+}
+
+fn accelerated_analysis_backend() -> Option<&'static str> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some("MLX / MPS")
+    } else {
+        match option_env!("SONARCAN_GPU_BACKEND") {
+            Some("nvidia") => Some("NVIDIA CUDA"),
+            Some("amd") => Some("AMD ROCm"),
+            _ => None,
+        }
+    }
 }
 
 fn require_accelerated_analysis(state: &AnalysisCapabilityState) -> Result<(), AppError> {
@@ -878,7 +896,7 @@ async fn analysis_capabilities(
     state.0.store(accelerated, Ordering::Release);
     Ok(AnalysisCapabilities {
         accelerated,
-        backend: accelerated.then_some("MLX / MPS"),
+        backend: accelerated.then(accelerated_analysis_backend).flatten(),
         edition: application_edition(),
         reason: (!accelerated).then_some(if application_edition() == "light" {
             "editionLight"

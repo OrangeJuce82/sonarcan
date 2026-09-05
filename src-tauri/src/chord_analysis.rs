@@ -248,7 +248,6 @@ fn resolve_downbeat_model(app: &AppHandle) -> Result<PathBuf, AppError> {
 }
 
 pub fn accelerator_self_test(app: &AppHandle) -> bool {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
         let Ok(worker) = resolve_worker(app) else {
             return false;
@@ -282,11 +281,6 @@ pub fn accelerator_self_test(app: &AppHandle) -> bool {
                 }
             }
         }
-    }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    {
-        let _ = app;
-        false
     }
 }
 

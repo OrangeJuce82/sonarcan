@@ -2,8 +2,9 @@
 
 ## Supported releases
 
-The tag workflow produces a Full MLX bundle for Apple Silicon plus Light bundles
-for Apple Silicon, Intel macOS, Windows x64, and Linux x64. Full contains the
+The tag workflow produces a Full MLX bundle for Apple Silicon, NVIDIA CUDA 12.6
+bundles for Windows/Linux, an AMD ROCm 7.2 bundle for Linux, plus Light bundles
+for Apple Silicon, Intel macOS, Windows x64, and Linux x64. Full/GPU contains the
 analysis runtime and models. Light contains only a target-native minimal Python
 3.13 standard library for the pinned `yt-dlp` artifact and excludes Torch, MLX,
 LV-Chordia, Beat This!, Demucs, NumPy, SciPy, and their model files. Never copy a
@@ -17,8 +18,10 @@ CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,
 execute their self-tests, and upload platform installers to one draft release.
 Apple Silicon bundle verification also executes the same MPS and MLX
-accelerator probes used at application startup; a bundle that would enter
-degraded mode on the release runner is rejected.
+accelerator probes used at application startup. Hosted Windows/Linux runners do
+not have production GPUs, so their release gate verifies the pinned CUDA/ROCm
+runtime identity and CPU-loadable model contracts; the app then executes both
+production graphs on the end-user GPU before enabling analysis.
 After packaging, the release gate inspects the macOS applications, extracts the
 Linux DEB, and silently installs the Windows NSIS package in the disposable
 runner. It then executes the embedded chord/downbeat, stem, FFmpeg, FFprobe, and
@@ -47,7 +50,8 @@ been produced; that optional format must not block the supported Linux release.
 - FFmpeg 8.0.3 and LAME 3.100 are built from their verified source archives as
   static ARM64 command-line tools; their source SHA-256 values are recorded in
   `scripts/build-ffmpeg-runtime.sh` and the generated runtime manifest;
-- portable Torch 2.13.0 CPU wheels are resolved from PyTorch's pinned CPU index;
+- NVIDIA releases resolve Torch 2.13.0 from PyTorch's pinned CUDA 12.6 index;
+- AMD Linux releases resolve Torch 2.13.0 from PyTorch's pinned ROCm 7.2 index;
 - BtbN Linux and Windows FFmpeg archives are selected from one immutable release
   tag and verified through a checksum manifest whose SHA-256 is pinned in source;
 - target-native Python environments, the shared model, FFmpeg, and FFprobe are
@@ -127,9 +131,8 @@ embedded-runtime signing script use the same ad-hoc identity.
 
 5. The `Release desktop` workflow checks version consistency, prepares the
    shared model once on Apple Silicon, creates the **draft** GitHub Release,
-   then runs the explicit `release-macos`, `release-linux`, and
-   `release-windows` jobs concurrently. Every runtime and media tool is
-   verified before packaging.
+   then runs the macOS, Light, NVIDIA GPU, and AMD GPU jobs concurrently. Every
+   runtime and media tool is verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
    declaration, shared-model identity, and bundled executables.
 7. Download and smoke-test every draft installer. On macOS, verify with

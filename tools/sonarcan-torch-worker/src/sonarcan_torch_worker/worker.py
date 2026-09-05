@@ -291,6 +291,8 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command")
     health = subcommands.add_parser("self-test")
     health.add_argument("--model-dir", type=Path, required=True)
+    accelerator = subcommands.add_parser("accelerator-self-test")
+    accelerator.add_argument("--model-dir", type=Path, required=True)
     command = subcommands.add_parser("separate")
     command.add_argument("--input", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
@@ -310,6 +312,28 @@ def run(arguments: Sequence[str] | None = None) -> int:
             if tuple(model.sources) != ("drums", "bass", "other", "vocals", "guitar", "piano"):
                 raise RuntimeError("the reconstructed model has an invalid stem order")
             emit("ready", model=MODEL_NAME, backend="Torch", device=device, stems=list(STEM_NAMES))
+            return 0
+        if args.command == "accelerator-self-test":
+            import torch
+
+            device = choose_device(torch)
+            if device != "cuda":
+                raise RuntimeError("the qualified CUDA or ROCm accelerator is unavailable")
+            model = load_model(args.model_dir, device)
+            with torch.inference_mode():
+                probe = torch.zeros((1, 2, int(model.samplerate)), dtype=torch.float32, device=device)
+                output = model(probe)
+                if output.ndim != 4 or not torch.isfinite(output).all().item():
+                    raise RuntimeError("HTDemucs accelerator self-test produced invalid values")
+                torch.cuda.synchronize()
+            emit(
+                "ready",
+                model=MODEL_NAME,
+                backend="ROCm" if torch.version.hip else "CUDA",
+                device=device,
+                accelerated=True,
+                stems=list(STEM_NAMES),
+            )
             return 0
         if args.command == "separate":
             separate(args.input, args.output, args.model_dir, args.ffmpeg)

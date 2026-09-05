@@ -11,8 +11,7 @@ dependencies = [
   "demucs==4.1.0",
   "numpy==2.3.5",
   "safetensors==0.8.0",
-  "torch==2.13.0+cpu; sys_platform == 'linux' or sys_platform == 'win32'",
-  "torch==2.13.0; sys_platform != 'linux' and sys_platform != 'win32'",
+  "torch==2.13.0",
 ]
 
 [project.scripts]

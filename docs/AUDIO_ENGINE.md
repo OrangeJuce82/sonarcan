@@ -48,8 +48,10 @@ The real-time callback never locks or reads this cache. It only sees the selecte
 
 Stem mode is disabled by default and never delays ordinary track loading. After
 the startup accelerator probe succeeds, an Apple-silicon Mac starts
-`sonarcan-mlx-worker` with the exact `demucs-mlx` environment. Windows and Linux
-do not start the bundled CPU-only Torch worker in the current beta. Both worker
+`sonarcan-mlx-worker` with the exact `demucs-mlx` environment. NVIDIA
+Windows/Linux releases start the pinned CUDA 12.6 Torch worker; AMD Linux
+releases start the pinned ROCm 7.2 worker. A GPU release whose on-device graph
+probe fails does not start separation and never falls back to CPU. Both worker
 implementations use one six-stem protocol and one cache.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.

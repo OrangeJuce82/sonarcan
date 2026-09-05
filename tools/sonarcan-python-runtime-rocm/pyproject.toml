@@ -1,0 +1,33 @@
+[project]
+name = "sonarcan-python-runtime-rocm"
+version = "0.1.0"
+description = "Pinned AMD ROCm runtime for SonArcan Linux releases"
+requires-python = "==3.13.*"
+dependencies = [
+  "sonarcan-lv-chordia-worker",
+  "sonarcan-torch-worker",
+  "triton-rocm==3.7.1",
+]
+
+[tool.uv]
+required-version = "==0.9.26"
+package = false
+environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+no-build-isolation-package = ["madmom"]
+override-dependencies = ["torch==2.13.0+rocm7.2"]
+
+[[tool.uv.index]]
+name = "pytorch-rocm72"
+url = "https://download.pytorch.org/whl/rocm7.2"
+explicit = true
+
+[tool.uv.sources]
+sonarcan-lv-chordia-worker = { path = "../sonarcan-chord-worker" }
+sonarcan-torch-worker = { path = "../sonarcan-torch-worker" }
+torch = { index = "pytorch-rocm72" }
+triton-rocm = { index = "pytorch-rocm72" }
+
+[dependency-groups]
+dev = []

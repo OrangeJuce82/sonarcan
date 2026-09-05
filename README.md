@@ -13,9 +13,9 @@
 </div>
 
 > [!NOTE]
-> SonArcan Full targets macOS 14+ on Apple Silicon. SonArcan Light targets
-> Apple Silicon, macOS Intel, Windows x64, and Linux x64 without bundling the
-> heavy analysis models or runtimes.
+> SonArcan Full targets Apple Silicon, NVIDIA GPUs on Windows/Linux, and AMD
+> GPUs on Linux. SonArcan Light targets all supported platforms without
+> bundling the heavy analysis models or runtimes.
 
 ## Minimum and recommended configuration
 
@@ -24,7 +24,10 @@
 | macOS Apple Silicon Full | macOS 14, M1, 8 GB RAM | A working, qualified MLX/MPS accelerator | M2 or newer, 16 GB RAM |
 | macOS Apple Silicon Light | macOS 14, M1, 8 GB RAM | Not included | 16 GB RAM for large projects |
 | macOS Intel Light | macOS 12, Intel x64, 8 GB RAM | Not included | macOS 13+, 16 GB RAM |
+| Windows NVIDIA GPU | Windows 10 1903 or newer, x64, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Windows 11, 8 GB GPU memory, 32 GB RAM |
 | Windows Light | Windows 10 1903 or newer, x64, 8 GB RAM | Not included | Windows 11, 16 GB RAM |
+| Linux NVIDIA GPU | x64, glibc 2.28+, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Current distribution, 8 GB GPU memory, 32 GB RAM |
+| Linux AMD GPU | x64, glibc 2.28+, 16 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | Current distribution, 8 GB GPU memory, 32 GB RAM |
 | Linux Light | x64 desktop supported by the packaged DEB, 8 GB RAM | Not included | Current distribution, 16 GB RAM |
 
 SonArcan Full checks the production accelerator and model graphs once when the
@@ -40,10 +43,29 @@ spectrum, and the stereo meter, but does not include Beat, Chords, Mix, BPM, or
 the analysis metronome. Full and Light use the same `.sac` project format and
 never delete analysis data produced by another edition.
 
-The current beta has a qualified Full backend on Apple Silicon. Windows and
-Linux Full GPU editions will be published only after their WebGPU backend passes
-model parity, stability, and performance qualification on production hardware;
-SonArcan never silently falls back to the CPU for these heavy jobs.
+Windows and Linux GPU bundles contain a pinned accelerator-specific PyTorch
+runtime: CUDA 12.6 for NVIDIA, and ROCm 7.2 for AMD on Linux. PyTorch exposes
+ROCm through its CUDA-compatible API, but the packages and installer remain
+separate. Windows AMD and Intel GPUs are not qualified in this beta; choose
+Light on those systems. SonArcan never silently falls back to the CPU for heavy
+analysis jobs.
+
+## Choose an edition
+
+| Feature | Full / GPU | Light or degraded mode |
+| --- | --- | --- |
+| Playback, pitch/tempo, loops and trainer | Yes | Yes |
+| Lyrics | Yes | Yes; moves into the Mix column |
+| Spectrum and stereo meters | Yes | Yes |
+| Beat timeline, BPM and analysis metronome | Yes | No |
+| Chord detection and navigation | Yes | No |
+| Piano, guitar and ukulele chord views | Yes | No; assets are excluded |
+| Six-stem Mix and export | Yes | No |
+
+Download **SonArcan** for an Apple-silicon Mac, **SonArcan NVIDIA GPU** for a
+supported NVIDIA Windows/Linux computer, **SonArcan AMD GPU** for supported AMD
+Linux hardware, or **SonArcan Light** everywhere else. Detailed notes for the
+current beta are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 SonArcan is made for musicians who want the useful parts of an audio workstation without the weight of a full DAW. Import a setlist, understand the music, isolate parts, build loops, and practice—all while keeping projects portable and data on your Mac.
 
@@ -118,8 +140,8 @@ npm run tauri dev
 
 Releases bundle pinned Python workers, analysis models, and a target-native
 FFmpeg runtime. End users do not need to install Python, `uv`, FFmpeg, or model
-dependencies. The tag workflow builds three platform releases: macOS ARM64,
-Windows x64, and a Linux x64 DEB.
+dependencies. The tag workflow builds Apple Silicon Full, NVIDIA Windows/Linux
+GPU, AMD Linux GPU, and Light installers for every supported desktop architecture.
 
 ```bash
 npm ci
