@@ -1,7 +1,7 @@
 {
   "name": "sonarcan",
   "private": true,
-  "version": "0.1.0-beta.23",
+  "version": "0.1.0-beta.24",
   "type": "module",
   "scripts": {
     "clean": "node scripts/clean.mjs",

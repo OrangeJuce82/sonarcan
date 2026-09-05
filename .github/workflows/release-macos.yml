@@ -419,7 +419,9 @@ jobs:
       - run: npm run quality
       - name: Free build caches before the large GPU package
         run: |
+          uv_cache_dir="$(uv cache dir)"
           uv cache clean
+          mkdir -p "$uv_cache_dir"
           cargo clean --manifest-path src-tauri/Cargo.toml
       # GPU runtimes are larger than GitHub's 2 GiB per-asset limit. Build and
       # verify the native DEB, then split it into downloadable release volumes.
@@ -495,7 +497,9 @@ jobs:
       - run: npm run quality
       - name: Free build caches before the large GPU package
         run: |
+          $uvCacheDir = uv cache dir
           uv cache clean
+          New-Item -ItemType Directory -Force -Path $uvCacheDir | Out-Null
           cargo clean --manifest-path src-tauri/Cargo.toml
       # NSIS cannot create installers above 2 GiB. Keep this edition portable
       # and split its Zip64 archive below GitHub's per-asset size limit.
