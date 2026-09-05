@@ -302,7 +302,7 @@ jobs:
           test -n "$deb_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
-          rm -rf "$verification_root" src-tauri/resources/python-runtime src-tauri/resources/models
+          rm -rf "$verification_root"
 
   release-windows:
     name: Release Windows x64 Light
@@ -436,7 +436,7 @@ jobs:
           test -n "$deb_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
-          rm -rf "$verification_root"
+          rm -rf "$verification_root" src-tauri/resources/python-runtime src-tauri/resources/models
 
           backend_name="$(printf '%s' '${{ matrix.backend }}' | tr '[:lower:]' '[:upper:]')"
           portable_name="SonArcan-Linux-x86_64-${backend_name}-GPU-${GITHUB_REF_NAME}.deb"
