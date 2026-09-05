@@ -1,4 +1,4 @@
-# SonArcan 0.1.0-beta.21
+# SonArcan 0.1.0-beta.22
 
 This beta introduces platform-specific Full GPU and Light releases. Choose the
 installer whose name matches your computer; all editions share the same `.sac`

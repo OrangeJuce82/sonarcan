@@ -6,6 +6,7 @@ requires-python = "==3.13.*"
 dependencies = [
   "sonarcan-lv-chordia-worker",
   "sonarcan-torch-worker",
+  "triton==3.7.1 ; sys_platform == 'linux'",
 ]
 
 [tool.uv]
@@ -27,6 +28,7 @@ explicit = true
 sonarcan-lv-chordia-worker = { path = "../sonarcan-chord-worker" }
 sonarcan-torch-worker = { path = "../sonarcan-torch-worker" }
 torch = { index = "pytorch-cu126" }
+triton = { index = "pytorch-cu126" }
 
 [dependency-groups]
 dev = []

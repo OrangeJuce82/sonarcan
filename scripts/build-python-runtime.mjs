@@ -63,7 +63,9 @@ run("uv", [
 ]);
 run("uv", [
   "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
-  ...(gpuBackend ? ["--no-cache"] : []),
+  // The pinned Cython Git build exceeds Windows' linker path limits when uv
+  // recreates it below a fresh temporary cache. Reuse its prepared wheel; only
+  // the accelerator runtime download below needs to bypass stale wheel caches.
   ...madmomBuildDependencies,
 ]);
 run("uv", [

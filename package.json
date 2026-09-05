@@ -1,7 +1,7 @@
 {
   "name": "sonarcan",
   "private": true,
-  "version": "0.1.0-beta.21",
+  "version": "0.1.0-beta.22",
   "type": "module",
   "scripts": {
     "clean": "node scripts/clean.mjs",
@@ -12,7 +12,7 @@
     "test": "node --test src/lib/*.test.ts",
     "test:mlx": "node scripts/test-python-worker.mjs mlx",
     "test:stems": "node scripts/test-python-worker.mjs torch",
-    "test:chords": "uv run --project tools/sonarcan-chord-worker --locked python -m unittest discover -s tools/sonarcan-chord-worker/tests -v",
+    "test:chords": "node scripts/test-chord-worker.mjs",
     "chords:downbeat-model": "node scripts/prepare-beat-this-model.mjs",
     "python:runtime": "node scripts/build-python-runtime.mjs",
     "verify:gpu-runtime": "node scripts/verify-gpu-runtime.mjs",
