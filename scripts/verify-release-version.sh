@@ -122,4 +122,10 @@ if ! grep -Fq -- '--notes-file RELEASE_NOTES.md' "$release_workflow"; then
   echo "The release workflow must publish the curated edition notes." >&2
   exit 1
 fi
+if ! grep -Fq 'sha256sum --check' "$repository_root/RELEASE_NOTES.md" \
+  || ! grep -Fq '[IO.File]::Create' "$repository_root/RELEASE_NOTES.md" \
+  || ! grep -Fq 'Expand-Archive' "$repository_root/RELEASE_NOTES.md"; then
+  echo "Release notes must include Linux and Windows multipart reconstruction commands." >&2
+  exit 1
+fi
 echo "Release version $package_version is consistent."
