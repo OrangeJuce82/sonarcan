@@ -63,10 +63,12 @@ run("uv", [
 ]);
 run("uv", [
   "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
+  ...(gpuBackend ? ["--no-cache"] : []),
   ...madmomBuildDependencies,
 ]);
 run("uv", [
   "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
+  ...(gpuBackend ? ["--no-cache"] : []),
   "--no-build-isolation-package", "madmom",
   "--reinstall-package", "sonarcan-lv-chordia-worker",
   "--reinstall-package", stemPackage,

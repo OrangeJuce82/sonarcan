@@ -4,7 +4,7 @@
  */
 export function runtimePipArguments(platform, gpuBackend) {
   if (gpuBackend === "nvidia") return ["--torch-backend", "cu126"];
-  if (gpuBackend === "amd") return ["--index", "https://download.pytorch.org/whl/rocm7.2"];
+  if (gpuBackend === "amd") return [];
   return platform !== "darwin" ? ["--torch-backend", "cpu"] : [];
 }
 

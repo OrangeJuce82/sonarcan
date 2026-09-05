@@ -9,11 +9,8 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::UNIX_EPOCH,
+    time::{Duration, Instant, UNIX_EPOCH},
 };
-
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;

@@ -21,10 +21,7 @@ test("NVIDIA releases select the pinned CUDA 12.6 wheel index", () => {
 });
 
 test("AMD releases retain the locked ROCm index", () => {
-  assert.deepEqual(runtimePipArguments("linux", "amd"), [
-    "--index",
-    "https://download.pytorch.org/whl/rocm7.2",
-  ]);
+  assert.deepEqual(runtimePipArguments("linux", "amd"), []);
 });
 
 test("madmom's undeclared build dependencies are bootstrapped explicitly", () => {
