@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsNavigationPositions, LyricsParseError, normalizedLyricsOffsetMs, parseLyrics } from "./lyrics.ts";
+import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsNavigationPositions, lyricsViewportBlocks, LyricsParseError, normalizedLyricsOffsetMs, parseLyrics } from "./lyrics.ts";
 
 test("parses and follows line-synchronized LRC", () => {
   const document = parseLyrics("[00:01.00]Première\n[00:03.50]Deuxième", "fr", 5_000);
@@ -85,4 +85,24 @@ test("lyrics offsets use bounded 100 ms steps expressed in seconds", () => {
   assert.equal(normalizedLyricsOffsetMs(-0.26), -300);
   assert.equal(normalizedLyricsOffsetMs(45), 30_000);
   assert.equal(normalizedLyricsOffsetMs(Number.NaN), 0);
+});
+
+test("waveform lyric blocks share its zoomed viewport and clip edge lines", () => {
+  const document = parseLyrics("[00:00.00]One\n[00:04.00]Two\n[00:08.00]Three", "en", 12_000);
+  assert.deepEqual(lyricsViewportBlocks(document, 12, 2, 0.25).map((block) => ({
+    text: block.line.text,
+    index: block.index,
+    seek: block.seekSeconds,
+    left: Math.round(block.leftPercent),
+    width: Math.round(block.widthPercent),
+  })), [
+    { text: "One", index: 0, seek: 0, left: 0, width: 17 },
+    { text: "Two", index: 1, seek: 4, left: 17, width: 67 },
+    { text: "Three", index: 2, seek: 8, left: 83, width: 17 },
+  ]);
+  document.offsetMs = 500;
+  assert.equal(lyricsViewportBlocks(document, 12, 1, 0)[0]?.seekSeconds, 0.5);
+  assert.deepEqual(lyricsViewportBlocks(parseLyrics("One\nTwo", "en"), 12, 1, 0), []);
+  assert.deepEqual(lyricsViewportBlocks(document, Number.NaN, 1, 0), []);
+  assert.deepEqual(lyricsViewportBlocks(document, 12, Number.NaN, 0), []);
 });

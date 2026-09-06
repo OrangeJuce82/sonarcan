@@ -35,9 +35,10 @@
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
   import { chordSegmentsForJams } from "./lib/chordExport";
   import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
-  import { lrclibDocument, lyricsNavigationPositions, normalizedLyricsOffsetMs } from "./lib/lyrics";
+  import { activeLyricsLineIndex, lrclibDocument, lyricsNavigationPositions, lyricsViewportBlocks, normalizedLyricsOffsetMs } from "./lib/lyrics";
   import { lyricsSearchQueries, preferredLyricsResult } from "./lib/lyricsMatching";
   import { lyricsTranslate } from "./lib/lyricsI18n";
+  import sonarcanLogo from "../docs/assets/sonarcan-rounded.png";
   import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, LyricsDocument, LyricsSearchResult, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
@@ -453,6 +454,8 @@
   $: waveformChordBlocks = waveformShowsChords(durationSeconds, waveformZoom)
     ? chordViewportBlocks(timelineChords, durationSeconds, waveformZoom, waveformStart, activeBeats)
     : [];
+  $: waveformLyricsBlocks = lyricsViewportBlocks(lyricsDocument, durationSeconds, waveformZoom, waveformStart);
+  $: activeLyricsIndex = activeLyricsLineIndex(lyricsDocument, currentSeconds * 1_000);
   $: repertoireLabels = chordRepertoire(displayedChords);
   $: activeChordIndex = activeChordIndexAt(timelineChords, currentSeconds);
   $: activeChord = activeChordIndex >= 0 ? timelineChords[activeChordIndex] ?? null : null;
@@ -3504,10 +3507,6 @@
         <span class="project-empty">{t(startupProjectAction === "checking" ? "checkingProjects" : startupProjectAction === "restoreRecent" ? "loadingRecentProject" : "noProject")}</span>
       {/if}
     </div>
-    <div class="header-metrics" aria-label={t("systemMetrics")}>
-      <span><small>{t("cpuUsage")}</small><strong>{systemMetricsSnapshot.cpuPercent === null ? "—" : `${systemMetricsSnapshot.cpuPercent.toFixed(1)}%`}</strong></span>
-      <span><small>{t("memoryUsage")}</small><strong>{systemMetricsSnapshot.memoryMegabytes === null ? "—" : `${systemMetricsSnapshot.memoryMegabytes} MB`}</strong></span>
-    </div>
     <div class="header-actions">
       <button class="header-icon-link" aria-label={t("shortcuts")} data-tooltip={t("shortcuts")} onclick={() => shortcutsVisible = true}><Icon name="keyboard" size="15px" /></button>
       <button class="header-icon-link" class:active={helpVisible} aria-pressed={helpVisible} aria-label={helpVisible ? t("hideHelp") : t("showHelp")} data-tooltip={helpVisible ? t("hideHelp") : t("showHelp")} onclick={toggleHelp}><Icon name="lightbulb" size="15px" /></button>
@@ -3530,6 +3529,11 @@
         <div class="master-meter" class:limiting={limiterReduction > 0.001} data-tooltip={limiterReduction > 0.001 ? `Limiter −${(-20 * Math.log10(1 - limiterReduction)).toFixed(1)} dB` : preferences.loudnessNormalization && integratedLufs !== null ? `${t("loudnessNormalization")} ${20 * Math.log10(normalizationGain) >= 0 ? "+" : ""}${(20 * Math.log10(normalizationGain)).toFixed(1)} dB · ${integratedLufs.toFixed(1)} LUFS` : undefined} role="meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeak * 100)}>
           {#each masterMeterLevels as level}<i class:active={masterPeak * masterMeterLevels.length >= level}></i>{/each}
         </div>
+      </div>
+      <span class="header-separator" aria-hidden="true"></span>
+      <div class="header-metrics" aria-label={t("systemMetrics")}>
+        <span><small>{t("cpuUsage")}</small><strong>{systemMetricsSnapshot.cpuPercent === null ? "—" : `${systemMetricsSnapshot.cpuPercent.toFixed(1)}%`}</strong></span>
+        <span><small>{t("memoryUsage")}</small><strong>{systemMetricsSnapshot.memoryMegabytes === null ? "—" : `${systemMetricsSnapshot.memoryMegabytes} MB`}</strong></span>
       </div>
       <span class="header-separator" aria-hidden="true"></span>
       <button class="header-icon-link" aria-label={t("openGithub")} data-tooltip={t("openGithub")} onclick={() => openCommunityLink("github")}><Icon name="github" size="15px" /></button>
@@ -3699,6 +3703,30 @@
             {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
           {/if}
         </div>
+        {#if lyricsDocument && lyricsDocument.syncLevel !== "none"}
+          <div
+            class="waveform-lyrics-lane"
+            role="group"
+            aria-label={lyricsTranslate(language, "lyrics")}
+            onwheel={(event) => navigateWaveformWithWheel(event, false)}
+            onpointerenter={enterDetailedWaveform}
+            onpointerleave={leaveDetailedWaveform}
+            onfocusin={() => waveformFocusWithin = true}
+            onfocusout={leaveDetailedWaveformFocus}
+          >
+            {#each waveformLyricsBlocks as block}
+              <button
+                type="button"
+                class:active={block.index === activeLyricsIndex}
+                style={`left:${block.leftPercent}%;width:${block.widthPercent}%`}
+                aria-label={`${block.line.text}, ${displayTime(block.seekSeconds)}`}
+                aria-current={block.index === activeLyricsIndex ? "true" : undefined}
+                title={`${block.line.text} · ${displayTime(block.seekSeconds)}`}
+                onclick={() => seek(block.seekSeconds)}
+              ><span>{block.line.text}</span></button>
+            {/each}
+          </div>
+        {/if}
         <div class="waveform-help">
           <span>{t("waveformHelp")} · {t("waveformNavigationHelp")}</span>
           <span class="zoom-status">
@@ -3761,6 +3789,7 @@
               <button class:active={endBehavior === "advance"} aria-pressed={endBehavior === "advance"} aria-label={t("advanceAtEnd")} data-tooltip={t("advanceAtEnd")} onclick={() => changeEndBehavior("advance")}><Icon name="forward-step" size="13px" /></button>
               <button class:active={endBehavior === "stop"} aria-pressed={endBehavior === "stop"} aria-label={t("stopAtEnd")} data-tooltip={t("stopAtEnd")} onclick={() => changeEndBehavior("stop")}><Icon name="stop" size="13px" /></button>
             </div>
+            <i class="control-separator" aria-hidden="true"></i>
             <label class="metronome-volume transport-volume" data-tooltip={t("musicVolumeHelp")}><Icon name="volume-high" size="11px" /><input aria-label={t("musicVolume")} type="range" min="0" max="1" step="0.01" value={musicVolume} oninput={(event) => changeMusicVolume(Number(event.currentTarget.value))} ondblclick={() => changeMusicVolume(defaultMusicVolume)} /></label>
           </div>
         </div>
@@ -3803,6 +3832,7 @@
               <button class:active={metronomeEnabled} class:beating={metronomeBeating} class:dbn={beatThisDbn} disabled={!beatModesAvailable} aria-pressed={metronomeEnabled} aria-keyshortcuts="M Alt+M" aria-label={`${t("metronome")} · ${beatThisDbn ? t("beatThisDbn") : "Beat This!"}`} data-tooltip={t("metronomeHelp")} onclick={handleMetronomeClick}><Icon name="metronome" size="14px" /></button>
               <button type="button" class="beat-subdivision-toggle" data-mode={beatSubdivisionMode} disabled={!beatModesAvailable} aria-label={`${t("beatHomogenization")} · ${t(beatSubdivisionMode === "auto" ? "beatSubdivisionAuto" : beatSubdivisionMode === "eighth" ? "beatSubdivisionEighth" : "beatSubdivisionSixteenth")}`} data-tooltip={t("beatHomogenizationHelp")} onclick={cycleBeatSubdivisionMode}>{beatSubdivisionMode === "auto" ? t("beatSubdivisionAuto") : beatSubdivisionMode === "eighth" ? "♪" : "♬"}</button>
               <select class="metronome-sound" aria-label={t("metronomeSound")} data-tooltip={t("metronomeSound")} value={metronomeSound} onchange={(event) => changeMetronomeSound(event.currentTarget.value)}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select>
+              <i class="control-separator" aria-hidden="true"></i>
               <label class="metronome-volume" data-tooltip={t("metronomeVolume")}><Icon name="volume-high" size="11px" /><input aria-label={t("metronomeVolume")} type="range" min="0" max="1" step="0.01" value={metronomeVolume} oninput={(event) => changeMetronomeVolume(Number(event.currentTarget.value))} ondblclick={() => changeMetronomeVolume(defaultMetronomeVolume)} /></label>
             </div>
           </div>
@@ -4347,7 +4377,7 @@
   {/if}
   {:else}
     <div class="application-bootstrap" role="status" aria-label="SonArcan">
-      <span class="application-bootstrap-mark" aria-hidden="true"><Icon name="music" size="28px" /></span>
+      <span class="application-bootstrap-mark" aria-hidden="true"><img src={sonarcanLogo} alt="" /></span>
       <strong>SonArcan</strong>
       <i aria-hidden="true"></i>
       {#if preferencesReady}<small>{t(startupProjectAction === "checking" ? "checkingProjects" : startupProjectAction === "restoreRecent" ? "loadingRecentProject" : "noProject")}</small>{/if}

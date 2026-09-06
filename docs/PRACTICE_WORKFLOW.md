@@ -9,8 +9,10 @@ This document translates the useful interaction model observed in musician pract
    detailed viewport; sections and named marks remain planned.
 3. A read-only Beat This! beat timeline appears behind the detailed waveform
    when zoom permits and drives the Rust metronome.
-4. The practice strip keeps loop, tempo, pitch, and jump controls visible at all times.
-5. The transport remains centered and usable without opening another panel.
+4. Synchronized lyric lines appear as clickable segments below the detailed
+   waveform and follow its visible viewport.
+5. The practice strip keeps loop, tempo, pitch, and jump controls visible at all times.
+6. The transport remains centered and usable without opening another panel.
 
 ## Implemented workflow and planned extensions
 

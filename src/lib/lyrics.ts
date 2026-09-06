@@ -68,6 +68,47 @@ export function normalizedLyricsOffsetMs(seconds: number): number {
   return Math.round(Math.max(-30, Math.min(30, seconds)) * 10) * 100;
 }
 
+export interface LyricsViewportBlock {
+  line: LyricsLine;
+  index: number;
+  seekSeconds: number;
+  leftPercent: number;
+  widthPercent: number;
+}
+
+export function lyricsViewportBlocks(
+  document: LyricsDocument | null,
+  durationSeconds: number,
+  zoom: number,
+  start: number,
+): LyricsViewportBlock[] {
+  if (!document
+    || document.syncLevel === "none"
+    || !Number.isFinite(durationSeconds)
+    || durationSeconds <= 0
+    || !Number.isFinite(zoom)
+    || zoom < 1
+    || !Number.isFinite(start)) return [];
+  const viewportStart = start * durationSeconds;
+  const viewportEnd = (start + 1 / zoom) * durationSeconds;
+  return document.lines.flatMap((line, index) => {
+    if (line.startMs === null) return [];
+    const nextStartMs = document.lines[index + 1]?.startMs;
+    const lineStart = (line.startMs + document.offsetMs) / 1_000;
+    const lineEnd = ((line.endMs ?? nextStartMs ?? durationSeconds * 1_000) + document.offsetMs) / 1_000;
+    const visibleStart = Math.max(0, viewportStart, lineStart);
+    const visibleEnd = Math.min(durationSeconds, viewportEnd, lineEnd);
+    if (visibleEnd <= visibleStart) return [];
+    return [{
+      line,
+      index,
+      seekSeconds: Math.max(0, Math.min(durationSeconds, lineStart)),
+      leftPercent: (visibleStart / durationSeconds - start) * zoom * 100,
+      widthPercent: (visibleEnd - visibleStart) / durationSeconds * zoom * 100,
+    }];
+  });
+}
+
 export function lrclibDocument(record: RemoteLyricsRecord, language = "und", durationMs = record.durationSeconds * 1_000): LyricsDocument {
   const content = record.syncedLyrics || record.plainLyrics;
   if (!content) throw new Error("The selected LRCLIB record does not contain lyrics.");
