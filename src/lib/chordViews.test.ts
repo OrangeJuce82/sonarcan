@@ -143,13 +143,14 @@ test("each beat belongs to one chord and favors a nearby chord start", () => {
   assert.equal(chordBeatCounts(chords, [1]).reduce((sum, count) => sum + count, 0), 1);
 });
 
-test("chord beat proximity adapts to fast tempos", () => {
+test("the ending beat belongs to the following chord across an offset boundary", () => {
   const chords = [
-    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 0.57 },
-    { ...chord("G", 0.8), startSeconds: 0.57, endSeconds: 1 },
+    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 1.2 },
+    { ...chord("G", 0.8), startSeconds: 1.2, endSeconds: 2 },
   ];
 
-  assert.deepEqual(chordBeatCounts(chords, [0, 0.25, 0.5, 0.75]), [3, 1]);
+  assert.deepEqual(chordBeatCounts(chords, [0, 0.5, 1, 1.5]), [2, 2]);
+  assert.equal(chordBeatCounts(chords, [0, 0.5, 1, 1.5]).reduce((sum, count) => sum + count, 0), 4);
 });
 
 test("the chord timeline preserves the model regions without rhythmic splitting", () => {

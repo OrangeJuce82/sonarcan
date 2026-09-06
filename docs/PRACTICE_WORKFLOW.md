@@ -92,6 +92,8 @@ The implemented Loop Trainer performs the first three operations directly in the
 | Action | Shortcut |
 |---|---|
 | Play or pause | Space |
+| Previous track when playback is before 1 second; otherwise restart the current track | Shift+Left Arrow |
+| Next track | Shift+Right Arrow |
 | Previous/next point in the active navigation mode | Left/Right Arrow |
 | Cycle the currently available Time, Beat, Chord, and Lyrics modes | N |
 | Cycle piano, guitar, and ukulele views | I |

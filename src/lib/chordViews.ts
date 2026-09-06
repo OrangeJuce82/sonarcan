@@ -153,8 +153,26 @@ export interface ChordViewportBlock {
   widthPercent: number;
 }
 
-const MAX_CHORD_START_BEAT_DISTANCE_SECONDS = 0.12;
-const CHORD_START_BEAT_INTERVAL_RATIO = 0.25;
+function nearestBeatBoundaryIndex(beats: readonly number[], time: number): number {
+  let low = 0;
+  let high = beats.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((beats[middle] ?? Number.POSITIVE_INFINITY) < time) low = middle + 1;
+    else high = middle;
+  }
+  if (low === 0) return 0;
+  if (low < beats.length) {
+    const before = beats[low - 1]!;
+    const after = beats[low]!;
+    return time - before < after - time ? low - 1 : low;
+  }
+  const last = beats[beats.length - 1]!;
+  const previous = beats[beats.length - 2];
+  if (previous === undefined) return time > last ? beats.length : 0;
+  const followingBoundary = last + (last - previous);
+  return time - last < followingBoundary - time ? beats.length - 1 : beats.length;
+}
 
 export function chordBeatCounts(
   chords: readonly TimedChord[],
@@ -170,36 +188,15 @@ export function chordBeatCounts(
   const orderedBeats = [...new Set(beats.filter(Number.isFinite))].sort((left, right) => left - right);
   if (!validChordIndexes.length || !orderedBeats.length) return counts;
 
-  for (let beatIndex = 0; beatIndex < orderedBeats.length; beatIndex += 1) {
-    const beat = orderedBeats[beatIndex];
-    if (beat === undefined) continue;
-    const previousInterval = beatIndex > 0 ? beat - (orderedBeats[beatIndex - 1] ?? beat) : Number.POSITIVE_INFINITY;
-    const nextInterval = beatIndex + 1 < orderedBeats.length ? (orderedBeats[beatIndex + 1] ?? beat) - beat : Number.POSITIVE_INFINITY;
-    const localInterval = Math.min(previousInterval > 0 ? previousInterval : Number.POSITIVE_INFINITY, nextInterval > 0 ? nextInterval : Number.POSITIVE_INFINITY);
-    const startTolerance = Number.isFinite(localInterval)
-      ? Math.min(MAX_CHORD_START_BEAT_DISTANCE_SECONDS, localInterval * CHORD_START_BEAT_INTERVAL_RATIO)
-      : MAX_CHORD_START_BEAT_DISTANCE_SECONDS;
-
-    let low = 0;
-    let high = validChordIndexes.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if ((validChordIndexes[middle]?.chord.startSeconds ?? Number.POSITIVE_INFINITY) < beat) low = middle + 1;
-      else high = middle;
+  const owners = orderedBeats.map(() => -1);
+  for (const { chord, index } of validChordIndexes) {
+    const firstBeat = nearestBeatBoundaryIndex(orderedBeats, chord.startSeconds);
+    const afterLastBeat = nearestBeatBoundaryIndex(orderedBeats, chord.endSeconds);
+    for (let beatIndex = firstBeat; beatIndex < afterLastBeat; beatIndex += 1) {
+      owners[beatIndex] = index;
     }
-    const before = validChordIndexes[low - 1];
-    const after = validChordIndexes[low];
-    const beforeDistance = before ? Math.abs(before.chord.startSeconds - beat) : Number.POSITIVE_INFINITY;
-    const afterDistance = after ? Math.abs(after.chord.startSeconds - beat) : Number.POSITIVE_INFINITY;
-    const nearestStart = afterDistance <= beforeDistance ? after : before;
-    if (nearestStart && Math.min(beforeDistance, afterDistance) <= startTolerance) {
-      counts[nearestStart.index] = (counts[nearestStart.index] ?? 0) + 1;
-      continue;
-    }
-
-    const containing = before && beat >= before.chord.startSeconds && beat < before.chord.endSeconds ? before : null;
-    if (containing) counts[containing.index] = (counts[containing.index] ?? 0) + 1;
   }
+  for (const owner of owners) if (owner >= 0) counts[owner] = (counts[owner] ?? 0) + 1;
   return counts;
 }
 

@@ -25,6 +25,7 @@ pub struct UserPreferences {
     pub metronome_volume: f32,
     pub metronome_sound: MetronomeSound,
     pub beat_this_dbn: bool,
+    pub chord_mode: ChordModePreference,
     pub default_playback_rate: f64,
     pub default_pitch_semitones: f64,
     pub loop_load_position: LoopLoadPosition,
@@ -99,6 +100,14 @@ pub enum NavigationMode {
     Lyrics,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChordModePreference {
+    Essential,
+    Standard,
+    Complete,
+}
+
 impl Default for UserPreferences {
     fn default() -> Self {
         Self {
@@ -118,6 +127,7 @@ impl Default for UserPreferences {
             metronome_volume: 0.55,
             metronome_sound: MetronomeSound::Electronic,
             beat_this_dbn: true,
+            chord_mode: ChordModePreference::Essential,
             default_playback_rate: 1.0,
             default_pitch_semitones: 0.0,
             loop_load_position: LoopLoadPosition::Beginning,
@@ -217,6 +227,7 @@ mod tests {
         assert_eq!(preferences.navigation_time_seconds, 10);
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
         assert!(preferences.beat_this_dbn);
+        assert_eq!(preferences.chord_mode, ChordModePreference::Essential);
         assert_eq!(preferences.master_volume, 1.0);
         assert!(preferences.loudness_normalization);
     }
@@ -239,6 +250,16 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
+    }
+
+    #[test]
+    fn older_preferences_default_to_essential_chords() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("chordMode");
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(preferences.chord_mode, ChordModePreference::Essential);
     }
 
     #[test]

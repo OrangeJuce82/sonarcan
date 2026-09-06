@@ -95,16 +95,16 @@ Windows/Linux releases use CUDA 12.6, while AMD Linux releases use ROCm 7.2
 through PyTorch's CUDA-compatible device API. All backends execute both model
 probes on the end-user accelerator before Rust opens the analysis IPC gate.
 
-In full mode, the analysis workspace places the six-stem mixer beside a right-hand column
-containing the spectrum and stereo meter. Beneath it, the chord grid and a
-multi-view harmony panel use a 40/60 split. The chord panel wraps segments into a vertically
+In full mode, the analysis workspace first places the chord grid beside a
+multi-view harmony panel using a 40/60 split. Beneath it, the six-stem mixer sits
+beside a right-hand column containing the spectrum and stereo meter. The chord panel wraps segments into a vertically
 scrollable grid. Playback can follow the active segment automatically. Standard (`submission`) is the default;
 Essentiel and Complet expose the other native model views. The
 panel can filter the uncalibrated model score, color by score or root, show a
 consistent sharp or flat spelling, follow the playback pitch transposition, and
 switch to an alphabetical repertoire of unique chords.
 In degraded mode, the lyrics panel occupies the mixer's column, the spectrum
-and stereo meter retain the right-hand column, and the lower harmony row is omitted.
+and stereo meter retain the right-hand column, and the harmony row is omitted.
 In full mode, the audio header exposes one user navigation mode: Time, Beat, Chord, or Lyrics. Left
 and Right and the transport jump buttons share that mode. Waveform clicks always
 seek to the exact pointed position, independently of the navigation mode and loop
@@ -117,6 +117,9 @@ options are disabled and `N` cycles only the currently available modes. Lyrics
 uses synchronized line starts including the saved display offset. Four non-interactive
 states centered in the Audio header expose Beat This!, chord, lyrics, and separated-mix
 orchestration. Left/Right and the transport jump controls move to the adjacent point.
+Shift+Right selects the next playlist track. Shift+Left reuses the previous-track
+transport behavior: it restarts the current track at or after one second and
+selects the previous playlist track only while the cursor is before one second.
 The preference is global user state and is never stored in a project or track.
 Clicking a timed chord or lyric seeks to its timestamp without changing the
 selected navigation mode. Loop magnetism uses chord boundaries in Chord mode,
@@ -129,10 +132,19 @@ clickable lane using the waveform viewport and playhead, so zooming, panning,
 automatic follow, chord filtering, edits, and transposition remain synchronized.
 When both Beat This! and chord analysis are available, that lane shows a neutral
 beat-count badge for each playable chord. Each detected beat is assigned once: a
-nearby chord start takes priority within a tempo-relative, bounded tolerance,
-and remaining beats belong to the chord interval containing them. Slightly early
-or late model boundaries therefore remain musically legible without changing
-either analysis result.
+chord boundary is associated with the closest active beat, using the midpoint
+between adjacent beats as the decision boundary, and chord ranges are half-open.
+A beat near a shared boundary therefore belongs to the following chord even when
+the model transition is slightly early or late, without changing either analysis
+result. The waveform lane and timed chord grid render the same derived count.
+The per-track three-state beat-grid control applies one reversible presentation
+layer to the selected raw or DBN Beat This! timeline. Auto follows the dominant
+interval cluster; Eighth selects the coarser detected octave and Sixteenth its
+denser counterpart. Only sustained intervals close to a 2:1 ratio are changed:
+dense runs retain alternating source beats with downbeat-aware phase selection,
+while sparse runs gain midpoint beats that are never promoted to downbeats. The
+derived timeline is shared by BPM display, metronome, navigation, loop snapping,
+waveform markers, and chord beat-count badges; cached analysis stays untouched.
 The harmony panel preserves each source JAMS/Harte label and uses one pure,
 typed parser for its three-octave piano and validated guitar and ukulele
 positions.
@@ -155,6 +167,9 @@ User chord corrections remain a separate, bounded per-track overlay keyed by
 LV-Chordia vocabulary and native segment times. They are persisted in project
 practice state, never written into the disposable model cache, and never alter
 segment boundaries or the underlying LV-Chordia output.
+Each track also owns a bounded plain-text practice note in the same persisted
+practice state. The note editor sits below the playlist; the playlist consumes
+the remaining height of the left column and scrolls independently.
 
 Lyrics are an optional per-track document stored under `Lyrics/<track-id>.json`.
 The versioned, bounded DTO supports plain text, line timing, word timing, source
@@ -215,6 +230,8 @@ loaded and applied and the startup project has been activated. A neutral branded
 bootstrap view avoids exposing default language, theme, audio settings, or an
 empty-project workspace before the configured interface is ready. Once the
 language is known, that view reports the localized project-loading state.
+The preferred chord-analysis vocabulary is also loaded at this boundary;
+Essential is the default for new and legacy preference profiles.
 
 On macOS, opening an associated `.sac` package can deliver the native document
 event before Tauri has run application setup. That path is retained in a small

@@ -227,6 +227,13 @@ per track. Global preferences only provide defaults for new/reset track settings
 The Training dialog applies and persists each change immediately; its reset
 action restores these user defaults.
 
+Synchronized lyrics expose their display offset beside the synchronization
+badge as the same decrement/value/increment control used by other practice
+parameters. It works in seconds with 100 ms steps, retains vertical pointer
+dragging and double-click reset, and supports `L` plus arrows, signs, or a delete
+key. A plain `L` release still toggles the A/B loop. Offset writes are serialized
+so rapid pointer or keyboard adjustments cannot persist out of order.
+
 ## End-of-track behavior
 
 Outside an active A/B loop, the engine supports three explicit modes: restart the current track with a boundary crossfade, signal the frontend to advance to the next preloaded playlist item, or stop. A monotonically increasing end generation prevents polling races when the advance signal is consumed. Active full-track Loop Trainer cycles temporarily take precedence; the selected end behavior resumes after training reaches its target.

@@ -268,12 +268,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            cpio \
             libasound2-dev \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
             libfuse2 \
-            patchelf
+            patchelf \
+            rpm
       - run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
@@ -284,7 +286,7 @@ jobs:
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
       - run: npm run quality
-      - name: Build DEB and upload it to the draft release
+      - name: Build Linux packages and upload them to the draft release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -294,14 +296,27 @@ jobs:
           generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target x86_64-unknown-linux-gnu --bundles deb --config src-tauri/tauri.portable.conf.json
-      - name: Verify packaged Linux application
+          args: --target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage --config src-tauri/tauri.portable.conf.json
+      - name: Verify packaged Linux applications
         run: |
+          set -o pipefail
           verification_root="$(mktemp -d)"
           deb_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          rpm_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)"
+          appimage_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
           test -n "$deb_path"
+          test -n "$rpm_path"
+          test -n "$appimage_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
+          mkdir "$verification_root/rpm"
+          (cd "$verification_root/rpm" && rpm2cpio "$GITHUB_WORKSPACE/$rpm_path" | cpio -idm --quiet)
+          npm run verify:bundled-release -- "$verification_root/rpm"
+          (
+            cd "$verification_root"
+            "$GITHUB_WORKSPACE/$appimage_path" --appimage-extract >/dev/null
+          )
+          npm run verify:bundled-release -- "$verification_root/squashfs-root"
           rm -rf "$verification_root"
 
   release-windows:
@@ -394,12 +409,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            cpio \
             libasound2-dev \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
             libfuse2 \
-            patchelf
+            patchelf \
+            rpm
       - run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
@@ -424,10 +441,10 @@ jobs:
           mkdir -p "$uv_cache_dir"
           cargo clean --manifest-path src-tauri/Cargo.toml
       # GPU runtimes are larger than GitHub's 2 GiB per-asset limit. Build and
-      # verify the native DEB, then split it into downloadable release volumes.
+      # verify each native package, then split it into downloadable volumes.
       - name: Build GPU DEB
         run: npm exec tauri build -- --target x86_64-unknown-linux-gnu --bundles deb --config ${{ matrix.config }}
-      - name: Verify and upload multipart Linux GPU application
+      - name: Verify and upload multipart Linux GPU DEB
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -436,7 +453,7 @@ jobs:
           test -n "$deb_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
-          rm -rf "$verification_root" src-tauri/resources/python-runtime src-tauri/resources/models
+          rm -rf "$verification_root"
 
           backend_name="$(printf '%s' '${{ matrix.backend }}' | tr '[:lower:]' '[:upper:]')"
           portable_name="SonArcan-Linux-x86_64-${backend_name}-GPU-${GITHUB_REF_NAME}.deb"
@@ -444,7 +461,39 @@ jobs:
           mv "$deb_path" "$portable_path"
           split -b 1800M -d -a 3 "$portable_path" "$portable_path.part-"
           rm -f "$portable_path"
-          checksum_path="$RUNNER_TEMP/SHA256SUMS-Linux-${backend_name}-GPU.txt"
+          checksum_path="$RUNNER_TEMP/SHA256SUMS-Linux-${backend_name}-GPU-DEB.txt"
+          (cd "$RUNNER_TEMP" && sha256sum "$portable_name".part-* > "$(basename "$checksum_path")")
+          (cd "$RUNNER_TEMP" && sha256sum --check "$(basename "$checksum_path")")
+          for attempt in 1 2 3; do
+            if gh release upload "$GITHUB_REF_NAME" "$portable_path".part-* "$checksum_path" --clobber; then
+              break
+            fi
+            test "$attempt" -lt 3 || exit 1
+            sleep "$((attempt * 10))"
+          done
+          rm -f "$portable_path".part-* "$checksum_path"
+      - name: Build GPU RPM from the verified application
+        run: npm exec tauri bundle -- --target x86_64-unknown-linux-gnu --bundles rpm --config ${{ matrix.config }}
+      - name: Verify and upload multipart Linux GPU RPM
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          verification_root="$(mktemp -d)"
+          rpm_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)"
+          test -n "$rpm_path"
+          mkdir "$verification_root/rpm"
+          (cd "$verification_root/rpm" && rpm2cpio "$GITHUB_WORKSPACE/$rpm_path" | cpio -idm --quiet)
+          npm run verify:bundled-release -- "$verification_root/rpm"
+          rm -rf "$verification_root" src-tauri/resources/python-runtime src-tauri/resources/models
+
+          backend_name="$(printf '%s' '${{ matrix.backend }}' | tr '[:lower:]' '[:upper:]')"
+          portable_name="SonArcan-Linux-x86_64-${backend_name}-GPU-${GITHUB_REF_NAME}.rpm"
+          portable_path="$RUNNER_TEMP/$portable_name"
+          mv "$rpm_path" "$portable_path"
+          split -b 1800M -d -a 3 "$portable_path" "$portable_path.part-"
+          rm -f "$portable_path"
+          checksum_path="$RUNNER_TEMP/SHA256SUMS-Linux-${backend_name}-GPU-RPM.txt"
           (cd "$RUNNER_TEMP" && sha256sum "$portable_name".part-* > "$(basename "$checksum_path")")
           (cd "$RUNNER_TEMP" && sha256sum --check "$(basename "$checksum_path")")
           for attempt in 1 2 3; do

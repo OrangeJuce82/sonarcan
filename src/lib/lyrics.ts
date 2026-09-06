@@ -63,6 +63,11 @@ export function formatLrcTime(milliseconds: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${(total % 60).toFixed(2).padStart(5, "0")}`;
 }
 
+export function normalizedLyricsOffsetMs(seconds: number): number {
+  if (!Number.isFinite(seconds)) return 0;
+  return Math.round(Math.max(-30, Math.min(30, seconds)) * 10) * 100;
+}
+
 export function lrclibDocument(record: RemoteLyricsRecord, language = "und", durationMs = record.durationSeconds * 1_000): LyricsDocument {
   const content = record.syncedLyrics || record.plainLyrics;
   if (!content) throw new Error("The selected LRCLIB record does not contain lyrics.");

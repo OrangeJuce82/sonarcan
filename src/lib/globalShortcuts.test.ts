@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleBeatThisDbnShortcut, shouldToggleChordEditModeShortcut, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
+import { isTextEditingTarget, isTextEntryTarget, metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shiftedTrackShortcutOffset, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleBeatThisDbnShortcut, shouldToggleChordEditModeShortcut, shouldToggleLoopOnRelease, shouldToggleMetronomeOnRelease } from "./globalShortcuts.ts";
 
 function shortcutEvent(overrides: Partial<Parameters<typeof shouldHandleGlobalShortcut>[0]> = {}): Parameters<typeof shouldHandleGlobalShortcut>[0] {
   return {
@@ -43,11 +43,21 @@ test("global shortcuts ignore composition and command modifiers", () => {
   assert.equal(shouldHandleGlobalShortcut(shortcutEvent({ altKey: true })), false);
 });
 
-test("parameter shortcuts pair T, P, Z, and M with arrows, signs, and reset", () => {
+test("Shift plus horizontal arrows selects an adjacent track", () => {
+  assert.equal(shiftedTrackShortcutOffset(shortcutEvent({ key: "ArrowLeft", shiftKey: true })), -1);
+  assert.equal(shiftedTrackShortcutOffset(shortcutEvent({ key: "ArrowRight", shiftKey: true })), 1);
+  assert.equal(shiftedTrackShortcutOffset(shortcutEvent({ key: "ArrowLeft" })), null);
+  assert.equal(shiftedTrackShortcutOffset(shortcutEvent({ key: "ArrowRight", shiftKey: true, metaKey: true })), null);
+  const input = Object.assign(new EventTarget(), { closest: () => ({}) });
+  assert.equal(shiftedTrackShortcutOffset(shortcutEvent({ key: "ArrowLeft", shiftKey: true, target: input })), null);
+});
+
+test("parameter shortcuts pair T, P, Z, M, and L with arrows, signs, and reset", () => {
   assert.equal(parameterShortcutForKey("T"), "tempo");
   assert.equal(parameterShortcutForKey("p"), "pitch");
   assert.equal(parameterShortcutForKey("Z"), "zoom");
   assert.equal(parameterShortcutForKey("m"), "metronomeVolume");
+  assert.equal(parameterShortcutForKey("L"), "lyricsOffset");
   assert.equal(parameterShortcutForKey("x"), null);
   assert.equal(parameterShortcutAction("ArrowUp"), "increment");
   assert.equal(parameterShortcutAction("ArrowRight"), "increment");
@@ -103,6 +113,14 @@ test("M toggles the metronome on release only when no volume action was used", (
   assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "m", target: input }), "metronomeVolume", false), false);
   const select = Object.assign(new EventTarget(), { closest: (selector: string) => selector.includes("select") ? ({}) : null });
   assert.equal(shouldToggleMetronomeOnRelease(shortcutEvent({ key: "m", target: select }), "metronomeVolume", false), true);
+});
+
+test("L keeps its loop toggle on release unless it adjusted the lyrics offset", () => {
+  const releaseL = shortcutEvent({ key: "l" });
+  assert.equal(shouldToggleLoopOnRelease(releaseL, "lyricsOffset", false), true);
+  assert.equal(shouldToggleLoopOnRelease(releaseL, "lyricsOffset", true), false);
+  assert.equal(shouldToggleLoopOnRelease(shortcutEvent({ key: "L", shiftKey: true }), "lyricsOffset", false), false);
+  assert.equal(shouldToggleLoopOnRelease(shortcutEvent({ key: "t" }), "lyricsOffset", false), false);
 });
 
 test("Alt+M toggles Beat This! DBN", () => {

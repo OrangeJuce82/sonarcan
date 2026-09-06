@@ -7,7 +7,7 @@ type ClosestTarget = EventTarget & {
   closest?: (selectors: string) => unknown;
 };
 
-export type ParameterShortcut = "metronomeVolume" | "pitch" | "tempo" | "zoom";
+export type ParameterShortcut = "lyricsOffset" | "metronomeVolume" | "pitch" | "tempo" | "zoom";
 export type ParameterShortcutAction = "decrement" | "increment" | "reset";
 export type MetronomeShortcutAction = "decrementVolume" | "incrementVolume" | "nextSound" | "previousSound" | "resetVolume";
 export type ShortcutPlatform = "linux" | "macos" | "windows";
@@ -34,6 +34,7 @@ export function parameterShortcutForKey(key: string): ParameterShortcut | null {
   if (key.toLowerCase() === "p") return "pitch";
   if (key.toLowerCase() === "z") return "zoom";
   if (key.toLowerCase() === "m") return "metronomeVolume";
+  if (key.toLowerCase() === "l") return "lyricsOffset";
   return null;
 }
 
@@ -92,6 +93,13 @@ export function shouldHandleGlobalShortcut(event: ShortcutKeyboardEvent): boolea
     && !isTextEditingTarget(event.target);
 }
 
+export function shiftedTrackShortcutOffset(event: ShortcutKeyboardEvent): -1 | 1 | null {
+  if (!event.shiftKey || !shouldHandleGlobalShortcut(event)) return null;
+  if (event.key === "ArrowLeft") return -1;
+  if (event.key === "ArrowRight") return 1;
+  return null;
+}
+
 export function shouldToggleChordEditModeShortcut(event: ShortcutKeyboardEvent): boolean {
   return event.key.toLowerCase() === "e" && shouldHandleParameterShortcut(event);
 }
@@ -114,6 +122,18 @@ export function shouldToggleMetronomeOnRelease(
 ): boolean {
   return activeParameterShortcut === "metronomeVolume"
     && parameterShortcutForKey(event.key) === "metronomeVolume"
+    && !parameterActionUsed
+    && !event.shiftKey
+    && shouldHandleParameterShortcut(event);
+}
+
+export function shouldToggleLoopOnRelease(
+  event: ShortcutKeyboardEvent,
+  activeParameterShortcut: ParameterShortcut | null,
+  parameterActionUsed: boolean,
+): boolean {
+  return activeParameterShortcut === "lyricsOffset"
+    && parameterShortcutForKey(event.key) === "lyricsOffset"
     && !parameterActionUsed
     && !event.shiftKey
     && shouldHandleParameterShortcut(event);

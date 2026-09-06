@@ -18,6 +18,7 @@ use crate::{
 pub const PROJECT_FORMAT_VERSION: u32 = 1;
 const MANIFEST_NAME: &str = "project.json";
 const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_TRACK_NOTES_CHARS: usize = 10_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -63,6 +64,8 @@ pub struct Track {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PracticeState {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub track_notes: String,
     pub position_seconds: f64,
     pub playback_rate: f64,
     #[serde(default)]
@@ -79,6 +82,8 @@ pub struct PracticeState {
     pub metronome_volume: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub beat_this_dbn: Option<bool>,
+    #[serde(default, skip_serializing_if = "beat_subdivision_is_auto")]
+    pub beat_subdivision_mode: BeatSubdivisionMode,
     #[serde(default)]
     pub trainer_enabled: bool,
     pub trainer_start_rate: f64,
@@ -101,6 +106,19 @@ pub enum ChordEditMode {
     Essential,
     Standard,
     Complete,
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum BeatSubdivisionMode {
+    #[default]
+    Auto,
+    Eighth,
+    Sixteenth,
+}
+
+const fn beat_subdivision_is_auto(mode: &BeatSubdivisionMode) -> bool {
+    matches!(mode, BeatSubdivisionMode::Auto)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -145,6 +163,7 @@ const fn legacy_master_volume() -> f64 {
 impl Default for PracticeState {
     fn default() -> Self {
         Self {
+            track_notes: String::new(),
             position_seconds: 0.0,
             playback_rate: 1.0,
             pitch_semitones: 0.0,
@@ -155,6 +174,7 @@ impl Default for PracticeState {
             metronome_enabled: false,
             metronome_volume: default_metronome_volume(),
             beat_this_dbn: None,
+            beat_subdivision_mode: BeatSubdivisionMode::Auto,
             trainer_enabled: false,
             trainer_start_rate: default_trainer_start_rate(),
             trainer_repetitions: default_trainer_repetitions(),
@@ -950,6 +970,11 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
         });
     if !finite
         || !chord_edits_valid
+        || state.track_notes.chars().count() > MAX_TRACK_NOTES_CHARS
+        || state
+            .track_notes
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
         || state.position_seconds < 0.0
         || !(0.5..=2.0).contains(&state.playback_rate)
         || !(-12.0..=12.0).contains(&state.pitch_semitones)
@@ -1367,6 +1392,7 @@ mod tests {
         let imported = import_audio(&project.package_path, &[wave_path]).unwrap();
         let track_id = imported.tracks[0].id;
         let state = PracticeState {
+            track_notes: "Practice the bridge slowly.\nWatch the final chord.".into(),
             position_seconds: 0.0005,
             playback_rate: 0.75,
             pitch_semitones: -2.0,
@@ -1377,6 +1403,7 @@ mod tests {
             metronome_enabled: true,
             metronome_volume: 0.5,
             beat_this_dbn: Some(false),
+            beat_subdivision_mode: BeatSubdivisionMode::Eighth,
             trainer_enabled: true,
             trainer_start_rate: 0.5,
             trainer_repetitions: 4,
@@ -1403,7 +1430,15 @@ mod tests {
             ..state.clone()
         };
         assert_eq!(reopened.tracks[0].practice, expected);
+        assert_eq!(
+            reopened.tracks[0].practice.track_notes,
+            "Practice the bridge slowly.\nWatch the final chord."
+        );
         assert_eq!(reopened.tracks[0].practice.beat_this_dbn, Some(false));
+        assert_eq!(
+            reopened.tracks[0].practice.beat_subdivision_mode,
+            BeatSubdivisionMode::Eighth
+        );
 
         let supported_boundaries = PracticeState {
             volume: 2.0,
@@ -1453,6 +1488,24 @@ mod tests {
             update_practice_state(&project.package_path, track_id, invalid_training_range),
             Err(AppError::InvalidPracticeState(_))
         ));
+
+        let invalid_notes = PracticeState {
+            track_notes: "x".repeat(MAX_TRACK_NOTES_CHARS + 1),
+            ..PracticeState::default()
+        };
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, invalid_notes),
+            Err(AppError::InvalidPracticeState(_))
+        ));
+
+        let invalid_notes = PracticeState {
+            track_notes: "unsafe\0note".into(),
+            ..PracticeState::default()
+        };
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, invalid_notes),
+            Err(AppError::InvalidPracticeState(_))
+        ));
     }
 
     #[test]
@@ -1479,6 +1532,8 @@ mod tests {
         assert!(rewritten.get("gridBpm").is_none());
         assert!(rewritten.get("beatGridOffsetSeconds").is_none());
         assert!(rewritten.get("beatThisDbn").is_none());
+        assert!(rewritten.get("beatSubdivisionMode").is_none());
+        assert!(rewritten.get("trackNotes").is_none());
     }
 
     #[test]

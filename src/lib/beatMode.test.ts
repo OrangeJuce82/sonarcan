@@ -10,8 +10,8 @@ const analysis = {
 } as ChordAnalysis;
 
 test("selects the raw or DBN Beat This! timeline", () => {
-  assert.deepEqual(beatTimelineFor(analysis, { beatThisDbn: false }).beats, [1]);
-  assert.deepEqual(beatTimelineFor(analysis, { beatThisDbn: true }).beats, [3]);
+  assert.deepEqual(beatTimelineFor(analysis, { beatThisDbn: false, subdivision: "auto" }).beats, [1]);
+  assert.deepEqual(beatTimelineFor(analysis, { beatThisDbn: true, subdivision: "auto" }).beats, [3]);
 });
 
 test("a track override takes precedence over the user default", () => {

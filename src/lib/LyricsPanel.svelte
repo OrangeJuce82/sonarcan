@@ -7,6 +7,7 @@
   import { lyricsTranslate } from "./lyricsI18n";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
+  import NumericControl from "./NumericControl.svelte";
 
   export let document: LyricsDocument | null;
   export let language: Language;
@@ -15,8 +16,8 @@
   export let loading = false;
   export let loadError = "";
   export let onSeek: (milliseconds: number) => void;
-  export let onLoop: (startMs: number, endMs: number) => void;
   export let onSave: (document: LyricsDocument) => Promise<void>;
+  export let onOffsetChange: (seconds: number) => void;
   export let onDelete: () => Promise<void>;
   export let initialSearchQuery: string;
   export let searchResults: LyricsSearchResult[] = [];
@@ -104,6 +105,11 @@
   async function chooseResult(result: LyricsSearchResult): Promise<void> {
     try {
       await onChooseSearchResult(result);
+      editorVisible = false;
+      editorText = "";
+      editorError = "";
+      autoFollow = true;
+      resetSelection();
       closeSearch();
     } catch {
       // The search dialog retains the provider error and remains retryable.
@@ -130,27 +136,6 @@
 
   function isSelected(index: number): boolean {
     return selectedStart >= 0 && index >= Math.min(selectedStart, selectedEnd) && index <= Math.max(selectedStart, selectedEnd);
-  }
-
-  function loopSelection(): void {
-    if (!document || selectedStart < 0) return;
-    const startIndex = Math.min(selectedStart, selectedEnd);
-    const endIndex = Math.max(selectedStart, selectedEnd);
-    const start = document.lines[startIndex]?.startMs;
-    const endLine = document.lines[endIndex];
-    const end = endLine?.endMs ?? document.lines[endIndex + 1]?.startMs ?? durationMs;
-    if (start !== null && start !== undefined && end !== null && end !== undefined && end > start) {
-      onLoop(Math.max(0, start + document.offsetMs), Math.min(durationMs, end + document.offsetMs));
-    }
-  }
-
-  async function changeOffset(delta: number): Promise<void> {
-    if (!document) return;
-    try {
-      await onSave({ ...document, offsetMs: Math.max(-30_000, Math.min(30_000, document.offsetMs + delta)) });
-    } catch {
-      // The application shell reports persistence failures through its toast stack.
-    }
   }
 
   async function openEditor(): Promise<void> {
@@ -195,8 +180,12 @@
   <div class="lyrics-toolbar">
     <div class="lyrics-source">
       <b class="lyrics-sync-badge" class:synchronized={Boolean(document && document.syncLevel !== "none")}>{document && document.syncLevel !== "none" ? "Sync" : "Unsync"}</b>
-      <b>{(document?.language ?? language).toUpperCase()}</b>
     </div>
+    {#if document && document.syncLevel !== "none"}
+      <div class="lyrics-offset-control">
+        <NumericControl label={tr("offset")} value={document.offsetMs / 1_000} defaultValue={0} minimum={-30} maximum={30} step={0.1} buttonStep={0.1} shiftButtonStep={0.1} display={(value) => `${value > 0 ? "+" : ""}${value.toFixed(1)} s`} onChange={onOffsetChange} tooltip={`${tr("offset")} · L + ←/→`} />
+      </div>
+    {/if}
     <div class="lyrics-actions">
       <button class="lyrics-header-button" class:active={editorVisible || !document} disabled={editorVisible} aria-label={tr("edit")} data-tooltip={tr("edit")} onclick={openEditor}><Icon name="pen" size="12px" /></button>
       <button class="lyrics-header-button danger-icon" disabled={!document} aria-label={tr("delete")} data-tooltip={tr("delete")} onclick={() => deleteVisible = true}><Icon name="trash" size="11px" /></button>
@@ -239,10 +228,6 @@
         {/each}
       </div>
     {/if}
-    {#if document}<div class="lyrics-footer">
-        <span>{tr("selectionHelp")}</span>
-        <div><button disabled={selectedStart < 0 || document.syncLevel === "none"} onclick={loopSelection}>{tr("loopSelection")}</button><i></i><b>{tr("offset")}</b><button onclick={() => changeOffset(-100)}>−100 ms</button><output>{document.offsetMs > 0 ? "+" : ""}{document.offsetMs} ms</output><button onclick={() => changeOffset(100)}>+100 ms</button><button disabled={document.offsetMs === 0} onclick={() => changeOffset(-document.offsetMs)}>{tr("reset")}</button></div>
-      </div>{/if}
   {/if}
 </section>
 
@@ -275,22 +260,28 @@
 {/if}
 
 <style>
-  .lyrics-panel { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
-  .lyrics-toolbar { display: flex; align-items: center; justify-content: space-between; min-width: 0; margin-bottom: 8px; gap: 10px; }
-  .lyrics-source, .lyrics-actions, .lyrics-footer > div { display: flex; align-items: center; min-width: 0; gap: 7px; }
+  .lyrics-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 224px; height: 224px; max-height: 224px; overflow: hidden; }
+  .lyrics-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; min-width: 0; margin-bottom: 8px; gap: 10px; }
+  .lyrics-source, .lyrics-actions { display: flex; align-items: center; min-width: 0; gap: 7px; }
   .lyrics-provider-badge { display: inline-flex; align-items: center; min-height: 0; padding: 2px 6px; gap: 4px; border: 1px solid var(--accent-border); border-radius: 999px; color: var(--accent-strong); background: var(--accent-soft); font-size: .55rem; font-weight: 800; line-height: 1.2; letter-spacing: .08em; }
   .lyrics-provider-badge:hover:not(:disabled), .lyrics-provider-badge:focus-visible { color: var(--text-strong); background: var(--accent-bg); }
   .lyrics-source b { padding: 2px 5px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent-strong); background: var(--accent-soft); font-size: .5rem; letter-spacing: .08em; }
   .lyrics-source .lyrics-sync-badge { color: var(--muted); background: var(--surface-deep); }
   .lyrics-source .lyrics-sync-badge.synchronized { border-color: var(--accent-border); color: var(--accent-strong); background: var(--accent-soft); }
-  .lyrics-actions { flex: 0 0 auto; }
-  .lyrics-actions > button, .lyrics-footer button { min-height: 25px; padding: 3px 7px; font-size: .56rem; }
+  .lyrics-offset-control { display: flex; align-items: center; justify-self: center; }
+  .lyrics-offset-control :global(.numeric-control) { grid-template-columns: auto auto; align-items: center; gap: 5px; }
+  .lyrics-offset-control :global(.numeric-label) { display: none; }
+  .lyrics-offset-control :global(.numeric-buttons > button) { min-width: 25px; width: auto; height: 25px; padding: 3px 5px; }
+  .lyrics-offset-control :global(.numeric-buttons .value) { min-width: 48px; }
+  .lyrics-offset-control :global(.numeric-buttons .value strong) { font-size: .58rem; }
+  .lyrics-actions { grid-column: 3; justify-self: end; }
+  .lyrics-actions > button { min-height: 25px; padding: 3px 7px; font-size: .56rem; }
   .lyrics-actions > button.active { border-color: var(--accent-border); color: var(--accent-strong); background: var(--accent-soft); }
   .lyrics-header-button { display: grid; width: 27px; min-width: 27px; height: 25px; padding: 0; place-items: center; border-radius: 5px; color: var(--muted); }
   .lyrics-header-button:hover:not(:disabled), .lyrics-header-button:focus-visible { color: var(--text-strong); }
   .lyrics-header-button.danger-icon:not(:disabled) { color: var(--danger); }
   .lyrics-action-separator { width: 1px; height: 18px; margin-inline: 1px; background: var(--border); }
-  .lyrics-lines { display: grid; align-content: start; min-height: 176px; max-height: 290px; overflow-y: auto; padding: 0 8px; gap: 4px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .lyrics-lines { display: grid; align-content: start; min-height: 0; height: 100%; overflow-y: auto; padding: 0 8px; gap: 4px; overscroll-behavior: contain; scrollbar-gutter: stable; }
   .lyrics-lines button { position: relative; display: block; width: 100%; min-height: 34px; padding: 7px 58px 7px 10px; border: 1px solid transparent; color: var(--muted); background: transparent; font-size: .84rem; font-weight: 650; line-height: 1.35; text-align: left; transition: color 140ms ease, background-color 140ms ease, transform 140ms ease; }
   :global([dir="rtl"]) .lyrics-lines button { padding: 7px 10px 7px 58px; text-align: right; }
   .lyrics-lines button:hover, .lyrics-lines button:focus-visible { color: var(--text-strong); background: var(--surface-hover); }
@@ -301,20 +292,14 @@
   .lyrics-lines button small { position: absolute; top: 10px; right: 8px; color: var(--muted-soft); font: .52rem/1 ui-monospace, SFMono-Regular, monospace; }
   :global([dir="rtl"]) .lyrics-lines button small { right: auto; left: 8px; }
   .lyrics-lines button.untimed { cursor: default; }
-  .lyrics-footer { display: grid; margin-top: 8px; gap: 7px; }
-  .lyrics-footer > span { overflow: hidden; color: var(--muted); font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
-  .lyrics-footer > div { justify-content: flex-end; overflow-x: auto; }
-  .lyrics-footer i { width: 1px; height: 18px; background: var(--border); }
-  .lyrics-footer b { color: var(--muted); font-size: .55rem; text-transform: uppercase; }
-  .lyrics-footer output { min-width: 54px; color: var(--text-strong); font: .56rem/1 ui-monospace, SFMono-Regular, monospace; text-align: center; }
-  .lyrics-state { display: grid; align-content: center; justify-items: center; min-height: 205px; margin: 0; gap: 10px; color: var(--muted); text-align: center; }
+  .lyrics-state { display: grid; align-content: center; justify-items: center; min-height: 0; height: 100%; margin: 0; gap: 10px; color: var(--muted); text-align: center; }
   .lyrics-state { grid-template-columns: auto auto; }
   .lyrics-state.failed { display: grid; color: var(--danger); }
   .lyrics-state small { color: var(--muted); }
-  .lyrics-inline-editor { display: grid; min-height: 176px; max-height: 290px; gap: 7px; }
+  .lyrics-inline-editor { display: grid; min-height: 0; height: 100%; gap: 7px; }
   .lyrics-inline-editor textarea { box-sizing: border-box; width: 100%; min-height: 0; height: 100%; resize: none; padding: 12px; border: 1px solid var(--accent-border); border-radius: 7px; color: var(--text); background: var(--surface-deep); font: .75rem/1.55 ui-monospace, SFMono-Regular, monospace; }
   .lyrics-validation-actions { display: flex; justify-content: flex-end; gap: 6px; }
-  .lyrics-validation-actions button { min-height: 25px; padding: 4px 8px; border-radius: 5px; font-size: .58rem; line-height: 1; }
+  .lyrics-validation-actions button { height: 32px; padding: 5px 10px; border-radius: 6px; font-size: .65rem; line-height: 1; }
   .lyrics-editor-error { color: var(--danger); font-size: .68rem; }
   .lyrics-search-title { display: inline-flex; align-items: center; gap: 8px; }
   .lyrics-search-dialog { height: 420px; }

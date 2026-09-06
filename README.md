@@ -26,9 +26,9 @@
 | macOS Intel Light | macOS 12, Intel x64, 8 GB RAM | Not included | macOS 13+, 16 GB RAM |
 | Windows NVIDIA GPU | Windows 10 1903 or newer, x64, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Windows 11, 8 GB GPU memory, 32 GB RAM |
 | Windows Light | Windows 10 1903 or newer, x64, 8 GB RAM | Not included | Windows 11, 16 GB RAM |
-| Linux NVIDIA GPU | Ubuntu 22.04-compatible x64 desktop, glibc 2.35+, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Ubuntu 22.04 or newer, 8 GB GPU memory, 32 GB RAM |
-| Linux AMD GPU | Ubuntu 22.04-compatible x64 desktop, glibc 2.35+, 16 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | Ubuntu 22.04.5 or newer, 8 GB GPU memory, 32 GB RAM |
-| Linux Light | Ubuntu 22.04-compatible x64 desktop, glibc 2.35+, 8 GB RAM | Not included | Ubuntu 22.04 or newer, 16 GB RAM |
+| Linux NVIDIA GPU | DEB- or RPM-compatible x64 desktop, glibc 2.35+, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
+| Linux AMD GPU | DEB- or RPM-compatible x64 desktop, glibc 2.35+, 16 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
+| Linux Light | DEB-, RPM-, or AppImage-compatible x64 desktop, glibc 2.35+, 8 GB RAM | Not included | 16 GB RAM |
 
 SonArcan Full checks the production accelerator and model graphs once when the
 application starts. If no compatible and qualified GPU backend is available,
@@ -50,29 +50,44 @@ separate. Windows AMD and Intel GPUs are not qualified in this beta; choose
 Light on those systems. SonArcan never silently falls back to the CPU for heavy
 analysis jobs.
 
-GPU runtimes exceed GitHub's 2 GiB limit for a single release asset. Their
-portable package is consequently published as numbered `part-000`, `part-001`,
-… files plus a `SHA256SUMS` file. Download every part for the chosen platform
-and backend into one directory, verify the checksums, then concatenate them in
-name order. On Linux this reconstructs an installable `.deb`:
+GPU runtimes exceed GitHub's 2 GiB limit for a single release asset. Each DEB,
+RPM, or portable archive is consequently published as numbered `part-000`,
+`part-001`, … files plus a format-specific `SHA256SUMS` file. Download every
+part for the chosen platform, backend, and format into one directory, verify
+the checksums, then concatenate them in name order. On Debian or Ubuntu:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.24
+version=v0.1.0-beta.26
 backend=NVIDIA # Replace with AMD for the ROCm release.
-sha256sum --check "SHA256SUMS-Linux-${backend}-GPU.txt"
+sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
 sudo apt install "./SonArcan-${backend}-GPU.deb"
 ```
 
-Replace `NVIDIA` with `AMD` for the ROCm build. On Windows, verify the hashes
-with `Get-FileHash`, concatenate the numbered files as binary data, then extract
-the reconstructed `.zip` and launch `SonArcan NVIDIA GPU.exe`:
+On Fedora with a CUDA 12.6-compatible NVIDIA setup, use the NVIDIA RPM parts:
+
+```bash
+cd ~/Downloads
+version=v0.1.0-beta.26
+backend=NVIDIA
+sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-RPM.txt"
+cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.rpm".part-* > "SonArcan-${backend}-GPU.rpm"
+sudo dnf install "./SonArcan-${backend}-GPU.rpm"
+```
+
+Linux Light is available as a conventional single-file DEB, RPM, and AppImage.
+Install its RPM with `sudo dnf install ./<downloaded-file>.rpm`, or make the
+AppImage executable with `chmod +x ./<downloaded-file>.AppImage` and launch it
+directly. The AMD RPM is for RPM-based systems officially compatible with ROCm
+7.2; Fedora users with an AMD GPU should choose Light. On Windows, verify the
+hashes with `Get-FileHash`, concatenate the numbered files as binary data, then
+extract the reconstructed `.zip` and launch `SonArcan NVIDIA GPU.exe`:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.24'
+$version = 'v0.1.0-beta.26'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsNavigationPositions, LyricsParseError, parseLyrics } from "./lyrics.ts";
+import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsNavigationPositions, LyricsParseError, normalizedLyricsOffsetMs, parseLyrics } from "./lyrics.ts";
 
 test("parses and follows line-synchronized LRC", () => {
   const document = parseLyrics("[00:01.00]Première\n[00:03.50]Deuxième", "fr", 5_000);
@@ -78,4 +78,11 @@ test("builds bounded lyric navigation points with the display offset", () => {
   assert.deepEqual(lyricsNavigationPositions(document, 5), [1.2, 3.2]);
   document.offsetMs = -2_000;
   assert.deepEqual(lyricsNavigationPositions(document, 5), [1]);
+});
+
+test("lyrics offsets use bounded 100 ms steps expressed in seconds", () => {
+  assert.equal(normalizedLyricsOffsetMs(0.1), 100);
+  assert.equal(normalizedLyricsOffsetMs(-0.26), -300);
+  assert.equal(normalizedLyricsOffsetMs(45), 30_000);
+  assert.equal(normalizedLyricsOffsetMs(Number.NaN), 0);
 });

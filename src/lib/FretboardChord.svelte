@@ -158,7 +158,7 @@
         {#if omitted}{omittedLabel}: {omitted}{/if}
       </p>
     {/if}
-    {#if !selected}<p class="voicing-empty">{chord ? unavailableLabel : emptyLabel}</p>{/if}
+    {#if !selected && (chord || emptyLabel)}<p class="voicing-empty">{chord ? unavailableLabel : emptyLabel}</p>{/if}
 </div>
 
 <style>
