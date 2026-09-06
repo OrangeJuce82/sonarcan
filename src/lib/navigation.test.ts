@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adjacentBeatPosition, availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, snappedNavigationPosition } from "./navigation.ts";
+import { adjacentBeatPosition, availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, shouldRestartCurrentTrack, snappedNavigationPosition } from "./navigation.ts";
 import type { TimedChord } from "./types.ts";
 
 const chords: TimedChord[] = [
@@ -25,7 +25,16 @@ test("only validated navigation modes can be selected or cycled", () => {
 test("beat navigation moves to the adjacent detected beat", () => {
   const beats = [0.5, 1, 1.5];
   assert.equal(adjacentBeatPosition(beats, 1.01, -1), 0.5);
+  assert.equal(adjacentBeatPosition(beats, 1.25, -1), 0.5);
   assert.equal(adjacentBeatPosition(beats, 1.01, 1), 1.5);
+  assert.equal(adjacentBeatPosition(beats, 1.25, 1), 1.5);
+});
+
+test("previous track restarts the current track unless it is already at the beginning", () => {
+  assert.equal(shouldRestartCurrentTrack(12), true);
+  assert.equal(shouldRestartCurrentTrack(1), true);
+  assert.equal(shouldRestartCurrentTrack(0.999), false);
+  assert.equal(shouldRestartCurrentTrack(0), false);
 });
 
 test("the magnet follows chord mode and otherwise uses beats", () => {
@@ -38,5 +47,7 @@ test("the magnet follows chord mode and otherwise uses beats", () => {
 test("lyrics navigation moves between synchronized line starts", () => {
   const lyrics = [1, 3, 7];
   assert.equal(navigationPosition("lyrics", 3.01, -1, 10, [], chords, lyrics), 1);
+  assert.equal(navigationPosition("lyrics", 3.4, -1, 10, [], chords, lyrics), 1);
   assert.equal(navigationPosition("lyrics", 3.01, 1, 10, [], chords, lyrics), 7);
+  assert.equal(navigationPosition("lyrics", 3.4, 1, 10, [], chords, lyrics), 7);
 });

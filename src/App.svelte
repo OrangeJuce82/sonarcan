@@ -28,7 +28,7 @@
   import LyricsPanel from "./lib/LyricsPanel.svelte";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
-  import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, snappedNavigationPosition } from "./lib/navigation";
+  import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, shouldRestartCurrentTrack, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import { projectStartupAction, type ProjectStartupAction } from "./lib/projectStartup";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
@@ -550,7 +550,6 @@
   function selectChordFromButton(event: MouseEvent, chord: TimedChord): void {
     (event.currentTarget as HTMLButtonElement).focus({ preventScroll: true });
     selectChord(chord);
-    changeNavigationMode("chord");
     if (shouldSeekChordFromClick(chordEditMode, event.altKey)) seek(chord.startSeconds);
   }
 
@@ -2257,7 +2256,6 @@
   }
 
   function seekFromLyrics(milliseconds: number): void {
-    changeNavigationMode("lyrics");
     seek(milliseconds / 1_000);
   }
 
@@ -2640,6 +2638,10 @@
 
   function moveTrack(offset: number): void {
     if (!project?.tracks.length) return;
+    if (offset < 0 && currentTrack && shouldRestartCurrentTrack(currentSeconds)) {
+      seek(0);
+      return;
+    }
     const index = Math.max(0, project.tracks.findIndex((track) => track.id === currentTrack?.id));
     const nextIndex = (index + offset + project.tracks.length) % project.tracks.length;
     selectTrack(project.tracks[nextIndex]);
@@ -3559,7 +3561,7 @@
                 aria-label={`${chordDisplayLabel(block.chord.label)}, ${displayTime(block.chord.startSeconds)}, ${t("chordSeekHelp")}`}
                 aria-current={block.index === activeChordIndex ? "true" : undefined}
                 title={`${chordDisplayLabel(block.chord.label)} · ${displayTime(block.chord.startSeconds)}–${displayTime(block.chord.endSeconds)}`}
-                onclick={() => { changeNavigationMode("chord"); seek(block.chord.startSeconds); }}
+                onclick={() => seek(block.chord.startSeconds)}
               >{chordDisplayLabel(block.chord.label)}</button>
             {/each}
           </div>
@@ -3945,7 +3947,7 @@
                     style={`--chord-color:${chordColor(label, Math.max(...displayedChords.filter((chord) => chord.label === label).map((chord) => chord.strength)), chordColorMode)}`}
                     aria-label={`${label}, ${t("showChordOnKeyboard")}`}
                     data-tooltip={t("showChordOnKeyboard")}
-                    onclick={() => { repertoireKeyboardLabel = label; changeNavigationMode("chord"); }}
+                    onclick={() => repertoireKeyboardLabel = label}
                   ><b>{label}</b></button>
                 {/each}
               </div>

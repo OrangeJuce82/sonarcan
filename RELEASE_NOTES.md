@@ -1,4 +1,4 @@
-# SonArcan 0.1.0-beta.25
+# SonArcan 0.1.0-beta.26
 
 This beta introduces platform-specific Full GPU and Light releases. Choose the
 installer whose name matches your computer; all editions share the same `.sac`
@@ -46,7 +46,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.25
+version=v0.1.0-beta.26
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -63,7 +63,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.25'
+$version = 'v0.1.0-beta.26'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -88,6 +88,12 @@ PowerShell stops before reconstruction if a part is missing or altered.
 
 ## Other fixes
 
+- Previous/next navigation now moves consistently to the adjacent beat, chord,
+  or synchronized lyric marker, even from the middle of the current segment.
+- The previous-track control restarts the current track when playback is past
+  its first second, and moves to the preceding track when already at the start.
+- Clicking a timed chord or lyric seeks to it without changing the selected
+  navigation mode.
 - Waveform clicks now seek to the exact pointed position without beat, chord,
   or lyric snapping; keyboard and transport navigation remain unchanged.
 - Startup now loads and applies user preferences before rendering the workspace,

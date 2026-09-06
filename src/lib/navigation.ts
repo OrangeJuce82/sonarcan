@@ -42,17 +42,22 @@ export function adjacentBeatPosition(
 ): number {
   if (!beats.length || !Number.isFinite(positionSeconds)) return positionSeconds;
   const tolerance = 0.01;
-  if (direction < 0) {
-    for (let index = beats.length - 1; index >= 0; index -= 1) {
-      const beat = beats[index];
-      if (beat !== undefined && beat < positionSeconds - tolerance) return beat;
+  let activeIndex = -1;
+  for (let index = beats.length - 1; index >= 0; index -= 1) {
+    const beat = beats[index];
+    if (beat !== undefined && beat <= positionSeconds + tolerance) {
+      activeIndex = index;
+      break;
     }
-    return beats[0] ?? positionSeconds;
   }
-  for (const beat of beats) {
-    if (beat > positionSeconds + tolerance) return beat;
-  }
-  return beats[beats.length - 1] ?? positionSeconds;
+  const targetIndex = activeIndex < 0
+    ? 0
+    : Math.max(0, Math.min(beats.length - 1, activeIndex + direction));
+  return beats[targetIndex] ?? positionSeconds;
+}
+
+export function shouldRestartCurrentTrack(positionSeconds: number): boolean {
+  return Number.isFinite(positionSeconds) && positionSeconds >= 1;
 }
 
 export function navigationPosition(

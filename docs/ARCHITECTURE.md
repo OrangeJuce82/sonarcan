@@ -118,8 +118,8 @@ uses synchronized line starts including the saved display offset. Four non-inter
 states centered in the Audio header expose Beat This!, chord, lyrics, and separated-mix
 orchestration. Left/Right and the transport jump controls move to the adjacent point.
 The preference is global user state and is never stored in a project or track.
-Clicking a chord selects Chord navigation and clicking a timed lyric selects
-Lyrics navigation. Loop magnetism uses chord boundaries in Chord mode,
+Clicking a timed chord or lyric seeks to its timestamp without changing the
+selected navigation mode. Loop magnetism uses chord boundaries in Chord mode,
 synchronized line starts in Lyrics mode, and Beat This! beats in Time or Beat
 mode, falling back to beats while chord data is unavailable. `I` cycles the
 piano, guitar, and ukulele views. Global shortcuts remain inactive while editing
