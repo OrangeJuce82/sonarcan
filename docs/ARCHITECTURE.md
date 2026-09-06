@@ -97,12 +97,14 @@ probes on the end-user accelerator before Rust opens the analysis IPC gate.
 
 In full mode, the analysis workspace first places the chord grid beside a
 multi-view harmony panel using a 40/60 split. Beneath it, the six-stem mixer sits
-beside a right-hand column containing the spectrum and stereo meter. The chord panel wraps segments into a vertically
+beside a right-hand column containing two equal-height, user-selectable visualization slots. Spectrum, output meter, and bounded energy history reuse bounded Rust snapshots without transferring raw audio. The chord panel wraps segments into a vertically
 scrollable grid. Playback can follow the active segment automatically. Standard (`submission`) is the default;
 Essentiel and Complet expose the other native model views. The
 panel can filter the uncalibrated model score, color by score or root, show a
 consistent sharp or flat spelling, follow the playback pitch transposition, and
-switch to an alphabetical repertoire of unique chords.
+switch between its timed grid, an alphabetical repertoire of unique chords, and
+duration-weighted chord statistics. The statistics are a pure presentation
+derivation of the displayed timeline and never change cached analysis.
 In degraded mode, the lyrics panel occupies the mixer's column, the spectrum
 and stereo meter retain the right-hand column, and the harmony row is omitted.
 In full mode, the audio header exposes one user navigation mode: Time, Beat, Chord, or Lyrics. Left

@@ -240,7 +240,9 @@ Outside an active A/B loop, the engine supports three explicit modes: restart th
 
 ## Spectrum worker
 
-A dedicated `sonarcan-spectrum` Rust worker analyzes a 2,048-sample Hann window centered on the current source position. RustFFT produces the transform outside the audio callback. The result is reduced to 64 logarithmic bands from 30 Hz to the lower of 20 kHz or Nyquist and normalized to a bounded display range. Only these visualization magnitudes cross IPC; raw samples remain in Rust.
+A dedicated `sonarcan-spectrum` Rust worker analyzes a 2,048-sample Hann window centered on the current source position. It snapshots either the original PCM or the active six-stem mix with its gain, pan, mute, and solo settings. RustFFT produces the transform outside the audio callback. The result is reduced to 64 logarithmic bands from 30 Hz to the lower of 20 kHz or Nyquist. Only those visualization values cross IPC; raw samples remain in Rust.
+
+The interface presents two equal-height visualization slots. Each slot can show the spectrum, output meter, or a bounded 30-second maximum energy history. Display style, frequency range, smoothing, meter unit and peak hold remain frontend presentation preferences and never affect playback or analysis truth. The meter uses an immediate attack and time-based release so irregular IPC timing cannot change its response. Its peak marker is driven by the visible bar, stays fixed for the selected hold duration, then falls at a fixed rate.
 
 ## Current limitations
 

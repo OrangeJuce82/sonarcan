@@ -32,6 +32,14 @@ pub struct UserPreferences {
     pub loop_snap_enabled: bool,
     pub navigation_mode: NavigationMode,
     pub navigation_time_seconds: u32,
+    pub visualization_slot_one: VisualizationKind,
+    pub visualization_slot_two: VisualizationKind,
+    pub spectrum_style: SpectrumStyle,
+    pub spectrum_range: SpectrumRange,
+    pub visualization_response: VisualizationResponse,
+    pub meter_unit: MeterUnit,
+    pub meter_peak_hold: MeterPeakHold,
+    pub energy_window_seconds: u32,
     pub degraded_analysis_notice_seen: bool,
     pub light_edition_notice_seen: bool,
     pub default_trainer_start_rate: f64,
@@ -108,6 +116,55 @@ pub enum ChordModePreference {
     Complete,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VisualizationKind {
+    #[serde(alias = "chromagram")]
+    Spectrum,
+    #[serde(alias = "correlation")]
+    Meter,
+    Energy,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SpectrumStyle {
+    Bars,
+    Curve,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SpectrumRange {
+    Full,
+    Low,
+    Mid,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VisualizationResponse {
+    Fast,
+    Normal,
+    Smooth,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MeterUnit {
+    Percent,
+    Dbfs,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MeterPeakHold {
+    Off,
+    OneSecond,
+    ThreeSeconds,
+}
+
 impl Default for UserPreferences {
     fn default() -> Self {
         Self {
@@ -134,6 +191,14 @@ impl Default for UserPreferences {
             loop_snap_enabled: true,
             navigation_mode: NavigationMode::Time,
             navigation_time_seconds: 10,
+            visualization_slot_one: VisualizationKind::Spectrum,
+            visualization_slot_two: VisualizationKind::Meter,
+            spectrum_style: SpectrumStyle::Bars,
+            spectrum_range: SpectrumRange::Full,
+            visualization_response: VisualizationResponse::Normal,
+            meter_unit: MeterUnit::Percent,
+            meter_peak_hold: MeterPeakHold::OneSecond,
+            energy_window_seconds: 15,
             degraded_analysis_notice_seen: false,
             light_edition_notice_seen: false,
             default_trainer_start_rate: 0.5,
@@ -193,6 +258,19 @@ fn validate(value: &mut UserPreferences) {
     value.default_playback_rate = value.default_playback_rate.clamp(0.5, 2.0);
     value.default_pitch_semitones = value.default_pitch_semitones.clamp(-12.0, 12.0);
     value.navigation_time_seconds = value.navigation_time_seconds.clamp(1, 60);
+    value.energy_window_seconds = match value.energy_window_seconds {
+        0..=9 => 5,
+        10..=22 => 15,
+        _ => 30,
+    };
+    if value.visualization_slot_one == value.visualization_slot_two {
+        value.visualization_slot_two =
+            if value.visualization_slot_one == VisualizationKind::Spectrum {
+                VisualizationKind::Meter
+            } else {
+                VisualizationKind::Spectrum
+            };
+    }
     value.default_trainer_start_rate = value.default_trainer_start_rate.clamp(0.5, 1.99);
     value.default_trainer_target_rate = value
         .default_trainer_target_rate
@@ -225,6 +303,12 @@ mod tests {
         assert!(preferences.loop_snap_enabled);
         assert_eq!(preferences.navigation_mode, NavigationMode::Time);
         assert_eq!(preferences.navigation_time_seconds, 10);
+        assert_eq!(
+            preferences.visualization_slot_one,
+            VisualizationKind::Spectrum
+        );
+        assert_eq!(preferences.visualization_slot_two, VisualizationKind::Meter);
+        assert_eq!(preferences.energy_window_seconds, 15);
         assert_eq!(preferences.metronome_sound, MetronomeSound::Electronic);
         assert!(preferences.beat_this_dbn);
         assert_eq!(preferences.chord_mode, ChordModePreference::Essential);
@@ -240,6 +324,41 @@ mod tests {
         let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
 
         assert_eq!(preferences.time_display, TimeDisplay::Simple);
+    }
+
+    #[test]
+    fn visualization_slots_are_distinct_and_history_is_bounded() {
+        let mut preferences = UserPreferences {
+            visualization_slot_one: VisualizationKind::Energy,
+            visualization_slot_two: VisualizationKind::Energy,
+            energy_window_seconds: 500,
+            ..UserPreferences::default()
+        };
+        validate(&mut preferences);
+        assert_eq!(
+            preferences.visualization_slot_one,
+            VisualizationKind::Energy
+        );
+        assert_eq!(
+            preferences.visualization_slot_two,
+            VisualizationKind::Spectrum
+        );
+        assert_eq!(preferences.energy_window_seconds, 30);
+    }
+
+    #[test]
+    fn removed_visualizations_migrate_to_supported_slots() {
+        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
+        stored["visualizationSlotOne"] = serde_json::Value::String("chromagram".into());
+        stored["visualizationSlotTwo"] = serde_json::Value::String("correlation".into());
+
+        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(
+            preferences.visualization_slot_one,
+            VisualizationKind::Spectrum
+        );
+        assert_eq!(preferences.visualization_slot_two, VisualizationKind::Meter);
     }
 
     #[test]

@@ -18,7 +18,7 @@
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shiftedTrackShortcutOffset, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleBeatThisDbnShortcut, shouldToggleChordEditModeShortcut, shouldToggleLoopOnRelease, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
   import { localBpmAt } from "./lib/localTempo";
-  import { activeChordIndexAt, adjacentChordGridIndex, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode } from "./lib/chordViews";
+  import { activeChordIndexAt, adjacentChordGridIndex, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordStatistics, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, nextChordPanelView, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode, type ChordPanelView } from "./lib/chordViews";
   import { applyChordEdits, centeredChordOptionScrollTop, chordEditKey, chordEditKeyboardAction, chordEditOptions, chordEditPointerAction, chordGridKeyboardAction, chordSuggestions, shouldSeekChordFromClick, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
   import Icon from "./lib/Icon.svelte";
   import FretboardChord from "./lib/FretboardChord.svelte";
@@ -27,19 +27,21 @@
   import Modal from "./lib/Modal.svelte";
   import Toaster from "./lib/Toaster.svelte";
   import LyricsPanel from "./lib/LyricsPanel.svelte";
+  import VisualizationPanel from "./lib/VisualizationPanel.svelte";
+  import { emptyMeterState, meterPeakHoldMilliseconds, smoothValues, updateMeterState, visualizationKinds, type EnergyPoint } from "./lib/visualization";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
-  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+  import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, zoomWaveformViewportAroundCenter, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, shouldRestartCurrentTrack, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import { projectStartupAction, type ProjectStartupAction } from "./lib/projectStartup";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
   import { chordSegmentsForJams } from "./lib/chordExport";
   import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
-  import { activeLyricsLineIndex, lrclibDocument, lyricsNavigationPositions, lyricsViewportBlocks, normalizedLyricsOffsetMs } from "./lib/lyrics";
+  import { activeLyricsLineIndex, lrclibDocument, lyricsLinePlaybackProgress, lyricsNavigationPositions, lyricsScrollProgress, lyricsViewportBlocks, normalizedLyricsOffsetMs } from "./lib/lyrics";
   import { lyricsSearchQueries, preferredLyricsResult } from "./lib/lyricsMatching";
   import { lyricsTranslate } from "./lib/lyricsI18n";
   import sonarcanLogo from "../docs/assets/sonarcan-rounded.png";
-  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, LyricsDocument, LyricsSearchResult, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, WaveformData } from "./lib/types";
+  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, LyricsDocument, LyricsSearchResult, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, VisualizationKind, VisualizationSetting, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let startupProjectAction: ProjectStartupAction = "checking";
@@ -66,6 +68,8 @@
   let masterPeak = 0;
   let masterPeakLeft = 0;
   let masterPeakRight = 0;
+  let visualizationMeterLeft = emptyMeterState();
+  let visualizationMeterRight = emptyMeterState();
   let limiterReduction = 0;
   let normalizationGain = 1;
   let integratedLufs: number | null = null;
@@ -107,7 +111,7 @@
   let chordMinimumStrength = 0;
   let chordColorMode: ChordColorMode = "root";
   let chordAccidentalMode: ChordAccidentalMode = "flat";
-  let chordView: "timeline" | "repertoire" = "timeline";
+  let chordView: ChordPanelView = "grid";
   let chordSettingsVisible = false;
   let chordEditMode = false;
   let chordEdits: ChordEdit[] = [];
@@ -154,6 +158,8 @@
   let trainingSettingsVisible = false;
   let trainingDraft = { startRate: 0.5, targetRate: 1, increment: 0.05, repetitions: 1 };
   let spectrumBands = Array<number>(64).fill(0);
+  let energyHistory: EnergyPoint[] = [];
+  let lastEnergySampleMs = 0;
   let spectrumRequestActive = false;
   const canonicalStemNames = ["vocals", "drums", "bass", "other", "guitar", "piano"] as const;
   const stemDisplayOrder = [0, 1, 2, 4, 5, 3] as const;
@@ -170,7 +176,7 @@
   let stemGenerationStarting = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
-  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, youtubeAutoSelectBestMatch: true, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 1, musicVolume: 1, loudnessNormalization: true, metronomeVolume: 0.55, metronomeSound: "electronic", beatThisDbn: true, chordMode: "essential", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, degradedAnalysisNoticeSeen: false, lightEditionNoticeSeen: false, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
+  const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, youtubeAutoSelectBestMatch: true, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 1, musicVolume: 1, loudnessNormalization: true, metronomeVolume: 0.55, metronomeSound: "electronic", beatThisDbn: true, chordMode: "essential", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, visualizationSlotOne: "spectrum", visualizationSlotTwo: "meter", spectrumStyle: "bars", spectrumRange: "full", visualizationResponse: "normal", meterUnit: "percent", meterPeakHold: "oneSecond", energyWindowSeconds: 15, degradedAnalysisNoticeSeen: false, lightEditionNoticeSeen: false, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let preferences: UserPreferences = { ...defaultUserPreferences };
   let importText = "";
   let importCandidates: ImportCandidate[] = [];
@@ -457,18 +463,42 @@
   $: waveformLyricsBlocks = lyricsViewportBlocks(lyricsDocument, durationSeconds, waveformZoom, waveformStart);
   $: activeLyricsIndex = activeLyricsLineIndex(lyricsDocument, currentSeconds * 1_000);
   $: repertoireLabels = chordRepertoire(displayedChords);
+  $: chordStatisticRows = chordStatistics(displayedChords);
   $: activeChordIndex = activeChordIndexAt(timelineChords, currentSeconds);
   $: activeChord = activeChordIndex >= 0 ? timelineChords[activeChordIndex] ?? null : null;
   $: activeChordLabel = repertoireKeyboardLabel ?? activeChord?.label ?? "N";
   $: activeHarmonyLabel = repertoireKeyboardLabel ?? (Math.round(pitchSemitones) === 0 ? activeChord?.sourceLabel ?? activeChordLabel : activeChordLabel);
   $: activeInstrumentColor = chordColor(activeChordLabel, activeChord?.strength ?? 1, chordColorMode);
-  $: if (chordView === "repertoire" && (activeChord?.label ?? null) !== lastRepertoirePlaybackLabel) {
+  $: if (chordView !== "grid" && (activeChord?.label ?? null) !== lastRepertoirePlaybackLabel) {
     lastRepertoirePlaybackLabel = activeChord?.label ?? null;
     repertoireKeyboardLabel = null;
   }
-  $: if (chordView === "timeline" && chordAutoScrollEnabled && !editingChordKey && !chordScrollSuspended && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
+  $: if (chordView === "grid" && chordAutoScrollEnabled && !editingChordKey && !chordScrollSuspended && activeChordIndex >= 0 && activeChordIndex !== lastFollowedChordIndex) {
     lastFollowedChordIndex = activeChordIndex;
     followChord(activeChordIndex);
+  }
+
+  function scrollWaveformLyric(node: HTMLElement, state: { progress: number }) {
+    let current = state;
+    const position = (): void => {
+      const containerWidth = node.parentElement?.clientWidth ?? 0;
+      const overflow = Math.max(0, node.scrollWidth - containerWidth);
+      node.style.setProperty("--lyrics-start-offset", `${overflow * 0.5}px`);
+      node.style.setProperty("--lyrics-scroll-offset", `${overflow * lyricsScrollProgress(current.progress)}px`);
+    };
+    const observer = new ResizeObserver(position);
+    observer.observe(node);
+    if (node.parentElement) observer.observe(node.parentElement);
+    queueMicrotask(position);
+    return {
+      update(next: { progress: number }): void {
+        current = next;
+        queueMicrotask(position);
+      },
+      destroy(): void {
+        observer.disconnect();
+      },
+    };
   }
 
   function followChord(index: number): void {
@@ -584,7 +614,7 @@
   function beginChordEdit(chord: TimedChord): void {
     if (!chordEditMode) return;
     selectChord(chord);
-    chordView = "timeline";
+    chordView = "grid";
     editingChordKey = chordEditKey(chordMode, chord);
     chordEditValue = chord.label;
     chordEditInvalid = false;
@@ -652,7 +682,7 @@
     if (chordEditMode === enabled) return;
     chordEditMode = enabled;
     if (enabled) {
-      chordView = "timeline";
+      chordView = "grid";
       repertoireKeyboardLabel = null;
       return;
     }
@@ -664,15 +694,27 @@
     setChordEditMode(!chordEditMode);
   }
 
-  function toggleChordRepertoire(): void {
-    chordView = chordView === "timeline" ? "repertoire" : "timeline";
-    if (chordView === "repertoire") setChordEditMode(false);
+  function changeChordView(view: ChordPanelView): void {
+    if (chordView === view) return;
+    chordView = view;
+    if (chordView !== "grid") setChordEditMode(false);
     repertoireKeyboardLabel = null;
     chordScrollSuspended = false;
     chordPointerInside = false;
     chordFocusWithin = false;
     chordProgrammaticScroll = false;
     lastFollowedChordIndex = -1;
+  }
+
+  function cycleChordView(): void {
+    changeChordView(nextChordPanelView(chordView));
+  }
+
+  function selectChordStatistic(label: string): void {
+    repertoireKeyboardLabel = label;
+    const occurrences = timelineChords.filter((chord) => chord.label === label);
+    const next = occurrences.find((chord) => chord.startSeconds > currentSeconds + 0.01) ?? occurrences[0];
+    if (next) seek(next.startSeconds);
   }
 
   function refreshChordEditSuggestions(): void {
@@ -917,7 +959,7 @@
   }
 
   function focusChordAtIndex(targetIndex: number, seekPlayback = false): void {
-    if (chordView !== "timeline" || !chordList || !timelineChords.length) return;
+    if (chordView !== "grid" || !chordList || !timelineChords.length) return;
     const buttons = [...chordList.querySelectorAll<HTMLButtonElement>("button[data-chord-index]")];
     const target = buttons.find((button) => Number(button.dataset.chordIndex) === targetIndex);
     const chord = timelineChords[targetIndex];
@@ -929,7 +971,7 @@
   }
 
   function moveChordTimelineSelection(direction: -1 | 1, seekPlayback = false): void {
-    if (chordView !== "timeline" || !timelineChords.length) return;
+    if (chordView !== "grid" || !timelineChords.length) return;
     const selectedIndex = selectedChordIndex();
     const anchorIndex = selectedIndex >= 0 ? selectedIndex : activeChordIndex;
     const targetIndex = anchorIndex < 0
@@ -939,7 +981,7 @@
   }
 
   function moveChordGridSelection(direction: -1 | 1): void {
-    if (chordView !== "timeline" || !chordList || !timelineChords.length) return;
+    if (chordView !== "grid" || !chordList || !timelineChords.length) return;
     const buttons = [...chordList.querySelectorAll<HTMLButtonElement>("button[data-chord-index]")];
     const selectedIndex = selectedChordIndex();
     const currentIndex = selectedIndex >= 0 ? selectedIndex : Math.max(0, activeChordIndex);
@@ -1499,6 +1541,8 @@
     masterPeak = 0;
     masterPeakLeft = 0;
     masterPeakRight = 0;
+    visualizationMeterLeft = emptyMeterState();
+    visualizationMeterRight = emptyMeterState();
     loopEnabled = false;
     loopA = null;
     loopB = null;
@@ -1527,6 +1571,7 @@
     trainerLoopCount = 0;
     endedGeneration = 0;
     spectrumBands = Array<number>(64).fill(0);
+    energyHistory = [];
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
     stemMix = Array.from({ length: 6 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
     stemNames = [...canonicalStemNames];
@@ -2109,6 +2154,8 @@
     masterPeak = 0;
     masterPeakLeft = 0;
     masterPeakRight = 0;
+    visualizationMeterLeft = emptyMeterState();
+    visualizationMeterRight = emptyMeterState();
     audioLoading = true;
     loadingTrackId = track.id;
     currentTrack = track;
@@ -2143,6 +2190,7 @@
     stemMix.forEach((value, index) => void stemSetMix(index, value.gain, value.pan, value.muted, value.soloed));
     trainerLoopCount = 0;
     spectrumBands = Array<number>(64).fill(0);
+    energyHistory = [];
     tempoLoading = true;
     chordAnalysis = null;
     chordsLoading = false;
@@ -3179,6 +3227,15 @@
       masterPeak = status.outputPeak;
       masterPeakLeft = status.outputPeakLeft;
       masterPeakRight = status.outputPeakRight;
+      const now = Date.now();
+      const meterNow = performance.now();
+      const peakHoldMilliseconds = meterPeakHoldMilliseconds(preferences.meterPeakHold);
+      visualizationMeterLeft = updateMeterState(visualizationMeterLeft, masterPeakLeft, preferences.visualizationResponse, peakHoldMilliseconds, meterNow);
+      visualizationMeterRight = updateMeterState(visualizationMeterRight, masterPeakRight, preferences.visualizationResponse, peakHoldMilliseconds, meterNow);
+      if (now - lastEnergySampleMs >= 100) {
+        energyHistory = [...energyHistory.filter((point) => point.timestampMs >= now - 30_000), { timestampMs: now, left: masterPeakLeft, right: masterPeakRight }];
+        lastEnergySampleMs = now;
+      }
       limiterReduction = status.limiterReduction;
       normalizationGain = status.normalizationGain;
       integratedLufs = status.integratedLufs;
@@ -3213,7 +3270,9 @@
     spectrumRequestActive = true;
     try {
       const frame = await audioSpectrum();
-      if (selectionGeneration === trackSelectionGeneration && currentTrack?.id === trackId) spectrumBands = frame.bands;
+      if (selectionGeneration === trackSelectionGeneration && currentTrack?.id === trackId) {
+        spectrumBands = smoothValues(spectrumBands, frame.bands, preferences.visualizationResponse);
+      }
     } catch {
       // Spectrum visualization is optional and must never affect playback.
     } finally {
@@ -3227,6 +3286,22 @@
     } catch {
       // System metrics are informational and must never affect playback.
     }
+  }
+
+  function changeVisualization(slot: 1 | 2, kind: VisualizationKind): void {
+    if (slot === 1) {
+      const previous = preferences.visualizationSlotOne;
+      preferences = { ...preferences, visualizationSlotOne: kind, visualizationSlotTwo: kind === preferences.visualizationSlotTwo ? previous : preferences.visualizationSlotTwo };
+    } else {
+      const previous = preferences.visualizationSlotTwo;
+      preferences = { ...preferences, visualizationSlotTwo: kind, visualizationSlotOne: kind === preferences.visualizationSlotOne ? previous : preferences.visualizationSlotOne };
+    }
+    void persistPreferences();
+  }
+
+  function changeVisualizationSetting(setting: VisualizationSetting, value: string | number): void {
+    preferences = { ...preferences, [setting]: value };
+    void persistPreferences();
   }
 
   function toggleTheme(): void {
@@ -3280,6 +3355,15 @@
 
   function navigateWaveformWithWheel(event: WheelEvent, overview: boolean): void {
     event.preventDefault();
+    event.stopPropagation();
+    if (overview) {
+      applyWaveformViewport(zoomWaveformViewportAroundCenter(
+        waveformStart,
+        waveformZoom,
+        Math.exp(-event.deltaY * 0.002),
+      ));
+      return;
+    }
     const target = event.currentTarget as HTMLElement;
     const bounds = target.getBoundingClientRect();
     const axis = event.ctrlKey
@@ -3301,9 +3385,7 @@
       return;
     }
     const pointerRatio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
-    const anchorPosition = overview
-      ? pointerRatio
-      : waveformStart + pointerRatio / waveformZoom;
+    const anchorPosition = waveformStart + pointerRatio / waveformZoom;
     applyWaveformViewport(zoomWaveformViewport(
       waveformStart,
       waveformZoom,
@@ -3511,6 +3593,7 @@
       <button class="header-icon-link" aria-label={t("shortcuts")} data-tooltip={t("shortcuts")} onclick={() => shortcutsVisible = true}><Icon name="keyboard" size="15px" /></button>
       <button class="header-icon-link" class:active={helpVisible} aria-pressed={helpVisible} aria-label={helpVisible ? t("hideHelp") : t("showHelp")} data-tooltip={helpVisible ? t("hideHelp") : t("showHelp")} onclick={toggleHelp}><Icon name="lightbulb" size="15px" /></button>
       <button class="header-icon-link" class:active={consoleVisible} aria-pressed={consoleVisible} aria-label={consoleVisible ? t("hideConsole") : t("showConsole")} data-tooltip={consoleVisible ? t("hideConsole") : t("showConsole")} onclick={toggleConsole}><Icon name="terminal" size="15px" /></button>
+      <span class="header-separator" aria-hidden="true"></span>
       <button class="header-icon-link" aria-label={t("toggleTheme")} data-tooltip={t("toggleTheme")} onclick={toggleTheme}>
         <Icon name={preferences.theme === "dark" ? "moon" : "sun"} size="15px" />
       </button>
@@ -3629,7 +3712,7 @@
             ><Icon name="arrows-to-dot" size="13px" /></button>
           </div>
         </div>
-        {#if waveformChordBlocks.length}
+        {#if analysisFeaturesAvailable}
           <div
             class="waveform-chord-lane"
             role="group"
@@ -3640,7 +3723,7 @@
             onfocusin={() => waveformFocusWithin = true}
             onfocusout={leaveDetailedWaveformFocus}
           >
-            {#each waveformChordBlocks as block}
+            {#each waveformChordBlocks as block (chordEditKey(chordMode, block.chord))}
               <button
                 type="button"
                 class:active={block.index === activeChordIndex}
@@ -3680,27 +3763,37 @@
           {#if waveformLoading}<div class="wave-skeleton" aria-label={t("waveformLoading")}><svg viewBox={`0 0 ${loadingWave.length} 100`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={50 - height * 45} y2={50 + height * 45}></line>{/each}</svg><i></i><span>{t("waveformLoading")}</span></div>
           {:else if detailedPeaks.length === 0}<span class="wave-message">{t("waveformEmpty")}</span>
           {:else}
-            <svg viewBox={`0 0 ${detailedPeaks.length} 100`} preserveAspectRatio="none" aria-hidden="true">
-              {#each detailedPeaks as peak, index}
-                <line x1={index} x2={index} y1={50 - peak.max * 48} y2={50 - peak.min * 48} />
-              {/each}
-            </svg>
-            <div class="beat-grid" aria-hidden="true">
-              {#each detailedBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
-            </div>
-            {#if loopA !== null}
-              <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
-              {#if loopB !== null}
+            <div class="waveform-canvas">
+              <svg viewBox={`0 0 ${detailedPeaks.length} 100`} preserveAspectRatio="none" aria-hidden="true">
+                {#each detailedPeaks as peak, index}
+                  <line x1={index} x2={index} y1={50 - peak.max * 48} y2={50 - peak.min * 48} />
+                {/each}
+              </svg>
+              <div class="beat-grid" aria-hidden="true">
+                {#each detailedBeatLines as beat}<i class:accent={beat.accent} style={`left:${beat.percent}%`}></i>{/each}
+              </div>
+              {#if loopA !== null && loopB !== null}
                 <i
                   class="loop-region"
                   class:disabled={!loopEnabled}
                   aria-hidden="true"
                   style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%;width:${(loopB - loopA) / durationSeconds * waveformZoom * 100}%`}
                 ></i>
+              {/if}
+              {#if loopA !== null}
+                <i class="loop-boundary a" aria-hidden="true" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`}></i>
+              {/if}
+              {#if loopB !== null}
+                <i class="loop-boundary b" aria-hidden="true" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`}></i>
+              {/if}
+              {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
+            </div>
+            {#if loopA !== null}
+              <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
+              {#if loopB !== null}
                 <button class="loop-handle b" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={`${t("moveEnd")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveEnd")} · ${t("doubleClickResetB")}`} onpointerdown={(event) => startLoopDrag(event, "b", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "b")}>B</button>
               {/if}
             {/if}
-            {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
           {/if}
         </div>
         {#if lyricsDocument && lyricsDocument.syncLevel !== "none"}
@@ -3714,7 +3807,7 @@
             onfocusin={() => waveformFocusWithin = true}
             onfocusout={leaveDetailedWaveformFocus}
           >
-            {#each waveformLyricsBlocks as block}
+            {#each waveformLyricsBlocks as block (block.line)}
               <button
                 type="button"
                 class:active={block.index === activeLyricsIndex}
@@ -3723,7 +3816,7 @@
                 aria-current={block.index === activeLyricsIndex ? "true" : undefined}
                 title={`${block.line.text} · ${displayTime(block.seekSeconds)}`}
                 onclick={() => seek(block.seekSeconds)}
-              ><span>{block.line.text}</span></button>
+              ><span class="waveform-lyrics-viewport"><span class="waveform-lyrics-text" use:scrollWaveformLyric={{ progress: lyricsLinePlaybackProgress(lyricsDocument, block.index, currentSeconds * 1_000, durationSeconds * 1_000) }}>{block.line.text}</span></span></button>
             {/each}
           </div>
         {/if}
@@ -3736,25 +3829,29 @@
             <button type="button" class="zoom-preset fit-thirty" aria-label={t("fitThirtySeconds")} data-tooltip={t("fitThirtySeconds")} onclick={fitThirtySecondWaveform}><Icon name="stopwatch" size="12px" /><small>30</small></button>
           </span>
         </div>
-        <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheel={(event) => navigateWaveformWithWheel(event, true)} onpointerdown={seekFromOverview}>
+        <div class="overview-wave" role="application" aria-label={t("overviewHelp")} data-tooltip={t("overviewHelp")} onwheelcapture={(event) => navigateWaveformWithWheel(event, true)} onpointerdown={seekFromOverview}>
           {#if waveformLoading}<div class="overview-skeleton"><svg viewBox={`0 0 ${loadingWave.length} 60`} preserveAspectRatio="none" aria-hidden="true">{#each loadingWave as height, index}<line x1={index} x2={index} y1={30 - height * 27} y2={30 + height * 27}></line>{/each}</svg><i></i></div>
           {:else if overviewPeaks.length > 0}
-            <svg viewBox={`0 0 ${overviewPeaks.length} 60`} preserveAspectRatio="none" aria-hidden="true">
-              {#each overviewPeaks as peak, index}
-                <line x1={index} x2={index} y1={30 - peak.max * 28} y2={30 - peak.min * 28} />
-              {/each}
-            </svg>
-            <button type="button" class="viewport" class:dragging={viewportDrag?.mode === "move"} aria-label={t("moveViewport")} style={`left:${waveformStart * 100}%;width:${100 / waveformZoom}%`} onpointerdown={(event) => startViewportDrag(event, "move")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
-            <button type="button" class="viewport-handle start" aria-label={t("resizeViewportStart")} data-tooltip={t("resizeViewportStart")} style={`left:${waveformStart * 100}%`} onpointerdown={(event) => startViewportDrag(event, "start")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
-            <button type="button" class="viewport-handle end" aria-label={t("resizeViewportEnd")} data-tooltip={t("resizeViewportEnd")} style={`left:${(waveformStart + 1 / waveformZoom) * 100}%`} onpointerdown={(event) => startViewportDrag(event, "end")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
+            <div class="waveform-canvas">
+              <svg viewBox={`0 0 ${overviewPeaks.length} 60`} preserveAspectRatio="none" aria-hidden="true">
+                {#each overviewPeaks as peak, index}
+                  <line x1={index} x2={index} y1={30 - peak.max * 28} y2={30 - peak.min * 28} />
+                {/each}
+              </svg>
+              <button type="button" class="viewport" class:dragging={viewportDrag?.mode === "move"} aria-label={t("moveViewport")} style={`left:${waveformStart * 100}%;width:${100 / waveformZoom}%`} onpointerdown={(event) => startViewportDrag(event, "move")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
+              <button type="button" class="viewport-handle start" aria-label={t("resizeViewportStart")} data-tooltip={t("resizeViewportStart")} style={`left:${waveformStart * 100}%`} onpointerdown={(event) => startViewportDrag(event, "start")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
+              <button type="button" class="viewport-handle end" aria-label={t("resizeViewportEnd")} data-tooltip={t("resizeViewportEnd")} style={`left:${(waveformStart + 1 / waveformZoom) * 100}%`} onpointerdown={(event) => startViewportDrag(event, "end")} onpointermove={moveViewportDrag} onpointerup={finishViewportDrag} onpointercancel={cancelViewportDrag}></button>
+              {#if loopA !== null && loopB !== null}
+                <i class="loop-region overview" class:disabled={!loopEnabled} aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
+              {/if}
+              <i class="overview-playhead" style={`left:${durationSeconds ? currentSeconds / durationSeconds * 100 : 0}%`}></i>
+            </div>
             {#if loopA !== null}
               <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
               {#if loopB !== null}
-                <i class="loop-region overview" class:disabled={!loopEnabled} aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
                 <button class="loop-handle overview b" style={`left:${loopB / durationSeconds * 100}%`} aria-label={`${t("moveEnd")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveEnd")} · ${t("doubleClickResetB")}`} onpointerdown={(event) => startLoopDrag(event, "b", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "b")}>B</button>
               {/if}
             {/if}
-            <i class="overview-playhead" style={`left:${durationSeconds ? currentSeconds / durationSeconds * 100 : 0}%`}></i>
           {/if}
         </div>
         <div class="timeline"><span>00:00</span><span>{formatTime(durationSeconds * .25)}</span><span>{formatTime(durationSeconds * .5)}</span><span>{formatTime(durationSeconds * .75)}</span><span>{formatTime(durationSeconds)}</span></div>
@@ -3802,7 +3899,7 @@
             <button class="loop-action-a" onclick={setLoopA} ondblclick={(event) => resetLoopBoundary(event, "a")} aria-label={`${t("moveA")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveA")} · ${t("doubleClickResetA")}`}>A</button>
             <button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button>
             <i class="control-separator" aria-hidden="true"></i>
-            <button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="rotate-left" size="11px" /></button>
+            <button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="infinity" size="14px" /></button>
             <button class="loop-snap-button" class:active={loopSnapEnabled} disabled={!loopSnapAvailable} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={activeNavigationMode === "chord" ? t("loopSnapChordHelp") : activeNavigationMode === "lyrics" ? lyricsTranslate(language, "loopSnapLyricsHelp") : t("loopSnapBeatHelp")}><Icon name="magnet" size="12px" /></button>
           </div>
         </div>
@@ -3853,8 +3950,14 @@
                 <button disabled={!timelineChords.length} class:active={chordEditMode} aria-pressed={chordEditMode} aria-keyshortcuts="E" aria-label={t("chordEditMode")} data-tooltip={t("chordEditModeHelp")} onclick={toggleChordEditMode}><Icon name="pen" size="13px" /></button>
                 <button disabled={!chordEdits.length} aria-label={t("resetChordEdits")} data-tooltip={t("resetChordEdits")} onclick={resetChordEdits}><Icon name="rotate-left" size="13px" /></button>
                 <i class="chord-action-separator" aria-hidden="true"></i>
-                <button class:active={chordView === "repertoire"} aria-pressed={chordView === "repertoire"} aria-label={t("chordRepertoire")} data-tooltip={t("chordRepertoireHelp")} onclick={toggleChordRepertoire}><Icon name="book-open" size="13px" /></button>
-                <button class:active={chordAutoScrollEnabled} aria-pressed={chordAutoScrollEnabled} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="13px" /></button>
+                <button
+                  class="chord-view-cycle"
+                  disabled={!timelineChords.length}
+                  aria-label={`${t("chords")} · ${t(chordView === "grid" ? "chordGrid" : chordView === "repertoire" ? "chordRepertoire" : "chordStatistics")}`}
+                  data-tooltip={t(chordView === "grid" ? "chordGrid" : chordView === "repertoire" ? "chordRepertoire" : "chordStatistics")}
+                  onclick={cycleChordView}
+                ><Icon name={chordView === "grid" ? "table-cells-large" : chordView === "repertoire" ? "book-open" : "chart-column"} size="13px" /></button>
+                <button disabled={chordView !== "grid"} class:active={chordAutoScrollEnabled && chordView === "grid"} aria-pressed={chordAutoScrollEnabled && chordView === "grid"} aria-label={t("chordAutoScroll")} data-tooltip={t("chordAutoScrollHelp")} onclick={toggleChordAutoScroll}><Icon name="arrow-down" size="13px" /></button>
                 <i class="chord-action-separator" aria-hidden="true"></i>
                 <button class:active={chordSettingsVisible} aria-expanded={chordSettingsVisible} aria-controls="chord-settings-panel" aria-label={t("chordSettings")} data-tooltip={t("chordSettings")} onclick={() => chordSettingsVisible = !chordSettingsVisible}><Icon name="sliders" size="13px" /></button>
               </div>
@@ -3886,7 +3989,7 @@
           {:else if !chordAnalysis || !chordAnalysis.modes.standard.length}
             <p class="chord-state">{chordsLoading ? t("analyzingChords") : t("noChords")}</p>
           {:else}
-            {#if chordView === "timeline"}
+            {#if chordView === "grid"}
               <div
                 class="chords chord-timeline"
                 role="region"
@@ -3901,7 +4004,7 @@
                 onfocusin={() => { chordFocusWithin = true; chordScrollSuspended = true; }}
                 onfocusout={leaveChordGridFocus}
               >
-                {#each timelineChords as chord, chordIndex}
+                {#each timelineChords as chord, chordIndex (chordEditKey(chordMode, chord))}
                   {@const editKey = chordEditKey(chordMode, chord)}
                   {@const beatCount = timelineChordBeatCounts[chordIndex] ?? 0}
                   {#if editingChordKey === editKey}
@@ -3968,7 +4071,7 @@
                   {/if}
                 {/each}
               </div>
-            {:else}
+            {:else if chordView === "repertoire"}
               <div class="chords chord-repertoire" aria-label={t("chordRepertoire")}>
                 {#each repertoireLabels as label}
                   <button
@@ -3982,6 +4085,25 @@
                   ><b>{label}</b></button>
                 {/each}
               </div>
+            {:else}
+              <div class="chord-statistics" aria-label={t("chordStatistics")}>
+                {#each chordStatisticRows as statistic}
+                  <button
+                    class:active={activeChord?.label === statistic.label}
+                    class:selected={repertoireKeyboardLabel === statistic.label && activeChord?.label !== statistic.label}
+                    aria-current={activeChord?.label === statistic.label ? "true" : undefined}
+                    aria-label={`${statistic.label}, ${(statistic.share * 100).toFixed(1)}%, ${statistic.occurrences}×, ${displayTime(statistic.durationSeconds)}`}
+                    title={`${statistic.occurrences}× · ${displayTime(statistic.durationSeconds)}`}
+                    onclick={() => selectChordStatistic(statistic.label)}
+                  >
+                    <b style={`--chord-color:${chordColor(statistic.label, statistic.strength, chordColorMode)}`}>{statistic.label}</b>
+                    <span class="chord-stat-track" aria-hidden="true"><i style={`width:${statistic.share * 100}%;--chord-color:${chordColor(statistic.label, statistic.strength, chordColorMode)}`}></i></span>
+                    <strong class="chord-stat-share">{(statistic.share * 100).toFixed(1)}%</strong>
+                    <small class="chord-stat-occurrences">{statistic.occurrences}×</small>
+                    <small class="chord-stat-duration">{displayTime(statistic.durationSeconds)}</small>
+                  </button>
+                {/each}
+              </div>
             {/if}
           {/if}
         </div>
@@ -3991,7 +4113,7 @@
               <button class:active={detailView === "instrument" && harmonyView === "piano"} aria-pressed={detailView === "instrument" && harmonyView === "piano"} onclick={() => { detailView = "instrument"; harmonyView = "piano"; }}><Icon name="keyboard" size=".72rem" />{t("piano")}</button>
               <button class:active={detailView === "instrument" && harmonyView === "guitar"} aria-pressed={detailView === "instrument" && harmonyView === "guitar"} onclick={() => { detailView = "instrument"; harmonyView = "guitar"; }}><Icon name="guitar" size=".72rem" />{t("guitar")}</button>
               <button class:active={detailView === "instrument" && harmonyView === "ukulele"} aria-pressed={detailView === "instrument" && harmonyView === "ukulele"} onclick={() => { detailView = "instrument"; harmonyView = "ukulele"; }}><Icon name="guitar" size=".62rem" />{t("ukulele")}</button>
-              <button class:active={detailView === "lyrics"} aria-pressed={detailView === "lyrics"} onclick={() => detailView = "lyrics"}><Icon name="music" size=".68rem" />{lyricsTranslate(language, "lyrics")}</button>
+              <button class:active={detailView === "lyrics"} aria-pressed={detailView === "lyrics"} onclick={() => detailView = "lyrics"}><Icon name="microphone" size=".68rem" />{lyricsTranslate(language, "lyrics")}</button>
             </div>
             {#if detailView === "instrument"}
               <strong
@@ -4129,20 +4251,8 @@
         </div>
         {/if}
         <div class="analysis-visuals">
-          <div class="spectrum panel">
-            <div class="panel-title"><h2>{t("spectrum")}</h2><span>30 Hz — 20 kHz · FFT 2048</span></div>
-            <div class="spectrum-bars" aria-label={t("spectrum")}>
-              {#each spectrumBands as magnitude, index}<i style={`height:${Math.max(1, magnitude * 100)}%;--band:${index}`}></i>{/each}
-            </div>
-            <div class="spectrum-scale"><span>30</span><span>100</span><span>1k</span><span>10k</span><span>20k Hz</span></div>
-          </div>
-          <div class="stereo-meter panel">
-            <div class="panel-title"><h2>{t("stereoMeter")}</h2></div>
-            <div class="stereo-meter-channels">
-              <div class="stereo-channel"><span>L</span><div class="stereo-track" role="meter" aria-label={`${t("leftChannel")} ${Math.round(masterPeakLeft * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakLeft * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakLeft * 100))}%`}></i></div><output>{Math.round(masterPeakLeft * 100)}%</output></div>
-              <div class="stereo-channel"><span>R</span><div class="stereo-track" role="meter" aria-label={`${t("rightChannel")} ${Math.round(masterPeakRight * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeakRight * 100)}><i style={`width:${Math.min(100, Math.max(0, masterPeakRight * 100))}%`}></i></div><output>{Math.round(masterPeakRight * 100)}%</output></div>
-            </div>
-          </div>
+          <VisualizationPanel kind={preferences.visualizationSlotOne} bands={spectrumBands} peakLeft={visualizationMeterLeft.level} peakRight={visualizationMeterRight.level} heldPeakLeft={visualizationMeterLeft.heldPeak} heldPeakRight={visualizationMeterRight.heldPeak} history={energyHistory} spectrumStyle={preferences.spectrumStyle} spectrumRange={preferences.spectrumRange} response={preferences.visualizationResponse} meterUnit={preferences.meterUnit} meterPeakHold={preferences.meterPeakHold} energyWindowSeconds={preferences.energyWindowSeconds} {t} onKindChange={(kind) => changeVisualization(1, kind)} onSettingChange={changeVisualizationSetting} />
+          <VisualizationPanel kind={preferences.visualizationSlotTwo} bands={spectrumBands} peakLeft={visualizationMeterLeft.level} peakRight={visualizationMeterRight.level} heldPeakLeft={visualizationMeterLeft.heldPeak} heldPeakRight={visualizationMeterRight.heldPeak} history={energyHistory} spectrumStyle={preferences.spectrumStyle} spectrumRange={preferences.spectrumRange} response={preferences.visualizationResponse} meterUnit={preferences.meterUnit} meterPeakHold={preferences.meterPeakHold} energyWindowSeconds={preferences.energyWindowSeconds} {t} onKindChange={(kind) => changeVisualization(2, kind)} onSettingChange={changeVisualizationSetting} />
         </div>
       </div>
 
@@ -4237,6 +4347,7 @@
         <section><h3>{t("audio")}{#if analysisFeaturesAvailable} · {t("metronome")}{/if}</h3><label>{t("masterVolume")}<input class="master-volume-preference" type="range" min="0" max="2" step="0.01" bind:value={preferences.masterVolume} style={`--master-volume-color: ${masterVolumeColor(preferences.masterVolume)}`} ondblclick={() => resetPreferenceVolume("masterVolume")} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} ondblclick={() => resetPreferenceVolume("musicVolume")} /></label><label>{t("loudnessNormalization")}<input type="checkbox" bind:checked={preferences.loudnessNormalization} /></label>{#if analysisFeaturesAvailable}<label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} ondblclick={() => resetPreferenceVolume("metronomeVolume")} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label>{/if}</section>
         <section><h3>{t("navigation")} · {t("loop")}</h3>{#if analysisFeaturesAvailable}<label>{t("beatModeDefault")}<select bind:value={preferences.beatThisDbn}><option value={false}>Beat This!</option><option value={true}>{t("beatThisDbn")}</option></select></label><label>{t("chordAnalysisType")}<select bind:value={preferences.chordMode}><option value="essential">{t("chordEssential")}</option><option value="standard">{t("chordStandard")}</option><option value="complete">{t("chordComplete")}</option></select></label><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option><option value="lyrics">{lyricsTranslate(language, "navigationLyrics")}</option></select></label>{/if}<label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label></section>
         <section><h3>{t("training")}</h3><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
+        <section><h3>{t("visualizations")}</h3><label>{t("visualizationOne")}<select value={preferences.visualizationSlotOne} onchange={(event) => { event.stopPropagation(); changeVisualization(1, event.currentTarget.value as VisualizationKind); }}>{#each visualizationKinds as kind}<option value={kind}>{t(kind === "spectrum" ? "spectrum" : kind === "meter" ? "stereoMeter" : "energyHistory")}</option>{/each}</select></label><label>{t("visualizationTwo")}<select value={preferences.visualizationSlotTwo} onchange={(event) => { event.stopPropagation(); changeVisualization(2, event.currentTarget.value as VisualizationKind); }}>{#each visualizationKinds as kind}<option value={kind}>{t(kind === "spectrum" ? "spectrum" : kind === "meter" ? "stereoMeter" : "energyHistory")}</option>{/each}</select></label></section>
         <section class="preferences-section-wide"><h3>{t("importSettings")} · {t("conversionFormat")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("youtubeAutoSelectBestMatch")}<input type="checkbox" bind:checked={preferences.youtubeAutoSelectBestMatch} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>
       </div>
       <div class="modal-actions"><button onclick={resetUserPreferences}>{t("resetPreferences")}</button></div>

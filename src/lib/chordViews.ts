@@ -2,6 +2,7 @@ import type { ChordAnalysis, ChordMode, TimedChord } from "./types.ts";
 
 export type ChordColorMode = "score" | "root";
 export type ChordAccidentalMode = "flat" | "sharp";
+export type ChordPanelView = "grid" | "repertoire" | "stats";
 
 export interface ChordGridItem {
   index: number;
@@ -11,11 +12,25 @@ export interface ChordGridItem {
   height: number;
 }
 
+export interface ChordStatistic {
+  label: string;
+  durationSeconds: number;
+  share: number;
+  occurrences: number;
+  strength: number;
+}
+
 const ROOT_COLORS = Array.from({ length: 12 }, (_, pitch) => `var(--chord-tone-${pitch})`);
 const SCORE_COLORS = Array.from({ length: 10 }, (_, band) => `var(--chord-score-${band})`);
 const SHARP_PITCHES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 const FLAT_PITCHES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const;
 const NATURAL_PITCHES: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+export function nextChordPanelView(view: ChordPanelView): ChordPanelView {
+  if (view === "grid") return "repertoire";
+  if (view === "repertoire") return "stats";
+  return "grid";
+}
 
 export function chordsForMode(analysis: ChordAnalysis | null, mode: ChordMode): TimedChord[] {
   if (!analysis) return [];
@@ -60,6 +75,27 @@ export function presentChordSequence(chords: readonly TimedChord[], transpositio
 export function chordRepertoire(chords: readonly TimedChord[]): string[] {
   return [...new Set(chords.map((chord) => chord.label).filter((label) => label !== "N" && label !== "-"))]
     .sort((left, right) => left.localeCompare(right, "fr", { sensitivity: "base", numeric: true }));
+}
+
+export function chordStatistics(chords: readonly TimedChord[]): ChordStatistic[] {
+  const grouped = new Map<string, Omit<ChordStatistic, "share">>();
+  for (const chord of chords) {
+    if (isNoChordLabel(chord.label)) continue;
+    const durationSeconds = Math.max(0, chord.endSeconds - chord.startSeconds);
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
+    const current = grouped.get(chord.label);
+    grouped.set(chord.label, {
+      label: chord.label,
+      durationSeconds: (current?.durationSeconds ?? 0) + durationSeconds,
+      occurrences: (current?.occurrences ?? 0) + 1,
+      strength: Math.max(current?.strength ?? 0, chord.strength),
+    });
+  }
+  const totalDuration = [...grouped.values()].reduce((sum, chord) => sum + chord.durationSeconds, 0);
+  return [...grouped.values()]
+    .map((chord) => ({ ...chord, share: totalDuration > 0 ? chord.durationSeconds / totalDuration : 0 }))
+    .sort((left, right) => right.durationSeconds - left.durationSeconds
+      || left.label.localeCompare(right.label, "fr", { sensitivity: "base", numeric: true }));
 }
 
 export function activeChordIndexAt(chords: readonly TimedChord[], positionSeconds: number, visualLeadSeconds = 0.01): number {

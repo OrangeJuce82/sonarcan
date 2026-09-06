@@ -74,6 +74,13 @@ test("validated chord entries follow the selected accidental spelling", () => {
   assert.equal(validateChordEntry("H7", "flat"), null);
 });
 
+test("waveform and grid chord identity follows the mode and segment timings", () => {
+  const corrected = { ...chords[0]!, label: "D", edited: true };
+  assert.equal(chordEditKey("standard", corrected), chordEditKey("standard", chords[0]!));
+  assert.notEqual(chordEditKey("essential", corrected), chordEditKey("standard", corrected));
+  assert.notEqual(chordEditKey("standard", chords[0]!), chordEditKey("standard", chords[1]!));
+});
+
 test("one edit changes one segment while Shift validation changes every matching chord", () => {
   const selectedKey = chordEditKey("standard", chords[0]);
   const single = updateChordEdits(chords, [], "standard", selectedKey, "D", false);

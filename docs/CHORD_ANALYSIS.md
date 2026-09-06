@@ -55,10 +55,16 @@ the Tauri release build. Development uses the same locked `uv` project.
 
 ## Presentation
 
-The interface supports vertical timed cards, automatic playback following, a
-dynamic confidence filter, colors by confidence or by the 12 roots, and an
-alphabetical repertoire of unique chords. Clicking a repertoire chord updates
-the selected harmony view without seeking the track. The piano exposes real
+The chord panel has one cycling view button whose icon follows its three
+positions: a grid of timed cards, an alphabetical repertoire of unique chords,
+and duration-weighted statistics.
+The statistics group the currently presented chord labels, exclude No Chord,
+and show each chord's share of recognized time, cumulative duration, and number
+of occurrences. Clicking a statistic updates the selected harmony view and
+seeks to the next occurrence, wrapping to the first one. Clicking a repertoire
+chord updates the selected harmony view without seeking the track. The interface
+also supports automatic playback following, a dynamic confidence filter, and
+colors by confidence or by the 12 roots. The piano exposes real
 close/open inversions over three octaves. Guitar and ukulele positions are
 bounded, generated from their standard tunings, and validated against the
 parsed pitch set and requested bass; unavoidable omissions are labelled as

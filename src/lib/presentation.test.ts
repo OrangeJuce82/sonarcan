@@ -22,6 +22,7 @@ import {
   waveformShowsChords,
   waveformViewportForWindow,
   waveformWheelAxis,
+  zoomWaveformViewportAroundCenter,
   waveformShowsDetail,
   zoomWaveformViewport,
 } from "./presentation.ts";
@@ -123,10 +124,10 @@ test("waveform details appear whenever the visible window fits thirty seconds", 
   assert.equal(waveformShowsDetail(120, 3.9), false);
 });
 
-test("waveform chords appear at a sixty-second window without changing the detail threshold", () => {
-  assert.equal(waveformShowsChords(120, 2), true);
-  assert.equal(waveformShowsChords(120, 1.9), false);
-  assert.equal(waveformShowsDetail(120, 2), false);
+test("waveform chords appear once the visible window fits two minutes", () => {
+  assert.equal(waveformShowsChords(240, 2), true);
+  assert.equal(waveformShowsChords(240, 1.9), false);
+  assert.equal(waveformShowsDetail(240, 2), false);
 });
 
 test("loop boundaries snap to the nearest detected Beat This! beat", () => {
@@ -177,4 +178,9 @@ test("waveform viewport edges resize independently down to the minimum span", ()
 test("waveform wheel zoom keeps an in-viewport anchor stable", () => {
   assert.deepEqual(zoomWaveformViewport(0.25, 2, 2, 0.5), { start: 0.375, zoom: 4 });
   assert.deepEqual(zoomWaveformViewport(0, 1, 0.1, 0.5), { start: 0, zoom: 1 });
+});
+
+test("overview wheel zoom preserves the current viewport center", () => {
+  assert.deepEqual(zoomWaveformViewportAroundCenter(0.25, 4, 0.5), { start: 0.125, zoom: 2 });
+  assert.deepEqual(zoomWaveformViewportAroundCenter(0.25, 4, 2), { start: 0.3125, zoom: 8 });
 });

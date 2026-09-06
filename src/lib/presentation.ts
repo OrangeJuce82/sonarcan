@@ -58,7 +58,7 @@ export function shouldApplyAudioStatusPosition(
 
 export const WAVEFORM_MAX_ZOOM = 128;
 export const DEFAULT_WAVEFORM_WINDOW_SECONDS = 30;
-export const WAVEFORM_CHORD_WINDOW_SECONDS = 60;
+export const WAVEFORM_CHORD_WINDOW_SECONDS = 120;
 const WAVEFORM_DOWNBEAT_ZOOM = 1.5;
 
 export function waveformShowsDetail(
@@ -158,6 +158,20 @@ export function waveformWheelAxis(
 ): WaveformWheelAxis {
   if (lockedAxis) return lockedAxis;
   return Math.abs(deltaX) > Math.abs(deltaY) ? "horizontal" : "vertical";
+}
+
+export function zoomWaveformViewportAroundCenter(
+  start: number,
+  zoom: number,
+  scale: number,
+): WaveformViewport {
+  const current = normalizedViewport(start, zoom);
+  return zoomWaveformViewport(
+    current.start,
+    current.zoom,
+    scale,
+    current.start + 0.5 / current.zoom,
+  );
 }
 
 export function panWaveformViewportFromWheel(

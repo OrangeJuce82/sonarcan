@@ -139,6 +139,27 @@ export function activeLyricsLineIndex(document: LyricsDocument | null, currentMs
   return end !== null && end !== undefined && adjusted >= end ? -1 : result;
 }
 
+export function lyricsLinePlaybackProgress(
+  document: LyricsDocument | null,
+  lineIndex: number,
+  currentMs: number,
+  durationMs: number,
+): number {
+  const line = document?.lines[lineIndex];
+  if (!document || !line || line.startMs === null || !Number.isFinite(currentMs) || !Number.isFinite(durationMs)) return 0;
+  const nextStartMs = document.lines[lineIndex + 1]?.startMs;
+  const startMs = line.startMs + document.offsetMs;
+  const endMs = (line.endMs ?? nextStartMs ?? durationMs) + document.offsetMs;
+  if (endMs <= startMs) return currentMs >= startMs ? 1 : 0;
+  return Math.max(0, Math.min(1, (currentMs - startMs) / (endMs - startMs)));
+}
+
+export function lyricsScrollProgress(progress: number): number {
+  const bounded = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+  const anticipated = Math.min(1, bounded / (2 / 3));
+  return 1 - (1 - anticipated) ** 2;
+}
+
 export function estimatedLyricsLineIndex(document: LyricsDocument | null, currentMs: number, durationMs: number): number {
   if (!document || document.syncLevel !== "none" || !document.lines.length || !Number.isFinite(durationMs) || durationMs <= 0) return -1;
   const progress = Math.max(0, Math.min(1, currentMs / durationMs));

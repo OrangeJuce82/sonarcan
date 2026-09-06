@@ -1,12 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordStatistics, chordTimeline, chordViewportBlocks, isNoChordLabel, nextChordPanelView, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
+test("the chord view button cycles through grid, repertoire, and statistics", () => {
+  assert.equal(nextChordPanelView("grid"), "repertoire");
+  assert.equal(nextChordPanelView("repertoire"), "stats");
+  assert.equal(nextChordPanelView("stats"), "grid");
+});
+
 test("the repertoire is unique, alphabetical, and excludes no-chord", () => {
   assert.deepEqual(chordRepertoire([chord("G", 1), chord("A", 1), chord("B", 1), chord("B", 1), chord("Am", 1), chord("N", 1)]), ["A", "Am", "B", "G"]);
+});
+
+test("chord statistics rank playable chords by cumulative duration", () => {
+  const statistics = chordStatistics([
+    { ...chord("G", 0.6), startSeconds: 0, endSeconds: 2 },
+    { ...chord("C", 0.7), startSeconds: 2, endSeconds: 6 },
+    { ...chord("G", 0.9), startSeconds: 6, endSeconds: 8 },
+    { ...chord("N", 1), startSeconds: 8, endSeconds: 10 },
+    { ...chord("Am", 0.8), startSeconds: 10, endSeconds: 10 },
+  ]);
+
+  assert.deepEqual(statistics, [
+    { label: "C", durationSeconds: 4, share: 0.5, occurrences: 1, strength: 0.7 },
+    { label: "G", durationSeconds: 4, share: 0.5, occurrences: 2, strength: 0.9 },
+  ]);
 });
 
 test("the score filter is dynamic and does not relabel results", () => {

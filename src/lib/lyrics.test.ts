@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsNavigationPositions, lyricsViewportBlocks, LyricsParseError, normalizedLyricsOffsetMs, parseLyrics } from "./lyrics.ts";
+import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsLinePlaybackProgress, lyricsNavigationPositions, lyricsScrollProgress, lyricsViewportBlocks, LyricsParseError, normalizedLyricsOffsetMs, parseLyrics } from "./lyrics.ts";
 
 test("parses and follows line-synchronized LRC", () => {
   const document = parseLyrics("[00:01.00]Première\n[00:03.50]Deuxième", "fr", 5_000);
@@ -105,4 +105,23 @@ test("waveform lyric blocks share its zoomed viewport and clip edge lines", () =
   assert.deepEqual(lyricsViewportBlocks(parseLyrics("One\nTwo", "en"), 12, 1, 0), []);
   assert.deepEqual(lyricsViewportBlocks(document, Number.NaN, 1, 0), []);
   assert.deepEqual(lyricsViewportBlocks(document, 12, Number.NaN, 0), []);
+});
+
+test("waveform lyric text progress follows the active line duration and offset", () => {
+  const document = parseLyrics("[00:01.00]A long first line\n[00:05.00]Second line", "en", 9_000);
+  document.offsetMs = 500;
+  assert.equal(lyricsLinePlaybackProgress(document, 0, 1_500, 9_000), 0);
+  assert.equal(lyricsLinePlaybackProgress(document, 0, 3_500, 9_000), 0.5);
+  assert.equal(lyricsLinePlaybackProgress(document, 0, 5_500, 9_000), 1);
+  assert.equal(lyricsLinePlaybackProgress(document, 1, 7_500, 9_000), 0.5);
+  assert.equal(lyricsLinePlaybackProgress(document, -1, 3_500, 9_000), 0);
+});
+
+test("waveform lyric scrolling anticipates the ending with an eased progression", () => {
+  assert.equal(lyricsScrollProgress(0), 0);
+  assert.ok(lyricsScrollProgress(0.5) > 0.9);
+  assert.equal(lyricsScrollProgress(2 / 3), 1);
+  assert.equal(lyricsScrollProgress(1), 1);
+  assert.equal(lyricsScrollProgress(-1), 0);
+  assert.equal(lyricsScrollProgress(Number.NaN), 0);
 });

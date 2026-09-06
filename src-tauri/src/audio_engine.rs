@@ -45,7 +45,7 @@ const MAX_BEAT_POSITION_SECONDS: f64 = 24.0 * 60.0 * 60.0;
 const PCM_CACHE_MAGIC: &[u8; 8] = b"SACPCM02";
 const LIMITER_CEILING: f32 = 0.891_250_9;
 const LIMITER_RELEASE_SECONDS: f64 = 0.12;
-type StemChannelGains = [[f32; 2]; STEM_COUNT];
+pub(crate) type StemChannelGains = [[f32; 2]; STEM_COUNT];
 
 #[derive(Debug)]
 pub(crate) struct DecodedAudio {
@@ -774,7 +774,14 @@ impl AudioEngine {
             return self.spectrum.latest();
         };
         let position = f64::from_bits(self.shared.position_bits.load(Ordering::Acquire)) as usize;
-        self.spectrum.request(audio, position)
+        let stems = self
+            .shared
+            .stems_enabled
+            .load(Ordering::Acquire)
+            .then(|| self.shared.stems.load_full())
+            .flatten();
+        self.spectrum
+            .request(audio, stems, target_stem_gains(&self.shared), position)
     }
 }
 
