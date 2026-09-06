@@ -148,8 +148,59 @@ export function adjacentChordGridIndex(
 export interface ChordViewportBlock {
   chord: TimedChord;
   index: number;
+  beatCount: number;
   leftPercent: number;
   widthPercent: number;
+}
+
+const MAX_CHORD_START_BEAT_DISTANCE_SECONDS = 0.12;
+const CHORD_START_BEAT_INTERVAL_RATIO = 0.25;
+
+export function chordBeatCounts(
+  chords: readonly TimedChord[],
+  beats: readonly number[],
+): number[] {
+  const counts = chords.map(() => 0);
+  const validChordIndexes = chords
+    .map((chord, index) => ({ chord, index }))
+    .filter(({ chord }) => Number.isFinite(chord.startSeconds)
+      && Number.isFinite(chord.endSeconds)
+      && chord.endSeconds > chord.startSeconds)
+    .sort((left, right) => left.chord.startSeconds - right.chord.startSeconds || left.index - right.index);
+  const orderedBeats = [...new Set(beats.filter(Number.isFinite))].sort((left, right) => left - right);
+  if (!validChordIndexes.length || !orderedBeats.length) return counts;
+
+  for (let beatIndex = 0; beatIndex < orderedBeats.length; beatIndex += 1) {
+    const beat = orderedBeats[beatIndex];
+    if (beat === undefined) continue;
+    const previousInterval = beatIndex > 0 ? beat - (orderedBeats[beatIndex - 1] ?? beat) : Number.POSITIVE_INFINITY;
+    const nextInterval = beatIndex + 1 < orderedBeats.length ? (orderedBeats[beatIndex + 1] ?? beat) - beat : Number.POSITIVE_INFINITY;
+    const localInterval = Math.min(previousInterval > 0 ? previousInterval : Number.POSITIVE_INFINITY, nextInterval > 0 ? nextInterval : Number.POSITIVE_INFINITY);
+    const startTolerance = Number.isFinite(localInterval)
+      ? Math.min(MAX_CHORD_START_BEAT_DISTANCE_SECONDS, localInterval * CHORD_START_BEAT_INTERVAL_RATIO)
+      : MAX_CHORD_START_BEAT_DISTANCE_SECONDS;
+
+    let low = 0;
+    let high = validChordIndexes.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((validChordIndexes[middle]?.chord.startSeconds ?? Number.POSITIVE_INFINITY) < beat) low = middle + 1;
+      else high = middle;
+    }
+    const before = validChordIndexes[low - 1];
+    const after = validChordIndexes[low];
+    const beforeDistance = before ? Math.abs(before.chord.startSeconds - beat) : Number.POSITIVE_INFINITY;
+    const afterDistance = after ? Math.abs(after.chord.startSeconds - beat) : Number.POSITIVE_INFINITY;
+    const nearestStart = afterDistance <= beforeDistance ? after : before;
+    if (nearestStart && Math.min(beforeDistance, afterDistance) <= startTolerance) {
+      counts[nearestStart.index] = (counts[nearestStart.index] ?? 0) + 1;
+      continue;
+    }
+
+    const containing = before && beat >= before.chord.startSeconds && beat < before.chord.endSeconds ? before : null;
+    if (containing) counts[containing.index] = (counts[containing.index] ?? 0) + 1;
+  }
+  return counts;
 }
 
 export function chordViewportBlocks(
@@ -157,10 +208,12 @@ export function chordViewportBlocks(
   durationSeconds: number,
   zoom: number,
   start: number,
+  beats: readonly number[] = [],
 ): ChordViewportBlock[] {
   if (durationSeconds <= 0 || zoom < 1 || !Number.isFinite(start)) return [];
   const viewportStart = start * durationSeconds;
   const viewportEnd = (start + 1 / zoom) * durationSeconds;
+  const beatCounts = chordBeatCounts(chords, beats);
   return chords.flatMap((chord, index) => {
     const visibleStart = Math.max(viewportStart, chord.startSeconds);
     const visibleEnd = Math.min(viewportEnd, chord.endSeconds);
@@ -168,6 +221,7 @@ export function chordViewportBlocks(
     return [{
       chord,
       index,
+      beatCount: beatCounts[index] ?? 0,
       leftPercent: (visibleStart / durationSeconds - start) * zoom * 100,
       widthPercent: (visibleEnd - visibleStart) / durationSeconds * zoom * 100,
     }];

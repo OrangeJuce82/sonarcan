@@ -441,7 +441,7 @@
   $: displayedChords = visibleChords(presentChordSequence(effectiveChords, pitchSemitones, chordAccidentalMode), chordMinimumStrength);
   $: timelineChords = chordTimeline(displayedChords);
   $: waveformChordBlocks = waveformShowsChords(durationSeconds, waveformZoom)
-    ? chordViewportBlocks(timelineChords, durationSeconds, waveformZoom, waveformStart)
+    ? chordViewportBlocks(timelineChords, durationSeconds, waveformZoom, waveformStart, activeBeats)
     : [];
   $: repertoireLabels = chordRepertoire(displayedChords);
   $: activeChordIndex = activeChordIndexAt(timelineChords, currentSeconds);
@@ -3557,12 +3557,18 @@
                 class:active={block.index === activeChordIndex}
                 class:edited={block.chord.edited}
                 class:no-chord={isNoChordLabel(block.chord.label)}
+                class:has-beat-count={block.beatCount > 0 && !isNoChordLabel(block.chord.label)}
                 style={`--chord-color:${chordColor(block.chord.label, block.chord.strength, chordColorMode)};left:${block.leftPercent}%;width:${block.widthPercent}%`}
-                aria-label={`${chordDisplayLabel(block.chord.label)}, ${displayTime(block.chord.startSeconds)}, ${t("chordSeekHelp")}`}
+                aria-label={`${chordDisplayLabel(block.chord.label)}, ${displayTime(block.chord.startSeconds)}${block.beatCount > 0 && !isNoChordLabel(block.chord.label) ? `, ${block.beatCount} ${t(block.beatCount === 1 ? "chordBeatSingular" : "chordBeatPlural")}` : ""}, ${t("chordSeekHelp")}`}
                 aria-current={block.index === activeChordIndex ? "true" : undefined}
-                title={`${chordDisplayLabel(block.chord.label)} · ${displayTime(block.chord.startSeconds)}–${displayTime(block.chord.endSeconds)}`}
+                title={`${chordDisplayLabel(block.chord.label)} · ${displayTime(block.chord.startSeconds)}–${displayTime(block.chord.endSeconds)}${block.beatCount > 0 && !isNoChordLabel(block.chord.label) ? ` · ${block.beatCount} ${t(block.beatCount === 1 ? "chordBeatSingular" : "chordBeatPlural")}` : ""}`}
                 onclick={() => seek(block.chord.startSeconds)}
-              >{chordDisplayLabel(block.chord.label)}</button>
+              >
+                {#if block.beatCount > 0 && !isNoChordLabel(block.chord.label)}
+                  <span class="waveform-chord-beat-count" aria-hidden="true">{block.beatCount}</span>
+                {/if}
+                <span class="waveform-chord-label">{chordDisplayLabel(block.chord.label)}</span>
+              </button>
             {/each}
           </div>
         {/if}

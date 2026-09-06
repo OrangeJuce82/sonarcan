@@ -127,6 +127,12 @@ text.
 The detailed waveform places those same visible chord segments in a compact,
 clickable lane using the waveform viewport and playhead, so zooming, panning,
 automatic follow, chord filtering, edits, and transposition remain synchronized.
+When both Beat This! and chord analysis are available, that lane shows a neutral
+beat-count badge for each playable chord. Each detected beat is assigned once: a
+nearby chord start takes priority within a tempo-relative, bounded tolerance,
+and remaining beats belong to the chord interval containing them. Slightly early
+or late model boundaries therefore remain musically legible without changing
+either analysis result.
 The harmony panel preserves each source JAMS/Harte label and uses one pure,
 typed parser for its three-octave piano and validated guitar and ukulele
 positions.

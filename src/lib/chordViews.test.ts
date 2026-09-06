@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordTimeline, chordViewportBlocks, isNoChordLabel, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
 
@@ -130,6 +130,26 @@ test("waveform chord blocks share its zoomed viewport and clip edge segments", (
     { label: "G", index: 2, left: 83, width: 17 },
   ]);
   assert.deepEqual(chordViewportBlocks(chords, 0, 2, 0.25), []);
+});
+
+test("each beat belongs to one chord and favors a nearby chord start", () => {
+  const chords = [
+    { ...chord("C", 0.8), startSeconds: 0.04, endSeconds: 1.06 },
+    { ...chord("G", 0.8), startSeconds: 1.06, endSeconds: 2.96 },
+    { ...chord("Am", 0.8), startSeconds: 2.96, endSeconds: 4 },
+  ];
+
+  assert.deepEqual(chordBeatCounts(chords, [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5]), [2, 4, 2]);
+  assert.equal(chordBeatCounts(chords, [1]).reduce((sum, count) => sum + count, 0), 1);
+});
+
+test("chord beat proximity adapts to fast tempos", () => {
+  const chords = [
+    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 0.57 },
+    { ...chord("G", 0.8), startSeconds: 0.57, endSeconds: 1 },
+  ];
+
+  assert.deepEqual(chordBeatCounts(chords, [0, 0.25, 0.5, 0.75]), [3, 1]);
 });
 
 test("the chord timeline preserves the model regions without rhythmic splitting", () => {
