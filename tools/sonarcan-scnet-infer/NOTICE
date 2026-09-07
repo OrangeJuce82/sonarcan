@@ -1,0 +1,17 @@
+scnet-infer is an independent inference-only extraction.
+
+Vendored by SonArcan from openmirlab/scnet-infer revision
+a5437e37c8b942baf74529f35a719aa70dfa9bdc. SonArcan changes checkpoint
+loading to PyTorch's restricted weights-only loader and adds bounded download
+progress reporting.
+
+Architecture source:
+  starrytong/SCNet @ e0e3f4037dad3fc9437499051e73aed466bd2766 (MIT)
+
+Variant and inference integration source:
+  ZFTurbo/Music-Source-Separation-Training
+  @ 83d495dfc81b2ede9bc62f4209619f8bdfd14995 (MIT)
+
+No model weights are included. SCNet Large weights are MIT-licensed under the
+author's public clarification:
+  https://github.com/starrytong/SCNet/issues/35

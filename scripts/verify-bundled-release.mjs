@@ -26,6 +26,26 @@ function required(path, label) {
   return path;
 }
 
+function findForbiddenStemCheckpoint(directory, depth = 0) {
+  if (depth > 12) return undefined;
+  const forbidden = new Set([
+    "955717e8-8726e21a.th",
+    "htdemucs.safetensors",
+    "htdemucs_6s.safetensors",
+    "SCNet-large_starrytong_fixed.ckpt",
+  ]);
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue;
+    const path = join(directory, entry.name);
+    if (entry.isFile() && forbidden.has(entry.name)) return path;
+    if (entry.isDirectory()) {
+      const found = findForbiddenStemCheckpoint(path, depth + 1);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 function run(command, argumentsList, label, capture = false) {
   const result = spawnSync(command, argumentsList, {
     cwd: root,
@@ -42,6 +62,10 @@ function run(command, argumentsList, label, capture = false) {
 
 const resources = findResourceRoot(root);
 if (!resources) throw new Error(`could not locate SonArcan resources inside ${root}`);
+const forbiddenStemCheckpoint = findForbiddenStemCheckpoint(resources);
+if (forbiddenStemCheckpoint) {
+  throw new Error(`stem checkpoints must not be bundled: ${forbiddenStemCheckpoint}`);
+}
 
 const windows = process.platform === "win32";
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
@@ -64,9 +88,8 @@ if (fullEdition) {
     throw new Error("bundled chord/downbeat worker returned an invalid contract");
   }
   const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
-  const model = required(join(resources, "models", "demucs-mlx", "htdemucs_6s.safetensors"), "HTDemucs model");
   run(sharedPython, [
-    "-m", stemModule, "self-test", "--model-dir", dirname(model),
+    "-m", stemModule, "self-test",
   ], `bundled ${appleSilicon ? "MLX" : "Torch"} stem worker`);
   if (appleSilicon) {
     const chordAcceleratorOutput = run(sharedPython, [
@@ -77,7 +100,7 @@ if (fullEdition) {
       throw new Error("bundled chord/downbeat worker did not qualify MPS");
     }
     run(sharedPython, [
-      "-m", stemModule, "accelerator-self-test", "--model-dir", dirname(model),
+      "-m", stemModule, "accelerator-self-test",
     ], "bundled MLX stem accelerator");
   } else if (gpuBackend) {
     const qualification = gpuBackend === "nvidia"
@@ -88,7 +111,7 @@ if (fullEdition) {
 } else {
   run(sharedPython, [
     "-c",
-    "import importlib.util; forbidden=('torch','mlx','lv_chordia','beat_this','demucs_mlx'); assert not any(importlib.util.find_spec(name) for name in forbidden)",
+    "import importlib.util; forbidden=('torch','mlx','lv_chordia','beat_this','scnet_infer','demucs_mlx'); assert not any(importlib.util.find_spec(name) for name in forbidden)",
   ], "Light runtime heavy-package exclusion");
 }
 

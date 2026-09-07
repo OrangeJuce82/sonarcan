@@ -5,9 +5,10 @@
 The tag workflow produces a Full MLX bundle for Apple Silicon, NVIDIA CUDA 12.6
 bundles for Windows/Linux, an AMD ROCm 7.2 bundle for Linux, plus Light bundles
 for Apple Silicon, Intel macOS, Windows x64, and Linux x64. Full/GPU contains the
-analysis runtime and models. Light contains only a target-native minimal Python
+analysis runtime and the chord/rhythm models. The HTDemucs and SCNet stem
+checkpoints are downloaded and verified on first use rather than bundled. Light contains only a target-native minimal Python
 3.13 standard library for the pinned `yt-dlp` artifact and excludes Torch, MLX,
-LV-Chordia, Beat This!, Demucs, NumPy, SciPy, and their model files. Never copy a
+LV-Chordia, Beat This!, HTDemucs, SCNet, NumPy, SciPy, and their model files. Never copy a
 runtime between targets or combine target architectures into a universal macOS
 binary.
 The pinned `madmom` revision omits its setuptools, NumPy, and Cython build
@@ -17,11 +18,11 @@ it without isolation.
 CI compiles the Tauri application on all three targets for every change. Tag
 builds additionally assemble the target-native Python and FFmpeg resources,
 execute their self-tests, and upload platform packages to one draft release.
-Apple Silicon bundle verification also executes the same MPS and MLX
+Apple Silicon bundle verification also executes the same MLX
 accelerator probes used at application startup. Hosted Windows/Linux runners do
 not have production GPUs, so their release gate verifies the pinned CUDA/ROCm
-runtime identity and CPU-loadable model contracts; the app then executes both
-production graphs on the end-user GPU before enabling analysis.
+runtime identity and importable model contracts. The complete selected graph is
+first exercised when the user starts separation.
 After packaging, the release gate inspects the macOS applications, extracts all
 Linux package formats, and silently installs the Windows Light NSIS package in the
 disposable runner. The Windows GPU portable tree is verified before its Zip64
@@ -50,10 +51,17 @@ asset.
   `src-tauri/resources/ytdlp-search/manifest.json` and runs through the shared
   Python 3.13 resolver;
 - direct and transitive packages are locked in `uv.lock`;
-- the official Demucs source signature and checksum are validated by
-  `demucs-mlx` before conversion;
-- the generated safetensors SHA-256 is embedded in its safe config and checked
-  by the worker before every load;
+- SCNet inference source is vendored from `openmirlab/scnet-infer` at
+  revision `a5437e37c8b942baf74529f35a719aa70dfa9bdc`;
+- the SCNet Large by starrytong v1.0.9 checkpoint URL, 168,852,258-byte length,
+  and SHA-256 `65900dfa07d6b6e5d784c0f143920200a4bd281d6e78a806c549d0b912d5885e`
+  are pinned and checked before every tensor-only load;
+- the official HTDemucs `955717e8-8726e21a.th` URL, 84,141,911-byte length,
+  and full SHA-256 `8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4`
+  are pinned and checked before every load;
+- starrytong's public clarification licenses the SCNet and SCNet-large weights
+  under MIT and permits redistribution with attribution; retain
+  `https://github.com/starrytong/SCNet/issues/35` in release notices;
 - FFmpeg 8.0.3 and LAME 3.100 are built from their verified source archives as
   static ARM64 command-line tools; their source SHA-256 values are recorded in
   `scripts/build-ffmpeg-runtime.sh` and the generated runtime manifest;
@@ -61,17 +69,17 @@ asset.
 - AMD Linux releases resolve Torch 2.13.0 from PyTorch's pinned ROCm 7.2 index;
 - BtbN Linux and Windows FFmpeg archives are selected from one immutable release
   tag and verified through a checksum manifest whose SHA-256 is pinned in source;
-- target-native Python environments, the shared model, FFmpeg, and FFprobe are
-  bundled. No package manager runs on an end-user machine.
+- target-native Python environments, chord/rhythm models, FFmpeg, and FFprobe
+  are bundled. Stem checkpoints are first-use network downloads; no
+  package manager runs on an end-user machine.
 
 The release workflow signs every Mach-O executable, dynamic library, and Python
 extension in the embedded runtime before Tauri signs the outer application.
 This explicit inner-to-outer order keeps the Apple Silicon bundle internally
 consistent; ordinary resource copying alone does not sign nested executable code.
 Because Apple signing changes the Mach-O bytes, the same step refreshes the
-standard wheel `RECORD` hashes afterward. `demucs-mlx` can therefore retain its
-native-extension integrity check; the outer ad-hoc signature then seals the
-updated runtime and records together.
+standard wheel `RECORD` hashes afterward. The outer ad-hoc signature then seals
+the updated runtime and records together.
 
 ## Distribution trust model
 
@@ -93,8 +101,7 @@ removing the Gatekeeper disclosure.
 
 ## Local release qualification
 
-Prepare the model for the current build host, then assemble the shared Python
-runtime and common media resources:
+Assemble the shared Python runtime and common media resources:
 
 ```bash
 npm ci
@@ -111,14 +118,14 @@ npm run quality
 Run `npm run security` as well only when the release changes a dependency or
 lockfile, in accordance with the repository security policy.
 
-On Apple Silicon, run `mlx:sync` and `mlx:model` before assembling the shared
-runtime. Build with the target overlay
+On Apple Silicon, run `mlx:sync` before assembling the shared runtime. Build with the target overlay
 `src-tauri/tauri.macos-arm.conf.json` or
 `src-tauri/tauri.portable.conf.json`. macOS can still use
 `npm run register:macos-app` for local Launch Services qualification.
 
-Then run a real separation smoke test on representative music, inspect all six
-outputs, import a YouTube result that requires conversion, export stems as MP3,
+Then run a real separation smoke test on representative music, allow and verify
+the first-use model download, inspect all four outputs, import a YouTube result
+that requires conversion, export stems as MP3,
 and test cancellation, cache reload, sleep/wake, and a fresh macOS user account.
 Set `APPLE_SIGNING_IDENTITY=-` before a local release build so Tauri and the
 embedded-runtime signing script use the same ad-hoc identity.
@@ -136,12 +143,12 @@ embedded-runtime signing script use the same ad-hoc identity.
    git push origin v0.2.0-beta.1
    ```
 
-5. The `Release desktop` workflow checks version consistency, prepares the
-   shared model once on Apple Silicon, creates the **draft** GitHub Release,
-   then runs the macOS, Light, NVIDIA GPU, and AMD GPU jobs concurrently. Every
-   runtime and media tool is verified before packaging.
+5. The `Release desktop` workflow checks version consistency, creates the
+   **draft** GitHub Release, then runs the macOS, Light, NVIDIA GPU, and AMD GPU
+   jobs concurrently. Every runtime and media tool is verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
-   declaration, shared-model identity, and bundled executables.
+   declaration, bundled executables, and absence of HTDemucs and SCNet stem
+   checkpoints.
 7. Download and smoke-test every draft package. Reconstruct every multipart GPU
    DEB, RPM, and Zip64 archive and verify its format-specific part hashes first.
    Install the NVIDIA and Light RPMs on Fedora, test the AMD RPM on a
@@ -151,7 +158,7 @@ embedded-runtime signing script use the same ad-hoc identity.
    confirm that Gatekeeper initially blocks the unidentified build, authorize it
    with **System Settings → Privacy & Security → Open Anyway**, confirm that
    Finder and the Dock show the SonArcan icon, then exercise
-   YouTube import/conversion, MP3 export, and six-stem separation without
+   YouTube import/conversion, MP3 export, and four-stem separation without
    installing Homebrew or FFmpeg.
 8. Exercise import, chord/downbeat analysis, stem separation, playback, save,
    and project reopening on each OS. Edit the generated notes and publish the

@@ -17,7 +17,10 @@ export default defineConfig(() => {
     rollupOptions: {
       output: {
         manualChunks(id) {
-          return id.endsWith("/instrumentChordCorpus.json") ? "instrument-chord-corpus" : undefined;
+          if (id.endsWith("/instrumentChordCorpus.json")) return "instrument-chord-corpus";
+          if (id.endsWith("/i18n-extra.ts")) return "translations";
+          if (id.includes("/node_modules/")) return "vendor";
+          return undefined;
         },
       },
     },

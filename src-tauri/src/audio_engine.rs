@@ -1262,7 +1262,7 @@ impl RealtimeRenderer {
                     valid_loop || repeat_full_track,
                 );
                 for channel in 0..self.channels {
-                    // Select/mix the six stems first, crossfade that final mix
+                    // Select/mix the four stems first, crossfade that final mix
                     // once at the loop boundary, then feed the result through
                     // Signalsmith once for combined tempo and pitch changes.
                     self.input[frame * self.channels + channel] = playback_sample(
@@ -2354,14 +2354,7 @@ mod tests {
             frames,
         });
         let stems = StemSet {
-            stems: [
-                discontinuous,
-                constant,
-                Arc::clone(&silent),
-                Arc::clone(&silent),
-                Arc::clone(&silent),
-                silent,
-            ],
+            stems: [discontinuous, constant, Arc::clone(&silent), silent],
         };
         let gains = [[1.0; 2]; STEM_COUNT];
         let position = 15.0;
@@ -2804,14 +2797,7 @@ mod tests {
         let shared = SharedState {
             audio: ArcSwapOption::from(Some(Arc::clone(&silent))),
             stems: ArcSwapOption::from(Some(Arc::new(StemSet {
-                stems: [
-                    tone,
-                    Arc::clone(&silent),
-                    Arc::clone(&silent),
-                    Arc::clone(&silent),
-                    Arc::clone(&silent),
-                    silent,
-                ],
+                stems: [tone, Arc::clone(&silent), Arc::clone(&silent), silent],
             }))),
             stems_enabled: AtomicBool::new(true),
             stem_gain_bits: std::array::from_fn(|_| AtomicU32::new(1_f32.to_bits())),

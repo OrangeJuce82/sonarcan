@@ -112,10 +112,6 @@ button:disabled { opacity: .4; cursor: default; }
 .toast.warn { --toast-color: #e0b45b; }
 .toast.error { --toast-color: #f18b96; }
 .header-actions { justify-self: end; display: flex; align-items: center; gap: 7px; }
-.header-metrics { display: flex; align-items: center; gap: 7px; color: var(--header-muted); }
-.header-metrics span { display: grid; gap: 2px; min-width: 48px; }
-.header-metrics small { color: var(--header-muted); font-size: .5rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
-.header-metrics strong { color: var(--header-text); font-size: .68rem; font-weight: 700; }
 .header-separator { width: 1px; height: 27px; margin-inline: 3px; background: var(--header-border); }
 .topbar button:hover:not(:disabled) { color: var(--header-text); }
 .header-icon-link { display: grid; place-items: center; width: 31px; min-width: 31px; height: 31px; padding: 0; border-color: var(--header-border); color: var(--header-muted); background: var(--header-hover); }
@@ -410,8 +406,21 @@ button:disabled { opacity: .4; cursor: default; }
 .stem-panel { display: flex; flex-direction: column; height: var(--analysis-panel-height); min-height: var(--analysis-panel-height) !important; max-height: var(--analysis-panel-height); overflow: hidden; }
 .stem-panel-title { flex: 0 0 auto; min-height: 34px; }
 .stem-header-actions { display: flex; align-items: center; gap: 8px; }
+.stem-model-choices { display: flex; align-items: stretch; justify-content: center; gap: 8px; }
+.stem-model-choices button { display: grid; gap: 2px; min-width: 150px; text-align: left; }
+.stem-model-choices button small { color: inherit; opacity: .72; }
+.stem-profile-fast { --stem-profile-color: var(--accent); --stem-profile-text: var(--accent-strong); --stem-profile-bg: var(--accent-bg); }
+.stem-profile-hq { --stem-profile-color: var(--purple); --stem-profile-text: var(--purple-text); --stem-profile-bg: var(--purple-bg); }
+.stem-model-choices button.stem-profile { border-color: color-mix(in srgb, var(--stem-profile-color) 55%, var(--button-border)); color: var(--stem-profile-text); background: color-mix(in srgb, var(--stem-profile-bg) 72%, var(--button-bg)); transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
+.stem-model-choices button.stem-profile:hover:not(:disabled), .stem-model-choices button.stem-profile:focus-visible { border-color: var(--stem-profile-color); color: var(--stem-profile-text); background: var(--stem-profile-bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--stem-profile-color) 28%, transparent), 0 6px 18px color-mix(in srgb, var(--stem-profile-color) 12%, transparent); }
+.stem-model-choices button.stem-profile:focus-visible { outline: 2px solid var(--stem-profile-color); outline-offset: 2px; }
+.stem-model-choices button.stem-profile.primary { border-color: var(--stem-profile-color); color: var(--stem-profile-text); background: var(--stem-profile-bg); box-shadow: inset 3px 0 0 var(--stem-profile-color), 0 0 0 1px color-mix(in srgb, var(--stem-profile-color) 20%, transparent); }
+.stem-model-choices button.stem-profile:active:not(:disabled) { transform: translateY(1px); }
 .stem-heading-status { display: flex; align-items: center; gap: 7px; }
-.stem-export-button { display: grid; place-items: center; width: 27px; min-width: 27px; height: 27px; padding: 0; border-color: #3d5459; color: #9fd8d3; background: #142225; }
+.stem-delete-button, .stem-export-button { display: grid; place-items: center; width: 27px; min-width: 27px; height: 27px; padding: 0; }
+.stem-delete-button:not(:disabled) { border-color: var(--danger-border); color: var(--danger); background: var(--danger-soft); }
+.stem-delete-button:hover:not(:disabled) { color: var(--text-strong); background: var(--danger-bg); }
+.stem-export-button { border-color: #3d5459; color: #9fd8d3; background: #142225; }
 .stem-export-button:hover:not(:disabled) { color: #d3fffb; background: #173638; }
 .panel-title .stem-backend { padding: 2px 6px; border: 1px solid #477b78; border-radius: 999px; color: #83d7d0; background: #142a2a; font-size: .55rem; font-weight: 800; letter-spacing: .08em; }
 .panel-title .stem-backend.cpu { border-color: #806a43; color: #dfbc76; background: #2a2215; }
@@ -428,6 +437,7 @@ button:disabled { opacity: .4; cursor: default; }
 .stem-progress { display: grid; flex: 1; min-height: 0; align-content: center; gap: 12px; }
 .stem-progress-label { display: flex; align-items: center; gap: 8px; color: #91a4aa; font-size: .7rem; }
 .stem-progress-label b { margin-left: auto; color: #d9a64a; }
+.stem-progress-label b small { color: inherit; font-size: inherit; font-weight: 600; white-space: nowrap; }
 .stem-progress > i { display: block; height: 5px; border-radius: 5px; overflow: hidden; background: #273239; }
 .stem-progress > i b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #4fc5bd, #d9a64a); transition: width .2s ease; }
 .stem-progress > button { justify-self: center; }
@@ -437,7 +447,7 @@ button:disabled { opacity: .4; cursor: default; }
 .stem-export-formats button.active { border-color: #55c5bd; color: #d9fffb; background: #173a3b; box-shadow: inset 0 0 0 1px #55c5bd44; }
 .stem-export-formats strong { font-size: .8rem; letter-spacing: .08em; }
 .stem-export-formats small { color: var(--muted); font-size: .65rem; font-weight: 500; line-height: 1.35; }
-.stem-mixer { display: grid; flex: 1; grid-template-columns: repeat(6, minmax(96px, 1fr)); gap: 1px; min-height: 0; margin: 0 -10px -10px; overflow-x: auto; border-top: 1px solid #263239; background: #222d32; transition: opacity .18s ease, filter .18s ease; }
+.stem-mixer { display: grid; flex: 1; grid-template-columns: repeat(4, minmax(112px, 1fr)); gap: 1px; min-height: 0; margin: 0 -10px -10px; overflow-x: auto; border-top: 1px solid #263239; background: #222d32; transition: opacity .18s ease, filter .18s ease; }
 .stem-bypassed .stem-mixer { opacity: .48; filter: saturate(.35); }
 .stem-bypassed .stem-mixer input, .stem-bypassed .stem-mixer button { cursor: not-allowed; }
 .stem-strip { position: relative; display: grid; grid-template-rows: 58px minmax(0, 1fr) 30px 24px; justify-items: center; align-items: center; gap: 3px; min-width: 96px; padding: 8px 6px 7px; overflow: hidden; background: linear-gradient(180deg, color-mix(in srgb, var(--stem-color) 8%, #10171a) 0, #0a1013 45%); box-shadow: inset 0 3px 0 var(--stem-color); }

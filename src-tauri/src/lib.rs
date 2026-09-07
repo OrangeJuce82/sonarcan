@@ -727,8 +727,10 @@ fn audio_status(engine: State<'_, audio_engine::AudioEngine>) -> audio_engine::A
 }
 
 #[tauri::command]
-fn system_metrics() -> system_metrics::SystemMetrics {
-    system_metrics::snapshot()
+fn system_metrics(
+    service: State<'_, system_metrics::SystemMetricsService>,
+) -> system_metrics::SystemMetrics {
+    service.snapshot()
 }
 
 #[tauri::command]
@@ -741,11 +743,35 @@ fn stem_start(
     app: AppHandle,
     package_path: PathBuf,
     track_id: uuid::Uuid,
+    profile: stem_contract::StemSeparationProfile,
     capability: State<'_, AnalysisCapabilityState>,
 ) -> Result<(), AppError> {
     require_accelerated_analysis(&capability)?;
     app.state::<stems::StemService>()
-        .start(app.clone(), package_path, track_id)
+        .start(app.clone(), package_path, track_id, profile)
+}
+
+#[tauri::command]
+fn stem_load_cached(
+    app: AppHandle,
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+    profile: stem_contract::StemSeparationProfile,
+    capability: State<'_, AnalysisCapabilityState>,
+) -> Result<(), AppError> {
+    require_accelerated_analysis(&capability)?;
+    app.state::<stems::StemService>()
+        .load_cached(app.clone(), package_path, track_id, profile)
+}
+
+#[tauri::command]
+fn stem_available_profiles(
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+    capability: State<'_, AnalysisCapabilityState>,
+) -> Result<Vec<stem_contract::StemSeparationProfile>, AppError> {
+    require_accelerated_analysis(&capability)?;
+    stems::available_profiles(&package_path, track_id)
 }
 
 #[tauri::command]
@@ -759,6 +785,13 @@ fn stem_disable(
     service: State<'_, stems::StemService>,
 ) {
     service.disable(&engine);
+}
+
+#[tauri::command]
+fn stem_reset(app: AppHandle, package_path: PathBuf, track_id: uuid::Uuid) -> Result<(), AppError> {
+    let engine = app.state::<audio_engine::AudioEngine>();
+    let service = app.state::<stems::StemService>();
+    service.reset(&engine, &package_path, track_id)
 }
 
 #[tauri::command]
@@ -800,6 +833,7 @@ async fn stem_export(
     destination: PathBuf,
     format: stems::StemExportFormat,
     display_names: Vec<String>,
+    profile: stem_contract::StemSeparationProfile,
     preferences: State<'_, preferences::PreferencesStore>,
 ) -> Result<(), AppError> {
     let preferences = preferences.get();
@@ -810,6 +844,7 @@ async fn stem_export(
             &destination,
             format,
             &display_names,
+            profile,
             &preferences,
         )
     })
@@ -930,6 +965,7 @@ pub fn run() {
             app.manage(stems::StemService::default());
             app.manage(chord_analysis::ChordAnalysisService::default());
             app.manage(AnalysisCapabilityState::default());
+            app.manage(system_metrics::SystemMetricsService::default());
             app.manage(preferences::PreferencesStore::load());
             app.manage(importer::ImportService::default());
             app.manage(youtube_search::YoutubeSearchService::default());
@@ -1004,8 +1040,11 @@ pub fn run() {
             system_metrics,
             audio_spectrum,
             stem_start,
+            stem_load_cached,
+            stem_available_profiles,
             stem_status,
             stem_disable,
+            stem_reset,
             stem_set_enabled,
             stem_set_mix,
             stem_export,

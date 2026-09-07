@@ -13,14 +13,17 @@ Their license terms remain authoritative.
 ## Stem separation
 
 - `demucs-mlx` — MIT License.
+- `scnet-infer` — MIT License — starrytong, ZFTurbo, and openmirlab
+  contributors.
 - Apple MLX — MIT License.
 - Python — Python Software Foundation License.
 - Demucs source architecture — MIT License, Meta Platforms, Inc.
 
-The HTDemucs 6s model file is not part of the SonArcan source repository or the
-SonArcan license. Release builders supply it as a verified binary resource. Any
-model-specific terms supplied by its distributor remain authoritative and must
-be reviewed before public distribution.
+The HTDemucs and SCNet Large checkpoint files are not part of the SonArcan source
+repository, release bundles, or SonArcan license. The application downloads only
+the profile explicitly selected by the user and verifies its pinned byte length
+and SHA-256 before loading it. Model-specific terms supplied by each distributor
+remain authoritative.
 
 ## Chord recognition
 

@@ -5,17 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sonarcan-mlx-worker"
 version = "0.1.0"
-description = "Private, structured MLX stem-separation worker for SonArcan"
+description = "Private, structured MLX Fast/HQ stem-separation worker for SonArcan"
 requires-python = "==3.13.*"
 dependencies = [
-  "demucs-mlx==1.4.6",
-  "mlx==0.31.2",
-  "mlx-audio-io==1.3.11",
-  "mlx-spectro==0.2.4",
+  "demucs-mlx[convert]==1.4.6",
+  "sonarcan-scnet-infer[mlx]",
 ]
-
-[project.optional-dependencies]
-model-build = ["demucs-mlx[convert]==1.4.6"]
 
 [project.scripts]
 sonarcan-mlx-worker = "sonarcan_mlx_worker.worker:main"
@@ -25,6 +20,9 @@ where = ["src"]
 
 [tool.uv]
 required-version = "==0.9.26"
+
+[tool.uv.sources]
+sonarcan-scnet-infer = { path = "../sonarcan-scnet-infer" }
 
 [dependency-groups]
 dev = []

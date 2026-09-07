@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Language } from "./i18n";
 import type { JamsChordSegment } from "./chordExport";
-import type { AnalysisCapabilities, AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
+import type { AnalysisCapabilities, AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemSeparationProfile, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -142,12 +142,15 @@ export const audioSpectrum = (): Promise<SpectrumFrame> => invoke("audio_spectru
 export const audioStatus = (): Promise<AudioStatus> => invoke("audio_status");
 export const systemMetrics = (): Promise<SystemMetrics> => invoke("system_metrics");
 export const getAnalysisCapabilities = (): Promise<AnalysisCapabilities> => invoke("analysis_capabilities");
-export const stemStart = (packagePath: string, trackId: string): Promise<void> => invoke("stem_start", { packagePath, trackId });
+export const stemStart = (packagePath: string, trackId: string, profile: StemSeparationProfile): Promise<void> => invoke("stem_start", { packagePath, trackId, profile });
+export const stemLoadCached = (packagePath: string, trackId: string, profile: StemSeparationProfile): Promise<void> => invoke("stem_load_cached", { packagePath, trackId, profile });
+export const stemAvailableProfiles = (packagePath: string, trackId: string): Promise<StemSeparationProfile[]> => invoke("stem_available_profiles", { packagePath, trackId });
+export const stemReset = (packagePath: string, trackId: string): Promise<void> => invoke("stem_reset", { packagePath, trackId });
 export const stemStatus = (): Promise<StemStatus> => invoke("stem_status");
 export const stemDisable = (): Promise<void> => invoke("stem_disable");
 export const stemSetEnabled = (enabled: boolean): Promise<boolean> => invoke("stem_set_enabled", { enabled });
 export const stemSetMix = (index: number, gain: number, pan: number, muted: boolean, soloed: boolean): Promise<void> => invoke("stem_set_mix", { index, gain, pan, muted, soloed });
-export const exportStems = (packagePath: string, trackId: string, destination: string, format: "wav" | "mp3", displayNames: string[]): Promise<void> => invoke("stem_export", { packagePath, trackId, destination, format, displayNames });
+export const exportStems = (packagePath: string, trackId: string, destination: string, format: "wav" | "mp3", displayNames: string[], profile: StemSeparationProfile): Promise<void> => invoke("stem_export", { packagePath, trackId, destination, format, displayNames, profile });
 export const exportChords = (destination: string, title: string, duration: number, mode: ChordMode, segments: JamsChordSegment[]): Promise<void> => invoke("export_chords", { destination, title, duration, mode, segments });
 export const getPreferences = (): Promise<UserPreferences> => invoke("get_preferences");
 export const savePreferences = (value: UserPreferences): Promise<UserPreferences> => invoke("save_preferences", { value });

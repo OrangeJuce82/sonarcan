@@ -7,6 +7,7 @@
     "clean": "node scripts/clean.mjs",
     "clean:all": "node scripts/clean.mjs --dependencies",
     "dev": "vite",
+    "dev:prepare": "node scripts/prepare-analysis-dev.mjs",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "node --test src/lib/*.test.ts",
@@ -23,10 +24,9 @@
     "verify:chord-release": "node scripts/verify-chord-runtime.mjs",
     "ytdlp:search": "node scripts/prepare-ytdlp-search.mjs",
     "verify:ytdlp-search-release": "node scripts/prepare-ytdlp-search.mjs --verify",
-    "mlx:sync": "uv sync --project tools/sonarcan-mlx-worker --locked",
-    "mlx:model": "bash scripts/prepare-mlx-model.sh",
+    "mlx:sync": "uv sync --project tools/sonarcan-mlx-worker --locked --reinstall-package sonarcan-scnet-infer",
     "mlx:runtime": "npm run python:runtime",
-    "stems:sync": "uv sync --project tools/sonarcan-torch-worker --locked",
+    "stems:sync": "uv sync --project tools/sonarcan-torch-worker --locked --reinstall-package sonarcan-scnet-infer",
     "stems:runtime": "npm run python:runtime",
     "ffmpeg:runtime": "node scripts/prepare-audio-tools.mjs",
     "verify:mlx-release": "node scripts/verify-stem-runtime.mjs",
@@ -49,7 +49,7 @@
     "security:npm": "npm audit --package-lock-only --audit-level=low",
     "security:osv": "osv-scanner scan source --recursive --config osv-scanner.toml .",
     "security": "npm run security:npm && npm run security:osv",
-    "tauri": "tauri"
+    "tauri": "node scripts/run-tauri.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

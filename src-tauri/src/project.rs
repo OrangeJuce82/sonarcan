@@ -6,13 +6,13 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use crate::{
     audio, audio_fingerprint,
     error::AppError,
-    stem_contract::{STEM_COUNT, STEM_NAMES},
+    stem_contract::{StemSeparationProfile, STEM_COUNT, STEM_NAMES},
 };
 
 pub const PROJECT_FORMAT_VERSION: u32 = 1;
@@ -96,7 +96,17 @@ pub struct PracticeState {
     #[serde(default)]
     pub chord_edits: Vec<ChordEdit>,
     pub stems_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_stem_profile: Option<StemSeparationProfile>,
+    #[serde(
+        default = "default_stem_mix",
+        deserialize_with = "deserialize_stem_mix"
+    )]
     pub stem_mix: [StemMixState; STEM_COUNT],
+    #[serde(
+        default = "default_stem_names",
+        deserialize_with = "deserialize_stem_names"
+    )]
     pub stem_names: [String; STEM_COUNT],
 }
 
@@ -156,6 +166,37 @@ fn default_stem_names() -> [String; STEM_COUNT] {
     STEM_NAMES.map(str::to_owned)
 }
 
+fn deserialize_stem_mix<'de, D>(deserializer: D) -> Result<[StemMixState; STEM_COUNT], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let values = Vec::<StemMixState>::deserialize(deserializer)?;
+    if values.len() != STEM_COUNT && values.len() != 6 {
+        return Err(serde::de::Error::custom(
+            "stem mix must contain four or six entries",
+        ));
+    }
+    values[..STEM_COUNT]
+        .try_into()
+        .map_err(|_| serde::de::Error::custom("stem mix migration failed"))
+}
+
+fn deserialize_stem_names<'de, D>(deserializer: D) -> Result<[String; STEM_COUNT], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let values = Vec::<String>::deserialize(deserializer)?;
+    if values.len() != STEM_COUNT && values.len() != 6 {
+        return Err(serde::de::Error::custom(
+            "stem names must contain four or six entries",
+        ));
+    }
+    values[..STEM_COUNT]
+        .to_vec()
+        .try_into()
+        .map_err(|_| serde::de::Error::custom("stem name migration failed"))
+}
+
 const fn legacy_master_volume() -> f64 {
     0.8
 }
@@ -182,6 +223,7 @@ impl Default for PracticeState {
             trainer_target_rate: default_trainer_target_rate(),
             chord_edits: Vec::new(),
             stems_enabled: false,
+            last_stem_profile: None,
             stem_mix: default_stem_mix(),
             stem_names: default_stem_names(),
         }
@@ -1410,6 +1452,7 @@ mod tests {
             trainer_increment: 0.05,
             trainer_target_rate: 1.1,
             stems_enabled: true,
+            last_stem_profile: Some(StemSeparationProfile::Hq),
             stem_mix: default_stem_mix(),
             stem_names: default_stem_names(),
             chord_edits: vec![ChordEdit {
@@ -1509,15 +1552,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_the_obsolete_four_stem_contract_without_migration() {
+    fn migrates_the_previous_six_stem_contract() {
         let mut value = serde_json::to_value(PracticeState::default()).unwrap();
         value["stemMix"] = serde_json::json!([
-            StemMixState::default(),
-            StemMixState::default(),
+            { "gain": 0.1, "pan": 0.0, "muted": false, "soloed": false },
+            { "gain": 0.2, "pan": 0.0, "muted": false, "soloed": false },
+            { "gain": 0.3, "pan": 0.0, "muted": false, "soloed": false },
+            { "gain": 0.4, "pan": 0.0, "muted": false, "soloed": false },
             StemMixState::default(),
             StemMixState::default()
         ]);
-        assert!(serde_json::from_value::<PracticeState>(value).is_err());
+        value["stemNames"] = serde_json::json!(["Voice", "Kit", "Low", "Band", "Guitar", "Piano"]);
+        let migrated = serde_json::from_value::<PracticeState>(value).unwrap();
+        assert_eq!(
+            migrated.stem_mix.map(|stem| stem.gain),
+            [0.1, 0.2, 0.3, 0.4]
+        );
+        assert_eq!(migrated.stem_names, ["Voice", "Kit", "Low", "Band"]);
     }
 
     #[test]
@@ -1537,7 +1588,7 @@ mod tests {
     }
 
     #[test]
-    fn new_six_stem_mix_starts_centered_with_canonical_names() {
+    fn new_four_stem_mix_starts_centered_with_canonical_names() {
         let state = PracticeState::default();
         assert!(state.stem_mix.iter().all(|stem| stem.pan == 0.0));
         assert_eq!(state.stem_names, default_stem_names());
@@ -1550,7 +1601,7 @@ mod tests {
         assert!(validate_practice_state(&invalid_pan).is_err());
 
         let mut invalid_name = PracticeState::default();
-        invalid_name.stem_names[4] = "  ".into();
+        invalid_name.stem_names[3] = "  ".into();
         assert!(validate_practice_state(&invalid_name).is_err());
     }
 

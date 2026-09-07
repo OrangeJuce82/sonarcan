@@ -1,2 +1,1 @@
-"""Portable HTDemucs worker used outside Apple Silicon."""
-
+"""Portable Fast/HQ separation worker used outside Apple Silicon."""

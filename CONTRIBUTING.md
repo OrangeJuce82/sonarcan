@@ -73,6 +73,14 @@ never silence an advisory without a written reason, owner, and review date.
 
 ## Validation
 
+`npm run tauri dev` prepares the pinned analysis environments required by the
+current platform before Tauri, Rust, or Vite starts. On Apple silicon it selects MLX. On
+Windows/Linux x64, set `SONARCAN_GPU_BACKEND=nvidia` or
+`SONARCAN_GPU_BACKEND=amd` so the matching Torch backend is compiled and
+prepared. The first full development launch may download Python dependencies
+and the pinned Beat This! checkpoint; later launches only synchronize the
+locked environments.
+
 Before submitting a change:
 
 ```bash

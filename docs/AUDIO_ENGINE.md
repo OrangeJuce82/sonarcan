@@ -44,42 +44,54 @@ Rapid selections use monotonically increasing load generations. A slow, obsolete
 
 The real-time callback never locks or reads this cache. It only sees the selected immutable audio buffer through `ArcSwap`.
 
-## Optional cross-platform HTDemucs 6s stem mode
+## Optional cross-platform four-stem Fast and HQ modes
 
 Stem mode is disabled by default and never delays ordinary track loading. After
 the startup accelerator probe succeeds, an Apple-silicon Mac starts
-`sonarcan-mlx-worker` with the exact `demucs-mlx` environment. NVIDIA
+`sonarcan-mlx-worker` with the pinned MLX environment. NVIDIA
 Windows/Linux releases start the pinned CUDA 12.6 Torch worker; AMD Linux
 releases start the pinned ROCm 7.2 worker. A GPU release whose on-device graph
 probe fails does not start separation and never falls back to CPU. Both worker
-implementations use one six-stem protocol and one cache.
+implementations use one four-stem protocol and profile-specific caches.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.
 
-The pinned `htdemucs_6s` model is supplied once as a release resource and
-verified against the SHA-256 in its config before either backend loads it. The
+The installer contains neither checkpoint. The empty MIX panel requires an
+explicit Fast HTDemucs or HQ SCNet Large by starrytong choice. The worker downloads the
+selected upstream asset on first separation into the application-data model
+cache. It rejects symlinks, partial files, unexpected byte lengths, and any
+SHA-256 mismatch before atomically publishing
+the cache entry. The
 worker emits bounded newline-delimited JSON for stage changes, segment progress,
 logs, errors, and completion. Rust supervises and can terminate the child
 process, treats every event and output path as untrusted, and accepts only the
-exact vocals, drums, bass, other, guitar, piano contract.
+exact vocals, drums, bass, other contract.
 
-The portable worker disables Demucs' shift trick on CPU, retains one
-deterministic shift on accelerators, and uses the upstream documented 10% fast
-overlap. Torch inference mode removes autograd bookkeeping. Its phase timings
+Fast runs the official HTDemucs four-source graph with 25% overlap and no random
+shift. HQ runs SCNet Large with 485,100-sample windows and four-way overlap-add
+(`num_overlap = 4`). Torch inference mode removes autograd bookkeeping. Phase timings
 are logged independently so further optimization must be supported by measured
 model-load, decode, inference, and write results.
 
-Completed WAV stems are decoded and aligned to the source sample rate and frame count before being committed under `Stems/<track-id>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, model revision, track identifier, source size, and nanosecond modification time. Only after all six stems validate does the engine swap an immutable six-buffer set into the callback. Per-stem gain, pan, mute, solo, bypass, and peak values remain atomic and allocation-free in the callback. Bypass selects the original immutable audio buffer without releasing the stem set, enabling immediate original/mix comparisons.
+Completed WAV stems are decoded and aligned to the source sample rate and frame count before being committed under `Stems/<track-id>/<fast|hq>/` as stereo float PCM plus a JSON manifest. The cache key covers the cache format, profile/model revision, track identifier, source size, and nanosecond modification time. Only after all four stems validate does the engine swap an immutable four-buffer set into the callback. Per-stem gain, pan, mute, solo, bypass, and peak values remain atomic and allocation-free in the callback. Bypass selects the original immutable audio buffer without releasing the stem set, enabling immediate original/mix comparisons. Reset disables playback, removes both profile directories, restores neutral mix controls, and returns to model choice.
 
-Once the cache is valid, the selected track's six stems can be exported from the
+MIX activation and the last selected Fast/HQ profile are stored in each track's
+practice state. On a later selection, original playback becomes available first;
+the UI then checks the profile caches without starting inference and activates the
+last selected valid cache in the background. If it is unavailable, HQ is preferred
+over Fast, and no separation is started automatically. Stem gain, pan, mute, solo,
+and display names remain one per-track mix shared by both profiles rather than
+separate settings for each model.
+
+Once the cache is valid, the selected track's four stems can be exported from the
 mixer header. WAV export streams the cached float PCM into lossless 32-bit float
 WAVE files without loading all stems into memory. MP3 export performs the same
 bounded WAV staging one stem at a time, then invokes FFmpeg with the user's MP3
-quality preference. Export is unavailable until all six stems validate, writes
+quality preference. Export is unavailable until all four stems validate, writes
 into a newly selected directory, and never runs on the audio callback.
 
 The music volume is applied to whichever musical source is active: the original
-audio or the six-stem mix. The metronome is added afterwards, then the master
+audio or the four-stem mix. The metronome is added afterwards, then the master
 volume is applied to the combined signal. Master, music,
 mute/unmute, stem gain/pan, and stem mute/solo changes use a 40 ms callback-side
 ramp to avoid clicks and zipper noise. The ramp keeps the real-time path
@@ -112,9 +124,13 @@ after the limiter and calibrated so its −1 dBFS ceiling is the top of the UI
 scale. These scalar values are the only output-level data crossing IPC; raw
 audio never leaves the engine.
 
-Python, uv, worker dependencies, and the model revision are pinned in the worker projects, the shared runtime project, and `stem_contract.rs`. Updating any of them requires regenerating the lockfiles and runtime, changing the cache revision when output compatibility changes, and repeating separation parity and performance tests.
-
-`demucs-mlx 1.4.6` rejects a numeric key found only in the official checkpoint's unused `training_args` metadata. The release model builder strips that one optional metadata field before invoking the package's restricted loader and converter. Constructor data, tensor state, official signature, source checksum, and generated safetensors checksum continue through the upstream validation path. Remove this narrow workaround when the pinned upstream version accepts its official checkpoint unchanged.
+Python, uv, worker dependencies, inference source revision, checkpoint URL,
+size, SHA-256, and model revision are pinned in the worker projects, the shared
+runtime project, and `stem_contract.rs`. Updating any of them requires
+regenerating the lockfiles and runtime, changing the cache revision when output
+compatibility changes, and repeating separation parity and performance tests.
+The upstream checkpoint is an ordinary tensor state dictionary and is loaded
+with `weights_only=True`; executable pickle loading is not permitted.
 
 When looping is enabled, playback may start before A as a lead-in. Seeking to B
 or anywhere after B disables Loop and Training so playback can continue freely
@@ -144,7 +160,7 @@ The output callback:
 
 A/B positions are converted to source frames. The callback wraps the source position before writing the next output frame, so there is no timer, seek request, or empty buffer between B and A.
 
-A ten-millisecond equal-gain boundary crossfade is applied before B. In stem mode, gain, pan, mute, and solo are applied first, then the six stems are summed to stereo and one shared fade envelope is applied to that final mix. Original-audio mode uses the same final-mix path. The crossfade is shortened automatically for very small loops, and playback resumes after the part of the loop head already consumed by that overlap. This avoids replaying the faded-in head at A, removes the second discontinuity that is especially audible on isolated stems, and preserves the level of correlated material.
+A ten-millisecond equal-gain boundary crossfade is applied before B. In stem mode, gain, pan, mute, and solo are applied first, then the four stems are summed to stereo and one shared fade envelope is applied to that final mix. Original-audio mode uses the same final-mix path. The crossfade is shortened automatically for very small loops, and playback resumes after the part of the loop head already consumed by that overlap. This avoids replaying the faded-in head at A, removes the second discontinuity that is especially audible on isolated stems, and preserves the level of correlated material.
 
 ## Resampling
 
@@ -240,7 +256,7 @@ Outside an active A/B loop, the engine supports three explicit modes: restart th
 
 ## Spectrum worker
 
-A dedicated `sonarcan-spectrum` Rust worker analyzes a 2,048-sample Hann window centered on the current source position. It snapshots either the original PCM or the active six-stem mix with its gain, pan, mute, and solo settings. RustFFT produces the transform outside the audio callback. The result is reduced to 64 logarithmic bands from 30 Hz to the lower of 20 kHz or Nyquist. Only those visualization values cross IPC; raw samples remain in Rust.
+A dedicated `sonarcan-spectrum` Rust worker analyzes a 2,048-sample Hann window centered on the current source position. It snapshots either the original PCM or the active four-stem mix with its gain, pan, mute, and solo settings. RustFFT produces the transform outside the audio callback. The result is reduced to 64 logarithmic bands from 30 Hz to the lower of 20 kHz or Nyquist. Only those visualization values cross IPC; raw samples remain in Rust.
 
 The interface presents two equal-height visualization slots. Each slot can show the spectrum, output meter, or a bounded 30-second maximum energy history. Display style, frequency range, smoothing, meter unit and peak hold remain frontend presentation preferences and never affect playback or analysis truth. The meter uses an immediate attack and time-based release so irregular IPC timing cannot change its response. Its peak marker is driven by the visible bar, stays fixed for the selected hold duration, then falls at a fixed rate.
 

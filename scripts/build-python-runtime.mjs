@@ -21,7 +21,6 @@ const project = join(repositoryRoot, `tools/${runtimeProject}`);
 const runtime = join(repositoryRoot, "src-tauri/resources/python-runtime/runtime");
 const requirements = join(runtime, "requirements.lock.txt");
 const beatModel = join(repositoryRoot, "src-tauri/resources/models/beat-this/final0.ckpt");
-const stemModel = join(repositoryRoot, "src-tauri/resources/models/demucs-mlx");
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
 const stemPackage = appleSilicon ? "sonarcan-mlx-worker" : "sonarcan-torch-worker";
 const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
@@ -40,7 +39,7 @@ function run(command, commandArguments, options = {}) {
   return options.capture ? result.stdout.trim() : "";
 }
 
-for (const model of [beatModel, join(stemModel, "htdemucs_6s.safetensors")]) {
+for (const model of [beatModel]) {
   if (!existsSync(model)) {
     throw new Error(`required release model is missing: ${model}`);
   }
@@ -73,6 +72,7 @@ run("uv", [
   ...(gpuBackend ? ["--no-cache"] : []),
   "--no-build-isolation-package", "madmom",
   "--reinstall-package", "sonarcan-lv-chordia-worker",
+  "--reinstall-package", "sonarcan-scnet-infer",
   "--reinstall-package", stemPackage,
   ...runtimePipArguments(process.platform, gpuBackend), "--requirement", requirements,
 ], { cwd: project });
@@ -89,7 +89,7 @@ run(runtimePython, [
   "-m", "sonarcan_chord_worker.worker", "--self-test", "--downbeat-model", beatModel,
 ]);
 run(runtimePython, [
-  "-m", stemModule, "self-test", "--model-dir", stemModel,
+  "-m", stemModule, "self-test",
 ]);
 if (gpuBackend) {
   const expected = gpuBackend === "nvidia" ? "CUDA" : "ROCm";

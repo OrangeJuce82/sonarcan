@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare-model:
-    name: Prepare shared HTDemucs model
+  prepare-release:
+    name: Prepare draft release
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -24,34 +24,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
-        with:
-          version: "0.9.26"
-          enable-cache: true
-          cache-dependency-glob: tools/sonarcan-mlx-worker/uv.lock
-      - name: Install pinned Python runtime
-        run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
-      - name: Restore converted MLX model
-        id: mlx-model-cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
-          key: mlx-model-htdemucs-6s-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/sonarcan-mlx-worker/uv.lock', 'tools/sonarcan-mlx-worker/src/sonarcan_mlx_worker/build_model.py') }}
-      - name: Convert official HTDemucs 6s model
-        if: steps.mlx-model-cache.outputs.cache-hit != 'true'
-        run: npm run mlx:model
-      - name: Share the reusable HTDemucs model
-        uses: actions/upload-artifact@v6
-        with:
-          name: htdemucs-6s-model
-          path: |
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s.safetensors
-            src-tauri/resources/models/demucs-mlx/htdemucs_6s_config.json
-          if-no-files-found: error
       - name: Create draft release before parallel uploads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -64,7 +38,7 @@ jobs:
 
   release-macos:
     name: Release macOS Apple Silicon
-    needs: prepare-model
+    needs: prepare-release
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -94,11 +68,6 @@ jobs:
         run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
-      - name: Download shared HTDemucs model
-        uses: actions/download-artifact@v7
-        with:
-          name: htdemucs-6s-model
-          path: src-tauri/resources/models/demucs-mlx
       - name: Prepare pinned Beat This! model
         run: npm run chords:downbeat-model
       - name: Assemble shared Python 3.13 runtime
@@ -182,7 +151,7 @@ jobs:
 
   release-macos-light:
     name: Release ${{ matrix.label }}
-    needs: prepare-model
+    needs: prepare-release
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -246,7 +215,7 @@ jobs:
 
   release-linux:
     name: Release Linux x64 Light
-    needs: prepare-model
+    needs: prepare-release
     timeout-minutes: 120
     runs-on: ubuntu-22.04
     env:
@@ -321,7 +290,7 @@ jobs:
 
   release-windows:
     name: Release Windows x64 Light
-    needs: prepare-model
+    needs: prepare-release
     timeout-minutes: 120
     runs-on: windows-2025
     env:
@@ -372,7 +341,7 @@ jobs:
 
   release-linux-gpu:
     name: Release Linux x64 ${{ matrix.label }}
-    needs: prepare-model
+    needs: prepare-release
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -420,10 +389,6 @@ jobs:
       - run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
-      - uses: actions/download-artifact@v7
-        with:
-          name: htdemucs-6s-model
-          path: src-tauri/resources/models/demucs-mlx
       - run: npm run chords:downbeat-model
       - run: npm run python:runtime
       - run: npm run verify:stem-release
@@ -506,7 +471,7 @@ jobs:
 
   release-windows-gpu:
     name: Release Windows x64 NVIDIA GPU
-    needs: prepare-model
+    needs: prepare-release
     timeout-minutes: 180
     runs-on: windows-2025
     env:
@@ -531,10 +496,6 @@ jobs:
       - run: uv python install 3.13.5
       - run: npm ci
       - run: npm run verify:release-version
-      - uses: actions/download-artifact@v7
-        with:
-          name: htdemucs-6s-model
-          path: src-tauri/resources/models/demucs-mlx
       - run: npm run chords:downbeat-model
       - run: npm run python:runtime
       - run: npm run verify:stem-release

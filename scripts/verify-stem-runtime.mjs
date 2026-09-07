@@ -9,10 +9,9 @@ const appleSilicon = process.env.SONARCAN_STEM_BACKEND !== "torch"
 const python = process.platform === "win32"
   ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
   : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
-const model = join(root, "src-tauri/resources/models/demucs-mlx");
 if (!existsSync(python)) throw new Error("pinned shared Python 3.13 runtime is missing");
 const commandArguments = appleSilicon
-  ? ["-m", "sonarcan_mlx_worker", "self-test", "--model-dir", model]
-  : ["-m", "sonarcan_torch_worker.worker", "self-test", "--model-dir", model];
+  ? ["-m", "sonarcan_mlx_worker", "self-test"]
+  : ["-m", "sonarcan_torch_worker.worker", "self-test"];
 const result = spawnSync(python, commandArguments, { cwd: root, stdio: "inherit" });
 if (result.status !== 0) throw new Error(`${appleSilicon ? "MLX" : "Torch"} self-test failed`);

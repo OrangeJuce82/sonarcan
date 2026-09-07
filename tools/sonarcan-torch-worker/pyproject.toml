@@ -5,12 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sonarcan-torch-worker"
 version = "0.1.0"
-description = "Portable six-stem HTDemucs worker for SonArcan"
+description = "Portable Fast/HQ four-stem worker for SonArcan"
 requires-python = "==3.13.*"
 dependencies = [
   "demucs==4.1.0",
-  "numpy==2.3.5",
-  "safetensors==0.8.0",
+  "sonarcan-scnet-infer",
   "torch==2.13.0",
 ]
 
@@ -32,6 +31,7 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
+sonarcan-scnet-infer = { path = "../sonarcan-scnet-infer" }
 torch = [
   { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]

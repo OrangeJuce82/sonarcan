@@ -14,7 +14,7 @@ future price change, promotion, currency conversion, or local tax adjustment.
 ## Executive summary
 
 SonArcan occupies a credible space between Moises, Capo, and Anytune: it combines
-local six-stem separation, timed chord and beat analysis, a real-time practice
+local four-stem separation, timed chord and beat analysis, a real-time practice
 player, a synchronized metronome, and a progressive loop trainer in portable
 projects. No mature free competitor reviewed here combines that complete
 workflow in one application.
@@ -22,7 +22,7 @@ workflow in one application.
 Its strongest differentiation is not a single model. It is the combination of:
 
 - local-first processing without an account, upload quota, or subscription;
-- six-stem separation and mixing inside the practice session;
+- four-stem separation and mixing inside the practice session;
 - a Rust-owned real-time engine for playback, looping, stretching, pitch,
   metronome, and stem mixing;
 - beat-timestamp-driven rhythm views instead of a synthetic constant-BPM grid;
@@ -69,7 +69,7 @@ At constant prices, three years of Moises Premium or Capo Platinum cost
 EUR 149.97, while Capo Pro for Mac costs EUR 119.97. Anytune and Transcribe!
 remain inexpensive one-time purchases, so SonArcan should not market itself only
 as an alternative to subscriptions. Privacy, integration, project ownership,
-and the six-stem practice workflow are more durable differentiators than price.
+and the four-stem practice workflow are more durable differentiators than price.
 
 ## Competitor-by-competitor assessment
 
@@ -93,7 +93,7 @@ and key; lets users edit the musical result; provides chord shapes for several
 string instruments; supports named regions, count-in, metronome, note
 annotations over a spectrogram, and MIDI export.
 
-SonArcan is stronger in true six-stem separation, real-time stem mixing,
+SonArcan is stronger in true four-stem separation, real-time stem mixing,
 progressive loop training, local project transparency, and price. Capo is
 stronger for a guitarist or teacher who needs to correct, annotate, and export a
 musical interpretation rather than only inspect model output.
@@ -132,7 +132,7 @@ SonArcan. A user can approximate the workflow with several tools:
 | Free tool | Best use | Important limitation compared with SonArcan |
 | --- | --- | --- |
 | [Moises Free](https://play.google.com/store/apps/details?id=ai.moises) | Easy cloud stems, chords, BPM, metronome, and setlists | Usage and stem choices are limited; processing and library depend on the service |
-| [Capo Free](https://apps.apple.com/fr/app/capo-3/id696977615) | Chord, beat, and key assistance with high-quality slow-down | Does not fully save edits without a subscription; no learned six-stem mixer |
+| [Capo Free](https://apps.apple.com/fr/app/capo-3/id696977615) | Chord, beat, and key assistance with high-quality slow-down | Does not fully save edits without a subscription; no learned four-stem mixer |
 | [RepShed](https://repshed.com/) | Browser-based A/B looping and progressive speed training | No stems, chords, metronome analysis, or durable project package |
 | [StemRoller](https://www.stemroller.com/) | Simple local Demucs four-stem separation with YouTube search | No integrated practice, chord, or real-time mixer workflow |
 | [Ultimate Vocal Remover](https://github.com/HundredBillion/UltimateVocalRemover) | Advanced local separation with a choice of model families | Technical interface and installation; produces files rather than a practice session |
@@ -152,7 +152,7 @@ different implementation; **No** = not currently part of the reviewed product.
 
 | Capability | SonArcan | Moises | Capo | Anytune | Transcribe! | RipX |
 | --- | --- | --- | --- | --- | --- | --- |
-| Local six-stem separation | Yes | No, service-backed | No | No | No | Yes |
+| Local four-stem separation | Yes | No, service-backed | No | No | No | Yes |
 | Stem mixer in the learning workflow | Yes | Yes | Partial | Partial | No | Yes |
 | Timed chord detection | Yes | Yes | Yes | No | Manual aid | Partial |
 | Edit detected chords | Partial, labels only | Partial | Yes | No | Manual notes | Yes, note-level |

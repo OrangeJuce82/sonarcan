@@ -70,7 +70,7 @@ cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
 Heavy analysis is capability-gated once per application launch. SonArcan enables
-Beat This!, LV-Chordia, and six-stem separation only after the platform backend
+Beat This!, LV-Chordia, and four-stem separation only after the platform backend
 has been release-qualified and a bounded on-device inference probe succeeds.
 The probe exercises the production accelerator and rejects invalid values,
 timeouts, missing drivers, unavailable devices, and silent CPU fallback. Rust
@@ -96,7 +96,7 @@ through PyTorch's CUDA-compatible device API. All backends execute both model
 probes on the end-user accelerator before Rust opens the analysis IPC gate.
 
 In full mode, the analysis workspace first places the chord grid beside a
-multi-view harmony panel using a 40/60 split. Beneath it, the six-stem mixer sits
+multi-view harmony panel using a 40/60 split. Beneath it, the four-stem mixer sits
 beside a right-hand column containing two equal-height, user-selectable visualization slots. Spectrum, output meter, and bounded energy history reuse bounded Rust snapshots without transferring raw audio. The chord panel wraps segments into a vertically
 scrollable grid. Playback can follow the active segment automatically. Standard (`submission`) is the default;
 Essentiel and Complet expose the other native model views. The
@@ -309,21 +309,33 @@ than one notification per track.
 
 The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
 
-Six-stem inference is an implementation detail behind one Rust stem service.
+The header resource indicator measures system-wide CPU and used physical memory,
+so Python inference descendants and media tools remain included regardless of
+their process topology. GPU utilization comes from the platform driver (Apple AGX,
+`nvidia-smi`, or `rocm-smi`); all three meters therefore represent machine-wide pressure.
+For RAM, the detail also reports the used amount in megabytes. Unsupported or
+unavailable GPU telemetry is shown as unavailable rather than estimated. Sampling
+stays outside the audio callback.
+
+Four-stem inference is an implementation detail behind one Rust stem service.
 After the startup capability probe succeeds, Apple Silicon selects the MLX
 worker. NVIDIA Windows/Linux select the CUDA worker and AMD Linux selects the
 ROCm worker. CPU-only heavy analysis is not an accepted user experience, so a
 failed accelerator probe closes the service gate. Both workers receive only canonical project media/model paths
-through direct argument arrays, return the same bounded NDJSON protocol, and
-load the same verified `htdemucs_6s.safetensors`. The portable worker reverses
-the deterministic convolution/attention layout mapping used during MLX
-conversion and requires a strict load of every upstream Torch parameter. Raw
+through direct argument arrays and return the same bounded NDJSON protocol.
+Both expose Fast HTDemucs and HQ SCNet Large by starrytong behind the same four-output
+contract. No profile is preselected or stored as a user preference. On first
+use, the worker downloads the selected upstream checkpoint into the shared
+application-data model cache, then accepts it only when its exact byte length
+and full SHA-256 match the pinned contract. Checkpoints use Torch's tensor-only
+loader; Apple Silicon converts HTDemucs once to a safe MLX cache. Raw
 audio never crosses Tauri IPC. Release builds resolve one target-native,
 preassembled Python 3.13 runtime and never install packages on the user's
-machine. It contains the chord/downbeat worker and exactly one stem backend, so
+machine. It contains the chord/downbeat worker and exactly one stem backend,
+but not either stem checkpoint, so
 CPython, NumPy, SciPy, and PyTorch are not duplicated.
 
-The stem mixer persists its six display names and control state in each track. Its header switch changes an atomic Rust bypass while retaining the immutable decoded stem buffers. The WebView receives only six bounded peak scalars in the normal audio-status snapshot; it never receives stem audio.
+The stem mixer persists its four display names and control state in each track. Its header switch changes an atomic Rust bypass while retaining the immutable decoded stem buffers. Reset deletes both per-profile caches for the selected track, restores neutral controls, and returns the UI to the two explicit model choices. The WebView receives only four bounded peak scalars and bounded progress/ETA state; it never receives stem audio.
 
 ## Import pipeline
 

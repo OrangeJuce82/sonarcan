@@ -1,0 +1,36 @@
+schema_version = 1
+default = "scnet-large-starrytong-v1.0.9"
+
+[checkpoints."scnet-large-starrytong-v1.0.9"]
+family = "scnet"
+url = "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.9/SCNet-large_starrytong_fixed.ckpt"
+filename = "SCNet-large_starrytong_fixed.ckpt"
+size = 168852258
+sha256 = "65900dfa07d6b6e5d784c0f143920200a4bd281d6e78a806c549d0b912d5885e"
+license = "MIT"
+provenance = "SCNet Large by starrytong; ZFTurbo/Music-Source-Separation-Training GitHub Release v1.0.9"
+source_revision = "v1.0.9"
+checked = "2026-09-07"
+sample_rate = 44100
+chunk_size = 485100
+batch_size = 4
+num_overlap = 4
+normalize = true
+use_amp = true
+sources = ["drums", "bass", "other", "vocals"]
+
+[checkpoints."scnet-large-starrytong-v1.0.9".model]
+audio_channels = 2
+dims = [4, 64, 128, 256]
+nfft = 4096
+hop_size = 1024
+win_size = 4096
+normalized = true
+band_SR = [0.225, 0.372, 0.403]
+band_stride = [1, 4, 16]
+band_kernel = [3, 4, 16]
+conv_depths = [3, 2, 1]
+compress = 4
+conv_kernel = 3
+num_dplayer = 6
+expand = 1

@@ -1,81 +1,105 @@
 # Stem separation
 
-SonArcan provides an optional six-channel practice mixer backed by one
-`htdemucs_6s` model. Qualified Apple Silicon uses Apple MLX. The portable Torch
-implementation uses NVIDIA CUDA on Windows/Linux and AMD ROCm on Linux. Light
-editions omit this worker. The feature is deliberately opt-in because
-source separation consumes substantially more compute and disk space than
-normal playback.
+SonArcan exposes two optional four-channel separation profiles behind the same
+practice mixer:
+
+- **Fast** uses the official HTDemucs four-source model with 25% overlap and no
+  random shift;
+- **HQ** uses SCNet Large by starrytong with four-way overlap-add.
+
+Apple Silicon executes both profiles with MLX. NVIDIA Windows/Linux and AMD
+Linux execute the equivalent graphs with Torch through CUDA or ROCm. Light
+editions omit the workers. CPU-only separation is not exposed as a supported
+user experience.
 
 ## User workflow
 
-1. Select a track and enable six-stem mode on a supported desktop.
-2. SonArcan starts the target's pinned, bundled Python worker and shared model.
-3. Structured progress is reported while HTDemucs separates vocals, drums, bass, other, guitar, and piano.
-4. The vertical mixer becomes available when all six cached buffers are complete.
-5. Later activations for the same unmodified source load the project cache instead of running inference again.
-6. The mixer header can export all six cached sources as lossless 32-bit float
-   WAV files or high-quality MP3 files without changing the project cache.
+1. An empty MIX panel presents Fast and HQ as two explicit buttons. There is no
+   preselection and no separation profile in user preferences.
+2. Choosing a profile downloads its verified checkpoint on first use, prepares
+   the platform graph, then separates vocals, drums, bass, and other.
+3. One progress bar covers download, model preparation, audio loading,
+   inference, writing, validation, and caching. The UI displays a continuously
+   updated, smoothed remaining-time estimate.
+4. The mixer appears only after all four outputs validate. Later use of the same
+   unmodified source/profile loads its project cache.
+5. The header switch bypasses the ready mix without unloading it. The header
+   Reset action deletes every generated profile for the selected track, resets
+   gain/pan/mute/solo, and shows the two model buttons again.
 
-The mixer presents vocals, drums, bass, guitar, piano, then other. Each channel provides a vertical gain fader from 0% to 200%, pan, a bounded LED peak meter, mute, solo, a fixed identifying color, and a user-editable lower label. Double-click resets gain to 0 dB and pan to center. Multiple channels may be soloed. Names, pan, gain, mute, and solo are saved in the track practice state. Master gain, playback speed, pitch, loops, Loop Trainer, and the metronome remain global and are applied after stem summing.
+The mixer presents vocals, drums, bass, then other. Each channel provides gain,
+pan, a bounded peak meter, mute, solo, a fixed identifying color, and an
+editable label. Master gain, speed, pitch, loops, Loop Trainer, and metronome
+remain global and are applied after stem summing.
 
-The header switch is a real-time bypass after generation. Switching it off restores the original track without dropping the six decoded buffers and disables all controls inside the mixer; switching it back on therefore does not start Python, reload the model, or reread the cache. Cancelling while separation is still running remains destructive and terminates the worker.
+## Model cache and integrity
 
-Stem export uses the user-visible channel names, sanitizes and deduplicates the
-filenames, writes into a new destination directory, and never replaces an
-existing directory. MP3 export requires the verified FFmpeg runtime.
+Checkpoints are not embedded in the installer or downloaded at startup. Tauri's
+application-data directory contains `models/stem-separation/`, with
+`htdemucs-v4/` and `scnet-large-starrytong-v1.0.9/` below it. This resolves to:
 
-## Implementation constraints
+- macOS: `~/Library/Application Support/music.sonarcan.desktop/`;
+- Windows: `%APPDATA%\music.sonarcan.desktop\`;
+- Linux: `~/.local/share/music.sonarcan.desktop/`.
 
-- Rust selects and supervises the private MLX or Torch worker; caching and real-time mixing remain Rust-owned.
-- TypeScript receives status and control metadata only.
-- The CPAL callback performs no inference, I/O, allocation, locking, or IPC.
-- A stem set is activated only after all six outputs and the manifest have been committed.
-- Cache artifacts are generated data and may be removed safely; SonArcan will regenerate them on demand.
-- Validation and cache-write durations are logged separately with the model name. Matching stereo stems avoid a redundant alignment copy, and cache PCM is encoded and written in bounded blocks.
+Downloads use an adjacent temporary file, exact byte length and full SHA-256,
+then atomic rename. Cached checkpoints are checked before every load. Symlinks,
+partial files, and modified files are rejected. Torch checkpoint loading uses
+`weights_only=True` and a bounded allowlist; no unrestricted pickle fallback is
+used.
 
-All release workers share one target-native Python 3.13.5 runtime. NVIDIA GPU
-releases resolve CUDA 12.6 Torch, and AMD Linux resolves ROCm 7.2 Torch. The
-runtime identity is checked during packaging and the production graph is checked
-on the user's GPU before analysis is enabled. uv is used
-only on development and build machines. The model config
-records and validates the official source identity and generated Safetensors
-SHA-256. Torch reconstructs the upstream module from that same file and rejects
-missing, extra, or shape-mismatched tensors.
+Fast uses the official Demucs artifact:
 
-Portable inference follows Demucs' documented fast CPU profile: the shift trick
-is disabled on CPU, retained on accelerators, and window overlap is reduced from
-25% to 10%. Inference runs under Torch inference mode and uses deterministic
-shift selection. The worker logs model-load, decode, inference, and output-write
-durations separately. A measured model load takes only a small fraction of a
-second, so releases do not duplicate the shared MLX-layout tensors for Intel.
+- URL: `https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th`;
+- exact size: 84,141,911 bytes;
+- SHA-256: `8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4`.
 
-## September 2026 performance measurements
+On Apple Silicon, the verified Torch artifact is converted once to the safe MLX
+safetensors cache. Other supported systems load the same verified weights in
+Torch. No unofficial GitHub mirror is used because the upstream weight
+redistribution terms have not been established.
 
-The optimization benchmark uses 30 seconds of generated 44.1 kHz stereo float
-audio on a 16 GB MacBook Air M3. Each comparison uses warmed runtime and Metal
-caches. Wall-clock results include model loading, decode, inference, and six WAV
-writes.
+HQ uses SCNet Large by starrytong from the v1.0.9 GitHub release:
 
-| Backend | Previous profile | Optimized profile | Change |
-| --- | ---: | ---: | ---: |
-| Portable Torch, CPU | 9.04 s | 8.47 s | -6.3% wall time; -11.1% CPU time |
-| Portable Torch, MPS | 6.54 s | 5.74 s | -12.2% wall time |
-| Native MLX, batch 2 | 3.91 s | 3.32 s | -15.1% wall time |
+- URL: `https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.9/SCNet-large_starrytong_fixed.ckpt`;
+- exact size: 168,852,258 bytes;
+- SHA-256: `65900dfa07d6b6e5d784c0f143920200a4bd281d6e78a806c549d0b912d5885e`;
+- inference source: `openmirlab/scnet-infer` revision
+  `a5437e37c8b942baf74529f35a719aa70dfa9bdc`.
 
-The MLX batch sweep was repeated after selecting 10% overlap. Batch 2 completed
-in 3.32 seconds with a 2.65 GiB MLX peak; batch 4 took 4.31 seconds with a
-3.90 GiB peak; batch 8 took 5.36 seconds with a 3.90 GiB peak. Batch 2 therefore
-remains the release default. Portable Torch model loading measured 0.14 seconds,
-so a second platform-specific tensor artifact would target the wrong bottleneck.
-Every desktop release job now runs a 15-second end-to-end separation and prints
-its real-time factor, providing target-native Linux, Windows, and Apple
-Silicon measurements for release qualification.
+SCNet's author publicly confirmed that the SCNet and SCNet-large pretrained
+weights use the repository's MIT license and may be redistributed, including
+converted weights, with attribution:
+`https://github.com/starrytong/SCNet/issues/35`. HTDemucs weight terms remain a
+separate release-review item; SonArcan downloads those weights from the official
+publisher rather than redistributing them.
 
-## Remaining validation
+## Runtime and project caches
 
-The automated suite validates both workers, the strict shared-model
-reconstruction, six-buffer cache, real-time engine, frontend, and native builds
-on all three release targets. Release qualification additionally runs model
-self-tests in each bundled runtime. MLX performance qualification remains
-specific to Apple Silicon; portable CPU timings are recorded separately.
+All release workers share one target-native Python 3.13.5 runtime. Apple
+Silicon uses MLX; NVIDIA releases resolve pinned CUDA builds; AMD Linux resolves
+pinned ROCm builds. uv runs only on development/build machines.
+
+Project results are independent per profile:
+`Stems/<track-id>/<fast|hq>/`. Each cache manifest fingerprints the source size,
+nanosecond modification time, cache format, and exact profile revision. Rust
+owns cache validation, decoded buffers, real-time mixing, and deletion. The
+WebView receives bounded progress/control snapshots only; raw audio never
+crosses JSON IPC. The CPAL callback performs no model work, I/O, allocation,
+locking, or IPC.
+
+## Performance qualification
+
+On 7 September 2026, the previous SCNet HQ candidate was measured on a 16 GB MacBook Air M3 with a
+15-second synthetic 44.1 kHz stereo file. Materializing overlap-add after each
+batch reduced MLX inference from 53.13 s to 30.52 s; model load took 0.20 s and
+decode 0.05 s. Maximum resident memory was 1.60 GB. Batch 2 was slower at
+40.60 s while saving about 285 MB. The replacement SCNet Large graph uses the
+same bounded batch size 4 but still requires its own representative full-song
+benchmark.
+
+The HTDemucs Fast protocol has been exercised end-to-end with both its MLX and
+Torch paths, including safe loading and four output files. Representative
+full-song cold/warm benchmarks are still required on every supported
+accelerator. These figures are regression baselines, not universal speed
+promises.

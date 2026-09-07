@@ -27,6 +27,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 signalsmith-stretch = "0.1.3"
 symphonia = { version = "0.5", features = ["mp3", "flac", "wav"] }
+sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 thiserror = "2"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

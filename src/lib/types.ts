@@ -77,6 +77,7 @@ export interface PracticeState {
   trainerIncrement: number;
   trainerTargetRate: number;
   stemsEnabled: boolean;
+  lastStemProfile?: StemSeparationProfile | null;
   stemMix: StemMix[];
   stemNames: string[];
   chordEdits: ChordEdit[];
@@ -194,11 +195,13 @@ export interface SpectrumFrame {
 
 export interface SystemMetrics {
   cpuPercent: number | null;
+  gpuPercent: number | null;
   memoryMegabytes: number | null;
+  memoryPercent: number | null;
 }
 
 export type StemState = "disabled" | "ready" | "separating" | "failed";
-export interface StemStatus { state: StemState; enabled: boolean; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; computeBackend: "MLX" | null; }
+export interface StemStatus { state: StemState; enabled: boolean; progress: number; stage: string; trackId: string | null; cached: boolean; error: string | null; computeBackend: "MLX" | "Torch" | null; phaseCompleted?: number | null; phaseTotal?: number | null; }
 export interface StemMix { gain: number; pan: number; muted: boolean; soloed: boolean; }
 
 export type Theme = "system" | "dark" | "light";
@@ -215,6 +218,7 @@ export type SpectrumRange = "full" | "low" | "mid" | "high";
 export type VisualizationResponse = "fast" | "normal" | "smooth";
 export type MeterUnit = "percent" | "dbfs";
 export type MeterPeakHold = "off" | "oneSecond" | "threeSeconds";
+export type StemSeparationProfile = "fast" | "hq";
 export type VisualizationSetting = "spectrumStyle" | "spectrumRange" | "visualizationResponse" | "meterUnit" | "meterPeakHold" | "energyWindowSeconds";
 export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; chordMode: ChordMode; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; visualizationSlotOne: VisualizationKind; visualizationSlotTwo: VisualizationKind; spectrumStyle: SpectrumStyle; spectrumRange: SpectrumRange; visualizationResponse: VisualizationResponse; meterUnit: MeterUnit; meterPeakHold: MeterPeakHold; energyWindowSeconds: number; degradedAnalysisNoticeSeen: boolean; lightEditionNoticeSeen: boolean; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
 export type ImportJobState = "queued" | "downloading" | "converting" | "importing" | "completed" | "failed";

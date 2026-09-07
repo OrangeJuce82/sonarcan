@@ -5,6 +5,8 @@ use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::Serialize;
 
 use crate::audio_engine::{DecodedAudio, StemChannelGains, StemSet};
+#[cfg(test)]
+use crate::stem_contract::STEM_COUNT;
 
 const FFT_SIZE: usize = 2_048;
 const DISPLAY_BANDS: usize = 64;
@@ -171,7 +173,7 @@ mod tests {
         let request = SpectrumRequest {
             audio: Arc::new(audio),
             stems: None,
-            stem_gains: [[1.0; 2]; 6],
+            stem_gains: [[1.0; 2]; STEM_COUNT],
             position: FFT_SIZE / 2,
         };
         let mut buffer = vec![Complex32::default(); FFT_SIZE];
@@ -200,14 +202,7 @@ mod tests {
         let request = SpectrumRequest {
             audio: stereo(0.1, 0.2),
             stems: Some(Arc::new(StemSet { stems })),
-            stem_gains: [
-                [1.0, 0.5],
-                [0.0, 0.0],
-                [0.0; 2],
-                [0.0; 2],
-                [0.0; 2],
-                [0.0; 2],
-            ],
+            stem_gains: [[1.0, 0.5], [0.0, 0.0], [0.0; 2], [0.0; 2]],
             position: FFT_SIZE / 2,
         };
 

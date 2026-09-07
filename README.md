@@ -120,7 +120,7 @@ Light releases and both macOS releases remain ordinary one-file installers.
 | Beat timeline, BPM and analysis metronome | Yes | No |
 | Chord detection and navigation | Yes | No |
 | Piano, guitar and ukulele chord views | Yes | No; assets are excluded |
-| Six-stem Mix and export | Yes | No |
+| Four-stem Mix and export | Yes | No |
 
 Download **SonArcan** for an Apple-silicon Mac, **SonArcan NVIDIA GPU** for a
 supported NVIDIA Windows/Linux computer, **SonArcan AMD GPU** for supported AMD
@@ -138,7 +138,8 @@ Full editions also analyze the music and isolate its parts locally.
 - Play, seek, change gain, and create seamless A/B loops through a dedicated Rust audio engine.
 - Slow down or speed up from 50–200% independently of pitch, with ±12 semitones and fine cent correction.
 - In Full editions, detect BPM, beats, downbeats, and timed chords locally, with detected timelines and source-aware disposable caches.
-- In Full editions, separate six stems locally with HTDemucs 6s through MLX or portable Torch, then mix or export them.
+- In Full editions, separate vocals, drums, bass, and other locally with Fast
+  HTDemucs or HQ SCNet Large through MLX or Torch, then mix or export them.
 - Practice with a progressive loop trainer, waveform, spectrum, and stereo meter; Full editions add the synchronized analysis metronome.
 - Keep per-track practice settings, recent projects, diagnostics, and a multilingual interface.
 
@@ -152,7 +153,7 @@ SonArcan stands on an outstanding open-source audio and desktop ecosystem:
 | --- | --- |
 | Desktop & interface | [Rust](https://www.rust-lang.org/), [Tauri 2](https://tauri.app/), [Svelte 5](https://svelte.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/) |
 | Real-time audio | [CPAL](https://github.com/RustAudio/cpal), [Symphonia](https://github.com/pdeljanov/Symphonia), [Signalsmith Stretch](https://signalsmith-audio.co.uk/code/stretch/), [RustFFT](https://github.com/ejmahler/RustFFT) |
-| Source separation | [Apple MLX](https://github.com/ml-explore/mlx), [demucs-mlx](https://pypi.org/project/demucs-mlx/), [PyTorch](https://pytorch.org/), [HTDemucs 6s](https://github.com/facebookresearch/demucs), [Python](https://www.python.org/) |
+| Source separation | [Apple MLX](https://github.com/ml-explore/mlx), [demucs-mlx](https://pypi.org/project/demucs-mlx/), [PyTorch](https://pytorch.org/), [HTDemucs](https://github.com/facebookresearch/demucs), [SCNet](https://github.com/starrytong/SCNet), [Python](https://www.python.org/) |
 | Musical analysis | [LV-Chordia](https://github.com/openmirlab/lv-chordia), [Beat This!](https://github.com/CPJKU/beat_this), [PyTorch](https://pytorch.org/), [librosa](https://librosa.org/) |
 | Import & media | [FFmpeg](https://ffmpeg.org/), [LAME](https://lame.sourceforge.io/), [yt-dlp](https://github.com/yt-dlp/yt-dlp) |
 | Reproducible builds | [npm](https://www.npmjs.com/), [Cargo](https://doc.rust-lang.org/cargo/), [uv](https://docs.astral.sh/uv/), GitHub Actions |
@@ -198,12 +199,12 @@ Choose exactly one of the following profiles.
 
 ### Apple Silicon Full: MLX + MPS
 
-This is the only source profile that prepares the shared HTDemucs model. MLX
-handles six-stem separation; PyTorch MPS handles Beat and Chords.
+MLX handles four-stem separation; PyTorch MPS handles Beat and Chords. Stem
+checkpoints are not part of the source tree or development preparation: the
+selected Fast or HQ checkpoint is downloaded and verified on first separation.
 
 ```bash
 npm run mlx:sync
-npm run mlx:model
 npm run chords:downbeat-model
 npm run python:runtime
 npm run ytdlp:search
@@ -214,10 +215,10 @@ npm run tauri dev -- --config src-tauri/tauri.macos-arm.conf.json
 
 ### Windows or Linux Full: Torch GPU
 
-Run `npm run stems:sync`, not `mlx:sync`. These profiles require the verified
-`config.json` and `htdemucs_6s.safetensors` produced by the Apple Silicon
-`prepare-model` release job under `src-tauri/resources/models/demucs-mlx/`.
-Copying an arbitrary model into that directory will fail its identity checks.
+Run `npm run stems:sync`, not `mlx:sync`. The runtime contains the selected
+Torch backend and stem inference code, but no stem checkpoint. Fast HTDemucs or
+HQ SCNet Large is downloaded into the application-data cache only after the user
+chooses that profile, then verified against its pinned size and SHA-256.
 
 For NVIDIA on Linux or in a Unix-like Windows shell:
 
@@ -247,8 +248,9 @@ Then run the same `npm` commands without the two `export` lines.
 
 ### Light
 
-Light does not prepare MLX, Torch, Beat This!, LV-Chordia, or HTDemucs. It keeps
-playback, projects, imports, lyrics, spectrum, meters, and time-based practice.
+Light does not prepare MLX, Torch, Beat This!, LV-Chordia, stem inference, or any
+analysis checkpoint. It keeps playback, projects, imports, lyrics, spectrum,
+meters, and time-based practice.
 
 ```bash
 export SONARCAN_EDITION=light
@@ -276,8 +278,8 @@ install Python, `uv`, FFmpeg, or model dependencies themselves.
 
 | Build profile | Targets | Analysis implementation | Bundled resources |
 | --- | --- | --- | --- |
-| **MLX Full** | Apple Silicon | `sonarcan-mlx-worker` for six-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, HTDemucs, Beat This!, LV-Chordia, FFmpeg and yt-dlp |
-| **Torch GPU Full** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for six-stem separation and Beat/Chords | Backend-specific PyTorch runtime, HTDemucs, Beat This!, LV-Chordia, FFmpeg and yt-dlp |
+| **MLX Full** | Apple Silicon | `sonarcan-mlx-worker` for four-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, stem inference code, Beat This!, LV-Chordia, FFmpeg and yt-dlp; no stem checkpoint |
+| **Torch GPU Full** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for four-stem separation and Beat/Chords | Backend-specific PyTorch runtime, stem inference code, Beat This!, LV-Chordia, FFmpeg and yt-dlp; no stem checkpoint |
 | **Light** | Apple Silicon, Intel Mac, Windows x64 and Linux x64 | No ML worker and no heavy analysis | Minimal Python runtime for yt-dlp plus FFmpeg; no Torch, MLX or analysis models |
 
 The tag workflow is the authoritative cross-platform build recipe: it chooses

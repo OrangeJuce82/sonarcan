@@ -52,12 +52,12 @@ project recovery, and cross-platform GPU editions.
 - [x] Rust real-time metronome synchronized to detected beats, speed changes, seeks, and loops
 - [x] bounded concurrent background import queue with progress and error diagnostics
 - [x] user cancellation for imports plus supervised chord and stem worker termination
-- [x] optional HTDemucs 6s separation through supervised MLX and portable Torch workers
-- [x] pinned target-native CPython, MLX/CUDA/ROCm dependencies, uv lockfile, model, and release runtimes
+- [x] explicit Fast HTDemucs and HQ SCNet Large four-stem separation through supervised MLX and portable Torch workers
+- [x] pinned target-native CPython, MLX/CUDA/ROCm dependencies, uv lockfile, inference source, and release runtimes
 - [x] versioned, source-fingerprinted per-track stem cache
-- [x] sample-synchronous vocals/drums/bass/other/guitar/piano real-time mixer
-- [x] structured worker logs, segment progress, failure reporting, and process cancellation
-- [ ] benchmark HTDemucs cold start and full-song inference across supported Apple-silicon Macs
+- [x] sample-synchronous vocals/drums/bass/other real-time mixer
+- [x] structured worker logs, segment progress, smoothed remaining-time estimate, failure reporting, and process cancellation
+- [ ] benchmark SCNet Large cold start and full-song inference across supported Apple-silicon Macs
 - [ ] queued separation jobs when switching tracks during inference
 - [ ] CPU/memory/audio profiling report
 
@@ -96,7 +96,7 @@ project recovery, and cross-platform GPU editions.
 ## Phase 3 — analysis and models
 
 - [ ] model manager and compatibility validation
-- [x] stem cache and six-channel vertical stem mixer
+- [x] stem cache and four-channel vertical stem mixer
 - [x] LV-Chordia chord analysis, three dictionary views, and bounded per-region corrections
 - [x] piano, guitar, and ukulele chord views with validated positions
 - [x] JAMS export of the effective chord timeline

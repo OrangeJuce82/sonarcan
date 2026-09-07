@@ -25,6 +25,7 @@ explicit = true
 
 [tool.uv.sources]
 sonarcan-lv-chordia-worker = { path = "../sonarcan-chord-worker" }
+sonarcan-scnet-infer = { path = "../sonarcan-scnet-infer" }
 sonarcan-torch-worker = { path = "../sonarcan-torch-worker" }
 torch = { index = "pytorch-rocm72" }
 triton-rocm = { index = "pytorch-rocm72" }

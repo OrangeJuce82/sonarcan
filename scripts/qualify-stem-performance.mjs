@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -13,8 +13,7 @@ const python = process.platform === "win32"
   : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
 const suffix = process.platform === "win32" ? ".exe" : "";
 const ffmpeg = join(root, `src-tauri/resources/audio-tools/bin/ffmpeg${suffix}`);
-const model = join(root, "src-tauri/resources/models/demucs-mlx");
-const stems = ["vocals", "drums", "bass", "other", "guitar", "piano"];
+const stems = ["vocals", "drums", "bass", "other"];
 
 for (const path of [python, ffmpeg]) {
   if (!existsSync(path)) throw new Error(`qualification dependency is missing: ${path}`);
@@ -29,6 +28,8 @@ const temporary = mkdtempSync(join(tmpdir(), "sonarcan-stem-qualification-"));
 try {
   const input = join(temporary, "input.wav");
   const output = join(temporary, "stems");
+  const model = join(temporary, "models");
+  mkdirSync(model, { recursive: true });
   run(ffmpeg, [
     "-hide_banner", "-loglevel", "error",
     "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100:duration=15",
@@ -36,10 +37,10 @@ try {
     "-filter_complex", "amerge=inputs=2", "-ac", "2", "-c:a", "pcm_f32le", "-y", input,
   ]);
   const argumentsList = appleSilicon
-    ? ["-m", "sonarcan_mlx_worker", "separate", "--input", input, "--output", output, "--model-dir", model]
+    ? ["-m", "sonarcan_mlx_worker", "separate", "--input", input, "--output", output, "--model-dir", model, "--ffmpeg", ffmpeg, "--profile", "hq"]
     : [
         "-m", "sonarcan_torch_worker", "separate", "--input", input, "--output", output,
-        "--model-dir", model, "--ffmpeg", ffmpeg,
+        "--model-dir", model, "--ffmpeg", ffmpeg, "--profile", "hq",
       ];
   const started = performance.now();
   run(python, argumentsList);
@@ -51,7 +52,7 @@ try {
     }
   }
   console.log(JSON.stringify({
-    qualification: "htdemucs_6s",
+    qualification: "scnet-large-starrytong-v1.0.9",
     backend: appleSilicon ? "MLX" : "Torch",
     platform: process.platform,
     architecture: process.arch,

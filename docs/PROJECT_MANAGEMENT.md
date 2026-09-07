@@ -52,7 +52,7 @@ Save As copies the complete `.sac` package to a new destination, creates a new p
 ## Exports
 
 The Songs menu exports a playlist as JSON or printable Markdown. For the current
-track, it can also export cached six-stem audio, the effective chord timeline as
+track, it can also export cached four-stem audio, the effective chord timeline as
 JAMS, and lyrics as synchronized LRC or Markdown when those data are available.
 Exports are separate files and never rewrite the source project.
 

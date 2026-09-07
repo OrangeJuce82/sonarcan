@@ -4,7 +4,7 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { handleWindowCloseRequest, projectOpenDialogOptions } from "./lib/applicationLifecycle";
-  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openLrclibSearch, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemDisable, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openLrclibSearch, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemAvailableProfiles, stemDisable, stemLoadCached, stemReset, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
   import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, importRelevanceLevel, importRelevancePercent, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
@@ -28,6 +28,7 @@
   import Toaster from "./lib/Toaster.svelte";
   import LyricsPanel from "./lib/LyricsPanel.svelte";
   import VisualizationPanel from "./lib/VisualizationPanel.svelte";
+  import ResourceThermometer from "./lib/ResourceThermometer.svelte";
   import { emptyMeterState, meterPeakHoldMilliseconds, smoothValues, updateMeterState, visualizationKinds, type EnergyPoint } from "./lib/visualization";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, zoomWaveformViewportAroundCenter, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
@@ -35,13 +36,15 @@
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import { projectStartupAction, type ProjectStartupAction } from "./lib/projectStartup";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
+  import { formatStemEta, startStemEta, stemRemainingSeconds, updateStemEta, type StemEtaState } from "./lib/stemEta";
+  import { preferredStemProfile } from "./lib/stemProfiles";
   import { chordSegmentsForJams } from "./lib/chordExport";
   import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
   import { activeLyricsLineIndex, lrclibDocument, lyricsLinePlaybackProgress, lyricsNavigationPositions, lyricsScrollProgress, lyricsViewportBlocks, normalizedLyricsOffsetMs } from "./lib/lyrics";
   import { lyricsSearchQueries, preferredLyricsResult } from "./lib/lyricsMatching";
   import { lyricsTranslate } from "./lib/lyricsI18n";
   import sonarcanLogo from "../docs/assets/sonarcan-rounded.png";
-  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, LyricsDocument, LyricsSearchResult, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, VisualizationKind, VisualizationSetting, WaveformData } from "./lib/types";
+  import type { AppLogEntry, ChordAnalysis, ChordEdit, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, ImportJobState, LyricsDocument, LyricsSearchResult, MetronomeSound, NavigationMode, ProjectSummary, StemMix, StemSeparationProfile, StemStatus, SystemMetrics, TimedChord, TrackSummary, UserPreferences, VisualizationKind, VisualizationSetting, WaveformData } from "./lib/types";
 
   let project: ProjectSummary | null = null;
   let startupProjectAction: ProjectStartupAction = "checking";
@@ -161,14 +164,14 @@
   let energyHistory: EnergyPoint[] = [];
   let lastEnergySampleMs = 0;
   let spectrumRequestActive = false;
-  const canonicalStemNames = ["vocals", "drums", "bass", "other", "guitar", "piano"] as const;
-  const stemDisplayOrder = [0, 1, 2, 4, 5, 3] as const;
-  const stemColors = ["#36c7ef", "#f05d5e", "#ffc857", "#9b7ede", "#53d18d", "#f08cc0"] as const;
+  const canonicalStemNames = ["vocals", "drums", "bass", "other"] as const;
+  const stemDisplayOrder = [0, 1, 2, 3] as const;
+  const stemColors = ["#36c7ef", "#f05d5e", "#ffc857", "#9b7ede"] as const;
   const stemMeterLevels = Array.from({ length: 14 }, (_, index) => index + 1);
   let stems: StemStatus = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-  let stemMix: StemMix[] = Array.from({ length: 6 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
+  let stemMix: StemMix[] = Array.from({ length: 4 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
   let stemNames: string[] = [...canonicalStemNames];
-  let stemPeaks = Array<number>(6).fill(0);
+  let stemPeaks = Array<number>(4).fill(0);
   let stemStatusRequestActive = false;
   let stemPlaybackLocked = false;
   let stemPlaybackResume: StemPlaybackResumeRequest | null = null;
@@ -176,6 +179,11 @@
   let stemGenerationStarting = false;
   let stemExportVisible = false;
   let stemExportFormat: "wav" | "mp3" = "wav";
+  let stemSeparationProfile: StemSeparationProfile | null = null;
+  let cachedStemProfiles: StemSeparationProfile[] = [];
+  let stemEta: StemEtaState | null = null;
+  let stemEtaNowMs = 0;
+  $: stemEtaRemaining = stemRemainingSeconds(stemEta, stems.progress, stemEtaNowMs);
   const defaultUserPreferences: UserPreferences = { theme: "system", language: "en", timeDisplay: "simple", toastDurationSeconds: 3, concurrentDownloads: 3, youtubeAutoSelectBestMatch: true, conversionFormat: "mp3", sampleRate: "preserve", channels: "stereo", mp3Quality: "vbrHigh", masterVolume: 1, musicVolume: 1, loudnessNormalization: true, metronomeVolume: 0.55, metronomeSound: "electronic", beatThisDbn: true, chordMode: "essential", defaultPlaybackRate: 1, defaultPitchSemitones: 0, loopLoadPosition: "beginning", loopSnapEnabled: true, navigationMode: "time", navigationTimeSeconds: 10, visualizationSlotOne: "spectrum", visualizationSlotTwo: "meter", spectrumStyle: "bars", spectrumRange: "full", visualizationResponse: "normal", meterUnit: "percent", meterPeakHold: "oneSecond", energyWindowSeconds: 15, degradedAnalysisNoticeSeen: false, lightEditionNoticeSeen: false, defaultTrainerStartRate: 0.5, defaultTrainerRepetitions: 1, defaultTrainerIncrement: 0.05, defaultTrainerTargetRate: 1 };
   let preferences: UserPreferences = { ...defaultUserPreferences };
   let importText = "";
@@ -247,7 +255,7 @@
   let activeWaveformWheelAxis: WaveformWheelAxis | null = null;
   let waveformWheelAxisTimer: number | undefined;
   let statusRequestActive = false;
-  let systemMetricsSnapshot: SystemMetrics = { cpuPercent: null, memoryMegabytes: null };
+  let systemMetricsSnapshot: SystemMetrics = { cpuPercent: null, gpuPercent: null, memoryMegabytes: null, memoryPercent: null };
   let trackSelectionGeneration = 0;
   const waveformCache = new Map<string, WaveformData>();
   const loadingWave = Array.from({ length: 72 }, (_, index) => Math.min(0.95, 0.12 + Math.abs(Math.sin(index * 0.71) * Math.cos(index * 0.17)) * 0.78));
@@ -1573,9 +1581,12 @@
     spectrumBands = Array<number>(64).fill(0);
     energyHistory = [];
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-    stemMix = Array.from({ length: 6 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
+    stemSeparationProfile = null;
+    cachedStemProfiles = [];
+    stemEta = null;
+    stemMix = Array.from({ length: 4 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
     stemNames = [...canonicalStemNames];
-    stemPeaks = Array<number>(6).fill(0);
+    stemPeaks = Array<number>(4).fill(0);
     stemPlaybackLockGeneration += 1;
     stemPlaybackLocked = false;
     stemPlaybackResume = null;
@@ -2149,7 +2160,10 @@
     void cancelChordAnalysis();
     void stemDisable();
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-    stemPeaks = Array<number>(6).fill(0);
+    stemSeparationProfile = track.practice.lastStemProfile ?? null;
+    cachedStemProfiles = [];
+    stemEta = null;
+    stemPeaks = Array<number>(4).fill(0);
     isPlaying = false;
     masterPeak = 0;
     masterPeakLeft = 0;
@@ -2395,7 +2409,7 @@
     )) void play();
   }
 
-  async function enableStems(options: { resumePlayback?: boolean } = {}): Promise<void> {
+  async function enableStems(profile: StemSeparationProfile, options: { resumePlayback?: boolean } = {}): Promise<void> {
     if (!analysisFeaturesAvailable || !project || !currentTrack) return;
     if (stemPlaybackLocked || stems.state === "separating") return;
     const trackId = currentTrack.id;
@@ -2436,8 +2450,10 @@
       schedulePracticeSave(0);
     }
     stems = { state: "separating", enabled: true, progress: 0, stage: "checkingCache", trackId, cached: false, error: null, computeBackend: null };
+    stemEtaNowMs = performance.now();
+    stemEta = startStemEta(profile, durationSeconds, stemEtaNowMs);
     try {
-      await stemStart(packagePath, trackId);
+      await stemStart(packagePath, trackId, profile);
       if (lockGeneration !== stemPlaybackLockGeneration) return;
       stemGenerationStarting = false;
       schedulePracticeSave();
@@ -2445,6 +2461,7 @@
       if (lockGeneration !== stemPlaybackLockGeneration) return;
       stemGenerationStarting = false;
       stems = { state: "failed", enabled: false, progress: 0, stage: "failed", trackId, cached: false, error: errorText(error), computeBackend: null };
+      stemEta = null;
       notify("error", t("stemFailed"), errorText(error));
       finishStemPlaybackLock(trackId);
     }
@@ -2454,9 +2471,64 @@
     const generatedTrackId = stems.trackId;
     await stemDisable();
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
-    stemPeaks = Array<number>(6).fill(0);
+    stemEta = null;
+    stemPeaks = Array<number>(4).fill(0);
     schedulePracticeSave();
     finishStemPlaybackLock(generatedTrackId);
+  }
+
+  async function loadCachedStems(profile: StemSeparationProfile): Promise<void> {
+    if (!analysisFeaturesAvailable || !project || !currentTrack) return;
+    if (stemGenerationStarting || stems.state === "separating") return;
+    const packagePath = project.packagePath;
+    const trackId = currentTrack.id;
+    const selectionGeneration = trackSelectionGeneration;
+    stemGenerationStarting = true;
+    stemSeparationProfile = profile;
+    stems = { state: "separating", enabled: true, progress: 0, stage: "loadingCachedStems", trackId, cached: true, error: null, computeBackend: null };
+    stemEta = null;
+    try {
+      await stemLoadCached(packagePath, trackId, profile);
+      if (selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== trackId) return;
+      stemGenerationStarting = false;
+      schedulePracticeSave(0);
+    } catch (error) {
+      if (selectionGeneration !== trackSelectionGeneration || currentTrack?.id !== trackId) return;
+      stemGenerationStarting = false;
+      cachedStemProfiles = cachedStemProfiles.filter((candidate) => candidate !== profile);
+      stems = { state: "failed", enabled: false, progress: 0, stage: "failed", trackId, cached: false, error: errorText(error), computeBackend: null };
+      notify("error", t("stemFailed"), errorText(error));
+      schedulePracticeSave(0);
+    }
+  }
+
+  async function resetStemMixControls(): Promise<void> {
+    stemMix = Array.from({ length: canonicalStemNames.length }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
+    stemPeaks = Array<number>(canonicalStemNames.length).fill(0);
+    for (const [index, mix] of stemMix.entries()) {
+      await stemSetMix(index, mix.gain, mix.pan, mix.muted, mix.soloed);
+    }
+    schedulePracticeSave(0);
+  }
+
+  async function chooseStemSeparationProfile(profile: StemSeparationProfile): Promise<void> {
+    await stemDisable();
+    stemSeparationProfile = profile;
+    stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    if (cachedStemProfiles.includes(profile)) await loadCachedStems(profile);
+    else await enableStems(profile);
+  }
+
+  async function resetStemBlock(): Promise<void> {
+    if (!project || !currentTrack) return;
+    const trackId = currentTrack.id;
+    await stemReset(project.packagePath, trackId);
+    stemSeparationProfile = null;
+    cachedStemProfiles = [];
+    stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
+    stemEta = null;
+    await resetStemMixControls();
+    finishStemPlaybackLock(trackId);
   }
 
   async function toggleStemMode(event: Event): Promise<void> {
@@ -2466,14 +2538,16 @@
         stems = { ...stems, enabled: await stemSetEnabled(true) };
         schedulePracticeSave();
       } else {
-        await enableStems();
+        if (stemSeparationProfile && cachedStemProfiles.includes(stemSeparationProfile)) {
+          await loadCachedStems(stemSeparationProfile);
+        }
       }
     } else if (stems.state === "separating") {
       await disableStems();
     } else if (stems.state === "ready") {
       await stemSetEnabled(false);
       stems = { ...stems, enabled: false };
-      stemPeaks = Array<number>(6).fill(0);
+      stemPeaks = Array<number>(4).fill(0);
       schedulePracticeSave();
     }
   }
@@ -2487,7 +2561,15 @@
       const next = await stemStatus();
       if (requestedLockGeneration !== stemPlaybackLockGeneration) return;
       if (!next.trackId || next.trackId === currentTrack?.id) {
+        stemEtaNowMs = performance.now();
+        if (stemEta && next.state === "separating") stemEta = updateStemEta(stemEta, next, stemEtaNowMs);
         stems = next;
+        if (next.state === "ready"
+          && stemSeparationProfile
+          && !cachedStemProfiles.includes(stemSeparationProfile)) {
+          cachedStemProfiles = [...cachedStemProfiles, stemSeparationProfile];
+        }
+        if (next.state !== "separating") stemEta = null;
         if (next.state === "ready"
           && next.trackId === currentTrack?.id
           && (previous.state !== "ready" || previous.trackId !== next.trackId)
@@ -2559,7 +2641,8 @@
     });
     if (!destination) return;
     await run(async () => {
-      await exportStems(packagePath, track.id, destination, stemExportFormat, stemNames.map((_, index) => stemDisplayName(index)));
+      if (!stemSeparationProfile) return;
+      await exportStems(packagePath, track.id, destination, stemExportFormat, stemNames.map((_, index) => stemDisplayName(index)), stemSeparationProfile);
       stemExportVisible = false;
       notify("success", t("stemExportComplete"));
     });
@@ -2623,6 +2706,9 @@
     const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
       && project?.packagePath === packagePath
       && currentTrack?.id === track.id;
+    const availableProfiles = analysisFeaturesAvailable
+      ? stemAvailableProfiles(packagePath, track.id).catch(() => [] as StemSeparationProfile[])
+      : Promise.resolve([] as StemSeparationProfile[]);
     try {
       const status = await audioLoad(packagePath, track.id);
       if (!stillSelected()) return;
@@ -2644,9 +2730,17 @@
       audioLoading = false;
       loadingTrackId = null;
       void loadTrackChords(track, packagePath, selectionGeneration);
-      if (track.practice.stemsEnabled) void enableStems({ resumePlayback: autoplay });
-      else if (autoplay) await play();
+      if (autoplay) await play();
       if (!stillSelected()) return;
+      cachedStemProfiles = await availableProfiles;
+      if (!stillSelected()) return;
+      const cachedProfile = preferredStemProfile(cachedStemProfiles, track.practice.lastStemProfile);
+      stemSeparationProfile = cachedProfile ?? track.practice.lastStemProfile ?? null;
+      if (track.practice.stemsEnabled && cachedProfile) {
+        void loadCachedStems(cachedProfile);
+      } else if (track.practice.stemsEnabled) {
+        schedulePracticeSave(0);
+      }
       schedulePlaylistWarmup(packagePath, track.id);
     } catch (error) {
       if (stillSelected()) {
@@ -3341,6 +3435,7 @@
         trainerIncrement,
         trainerTargetRate,
         stemsEnabled: stems.enabled,
+        lastStemProfile: stemSeparationProfile,
         stemMix,
         stemNames,
         chordEdits,
@@ -3614,10 +3709,7 @@
         </div>
       </div>
       <span class="header-separator" aria-hidden="true"></span>
-      <div class="header-metrics" aria-label={t("systemMetrics")}>
-        <span><small>{t("cpuUsage")}</small><strong>{systemMetricsSnapshot.cpuPercent === null ? "—" : `${systemMetricsSnapshot.cpuPercent.toFixed(1)}%`}</strong></span>
-        <span><small>{t("memoryUsage")}</small><strong>{systemMetricsSnapshot.memoryMegabytes === null ? "—" : `${systemMetricsSnapshot.memoryMegabytes} MB`}</strong></span>
-      </div>
+      <ResourceThermometer metrics={systemMetricsSnapshot} label={t("systemMetrics")} />
       <span class="header-separator" aria-hidden="true"></span>
       <button class="header-icon-link" aria-label={t("openGithub")} data-tooltip={t("openGithub")} onclick={() => openCommunityLink("github")}><Icon name="github" size="15px" /></button>
       <button class="header-icon-link donate" aria-label={t("supportProject")} data-tooltip={t("supportProject")} onclick={() => openCommunityLink("donate")}><Icon name="mug-hot" size="15px" /></button>
@@ -4177,20 +4269,27 @@
         <div class="panel stem-panel" class:stem-bypassed={stems.state === "ready" && !stems.enabled}>
           <div class="panel-title stem-panel-title">
             <label class="stem-switch" data-tooltip={t("stemSwitchHelp")}>
-              <input type="checkbox" role="switch" checked={stems.enabled} disabled={!currentTrack || stems.state === "failed"} onchange={(event) => void toggleStemMode(event)} />
+              <input type="checkbox" role="switch" checked={stems.enabled} disabled={!currentTrack || stems.state === "separating" || (stems.state !== "ready" && !(stemSeparationProfile && cachedStemProfiles.includes(stemSeparationProfile)))} onchange={(event) => void toggleStemMode(event)} />
               <i aria-hidden="true"><b></b></i><strong>{t("mix")}</strong>
             </label>
             <div class="stem-header-actions">
-              <div class="stem-heading-status">{#if stems.computeBackend}<span class="stem-backend">{stems.computeBackend}</span>{/if}<span>{stems.state === "ready" ? stems.enabled ? t("stemsReady") : t("stemsBypassed") : stems.state === "failed" ? t("stemFailed") : t("idle")}</span></div>
+              {#if stems.computeBackend || stems.state === "ready" || stems.state === "failed"}
+                <div class="stem-heading-status">
+                  {#if stems.computeBackend}<span class="stem-backend">{stems.computeBackend}</span>{/if}
+                  {#if stems.state === "ready"}<span>{stems.enabled ? t("stemsReady") : t("stemsBypassed")}</span>{/if}
+                  {#if stems.state === "failed"}<span>{t("stemFailed")}</span>{/if}
+                </div>
+              {/if}
+              <button class="stem-delete-button" disabled={!currentTrack || (stems.state === "disabled" && cachedStemProfiles.length === 0 && !stemSeparationProfile)} aria-label={t("deleteSeparatedTracks")} data-tooltip={t("deleteSeparatedTracks")} onclick={() => void resetStemBlock()}><Icon name="trash" size="11px" /></button>
               <button class="stem-export-button" disabled={stems.state !== "ready" || stems.trackId !== currentTrack?.id || busy} aria-label={t("exportStems")} data-tooltip={stems.state === "ready" ? t("exportStems") : t("exportStemsUnavailable")} onclick={openStemExport}><Icon name="cloud-arrow-down" size="13px" /></button>
             </div>
           </div>
           {#if stems.state === "disabled"}
-            <div class="stem-empty"><button class="primary" data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={() => void enableStems()}>{t("enableStems")}</button><small>HTDemucs 6s · MLX · {t("localProcessing")}</small></div>
+            <div class="stem-empty"><div class="stem-model-choices"><button class="stem-profile stem-profile-fast" class:primary={stemSeparationProfile === "fast" && cachedStemProfiles.includes("fast")} data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={() => void chooseStemSeparationProfile("fast")}><strong>Fast</strong><small>HTDemucs · 4 stems</small></button><button class="stem-profile stem-profile-hq" class:primary={stemSeparationProfile === "hq" && cachedStemProfiles.includes("hq")} data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={() => void chooseStemSeparationProfile("hq")}><strong>HQ</strong><small>SCNet Large · 4 stems</small></button></div></div>
           {:else if stems.state === "separating"}
-            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.stage === "checkingCache" ? t("loadingAvailableStems") : stems.stage === "loadingModel" ? t("loadingStemModel") : stems.stage === "loadingAudio" ? t("loadingStemAudio") : stems.stage === "writingStems" || stems.stage === "validatingStems" || stems.stage === "cachingStems" ? t("writingStems") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
+            <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.stage === "checkingCache" || stems.stage === "loadingCachedStems" ? t("loadingAvailableStems") : stems.stage === "downloadingModel" || stems.stage === "loadingModel" ? t("loadingStemModel") : stems.stage === "loadingAudio" ? t("loadingStemAudio") : stems.stage === "writingStems" || stems.stage === "validatingStems" || stems.stage === "cachingStems" ? t("writingStems") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%{#if stemEtaRemaining !== null}<small> · ≈ {formatStemEta(stemEtaRemaining)}</small>{/if}</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
           {:else if stems.state === "failed"}
-            <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><button onclick={() => void enableStems()}>{t("enableStems")}</button></div>
+            <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><div class="stem-model-choices"><button class="stem-profile stem-profile-fast" onclick={() => void chooseStemSeparationProfile("fast")}>Fast · HTDemucs</button><button class="stem-profile stem-profile-hq" onclick={() => void chooseStemSeparationProfile("hq")}>HQ · SCNet Large</button></div></div>
           {:else}
             <div class="stem-mixer" aria-label={t("stemMixer")}>
               {#each stemDisplayOrder as index, position}

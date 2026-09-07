@@ -8,7 +8,6 @@
   "bundle": {
     "resources": {
       "resources/python-runtime": null,
-      "resources/models/demucs-mlx": null,
       "resources/models/beat-this": null,
       "resources/light-python-runtime": "python-runtime"
     },

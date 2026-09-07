@@ -1,6 +1,35 @@
-pub const STEM_COUNT: usize = 6;
-pub const STEM_NAMES: [&str; STEM_COUNT] = ["vocals", "drums", "bass", "other", "guitar", "piano"];
-pub const MODEL_NAME: &str = "htdemucs_6s";
-// Both inference backends use the same converted safetensors and official
-// 5c90dfd2/34c22ccb source identity. Keep the cache portable between machines.
-pub const MODEL_REVISION: &str = "htdemucs_6s-5c90dfd2-34c22ccb-fast-v2";
+use serde::{Deserialize, Serialize};
+
+pub const STEM_COUNT: usize = 4;
+pub const STEM_NAMES: [&str; STEM_COUNT] = ["vocals", "drums", "bass", "other"];
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StemSeparationProfile {
+    #[default]
+    Fast,
+    Hq,
+}
+
+impl StemSeparationProfile {
+    pub const fn argument(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Hq => "hq",
+        }
+    }
+
+    pub const fn model_name(self) -> &'static str {
+        match self {
+            Self::Fast => "HTDemucs 4 stems",
+            Self::Hq => "SCNet Large by starrytong",
+        }
+    }
+
+    pub const fn model_revision(self) -> &'static str {
+        match self {
+            Self::Fast => "htdemucs-955717e8-8726e21a-overlap25-v1",
+            Self::Hq => "scnet-large-starrytong-v1.0.9-65900dfa-v1",
+        }
+    }
+}

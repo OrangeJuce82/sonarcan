@@ -1,4 +1,4 @@
-//! Supervision of the pinned `demucs-mlx` six-stem worker.
+//! Supervision of the pinned Fast/HQ four-stem workers.
 //! Inference and file I/O never run on the CPAL callback.
 
 use std::{
@@ -25,16 +25,17 @@ use crate::{
     ffmpeg,
     preferences::{Mp3Quality, UserPreferences},
     project,
-    stem_contract::{MODEL_NAME, MODEL_REVISION, STEM_COUNT, STEM_NAMES},
+    stem_contract::{StemSeparationProfile, STEM_COUNT, STEM_NAMES},
 };
 
 const CACHE_VERSION: u32 = 2;
 const STEM_MAGIC: &[u8; 8] = b"SACSTM02";
 const MAX_PROTOCOL_LINE: usize = 16 * 1024;
+const MAX_PROTOCOL_UNITS: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_STEM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const PCM_HEADER_BYTES: u64 = 8 + 4 + 8;
-const STEM_EXPORT_ORDER: [usize; STEM_COUNT] = [0, 1, 2, 4, 5, 3];
+const STEM_EXPORT_ORDER: [usize; STEM_COUNT] = [0, 1, 2, 3];
 const ACCELERATOR_SELF_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -55,6 +56,8 @@ pub struct StemStatus {
     pub cached: bool,
     pub error: Option<String>,
     pub compute_backend: Option<String>,
+    pub phase_completed: Option<u64>,
+    pub phase_total: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -77,6 +80,8 @@ impl Default for StemStatus {
             cached: false,
             error: None,
             compute_backend: None,
+            phase_completed: None,
+            phase_total: None,
         }
     }
 }
@@ -111,6 +116,10 @@ enum WorkerEvent {
     Progress {
         stage: String,
         progress: f32,
+        #[serde(default)]
+        completed: Option<u64>,
+        #[serde(default)]
+        total: Option<u64>,
     },
     Log {
         level: String,
@@ -172,8 +181,6 @@ pub fn accelerator_self_test(app: &AppHandle) -> bool {
     command
         .args(&worker.prefix_arguments)
         .arg("accelerator-self-test")
-        .arg("--model-dir")
-        .arg(&worker.model_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let Ok(mut child) = command.spawn() else {
@@ -221,6 +228,24 @@ impl StemService {
         app_log::push_external("stems", "info", "stem separation disabled");
     }
 
+    pub fn reset(
+        &self,
+        engine: &AudioEngine,
+        package_path: &Path,
+        track_id: Uuid,
+    ) -> Result<(), AppError> {
+        self.disable(engine);
+        // Resolve the media first so an untrusted package/track pair cannot be
+        // used to turn the cache cleanup into an arbitrary directory removal.
+        project::track_media_path(package_path, track_id)?;
+        let package = package_path
+            .canonicalize()
+            .map_err(|error| AppError::io(package_path, error))?;
+        remove_stem_cache_root(&package, track_id)?;
+        app_log::push_external("stems", "info", "generated stems and mix state reset");
+        Ok(())
+    }
+
     pub fn set_enabled(&self, engine: &AudioEngine, enabled: bool) -> bool {
         let ready = self
             .status
@@ -247,6 +272,28 @@ impl StemService {
         app: AppHandle,
         package_path: PathBuf,
         track_id: Uuid,
+        profile: StemSeparationProfile,
+    ) -> Result<(), AppError> {
+        self.start_internal(app, package_path, track_id, profile, false)
+    }
+
+    pub fn load_cached(
+        &self,
+        app: AppHandle,
+        package_path: PathBuf,
+        track_id: Uuid,
+        profile: StemSeparationProfile,
+    ) -> Result<(), AppError> {
+        self.start_internal(app, package_path, track_id, profile, true)
+    }
+
+    fn start_internal(
+        &self,
+        app: AppHandle,
+        package_path: PathBuf,
+        track_id: Uuid,
+        profile: StemSeparationProfile,
+        cache_only: bool,
     ) -> Result<(), AppError> {
         if self.running.swap(true, Ordering::AcqRel) {
             return Err(AppError::StemSeparation(
@@ -257,7 +304,16 @@ impl StemService {
         let backend = StemBackend::preferred();
         set_status(
             &self.status,
-            active_status(track_id, 0.0, "checkingCache", backend.label()),
+            active_status(
+                track_id,
+                0.0,
+                if cache_only {
+                    "loadingCachedStems"
+                } else {
+                    "checkingCache"
+                },
+                backend.label(),
+            ),
         );
         let status = Arc::clone(&self.status);
         let running = Arc::clone(&self.running);
@@ -270,10 +326,12 @@ impl StemService {
                     &app,
                     &package_path,
                     track_id,
+                    profile,
                     generation,
                     &active_generation,
                     &status,
                     &child,
+                    cache_only,
                 );
                 if active_generation.load(Ordering::Acquire) == generation {
                     if let Err(error) = result {
@@ -290,6 +348,8 @@ impl StemService {
                                 cached: false,
                                 error: Some(error.to_string()),
                                 compute_backend: Some(backend.label().into()),
+                                phase_completed: None,
+                                phase_total: None,
                             },
                         );
                     }
@@ -304,12 +364,27 @@ impl StemService {
     }
 }
 
+fn remove_stem_cache_root(package: &Path, track_id: Uuid) -> Result<(), AppError> {
+    let cache = package.join("Stems").join(track_id.to_string());
+    if !cache.exists() {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(&cache).map_err(|error| AppError::io(&cache, error))?;
+    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+        return Err(AppError::StemSeparation(
+            "the stem cache cannot be reset safely".into(),
+        ));
+    }
+    fs::remove_dir_all(&cache).map_err(|error| AppError::io(&cache, error))
+}
+
 pub fn export(
     package_path: &Path,
     track_id: Uuid,
     destination: &Path,
     format: StemExportFormat,
     display_names: &[String],
+    profile: StemSeparationProfile,
     preferences: &UserPreferences,
 ) -> Result<(), AppError> {
     if display_names.len() != STEM_COUNT
@@ -351,16 +426,17 @@ pub fn export(
     let source_metadata = media_path
         .metadata()
         .map_err(|error| AppError::io(&media_path, error))?;
-    let source_directory = validated_export_cache_dir(package_path, track_id)?;
+    let source_directory = validated_export_cache_dir(package_path, track_id, profile)?;
     let manifest = read_valid_manifest_from_dir(
         &source_directory,
         track_id,
         source_metadata.len(),
         modified_ns(&source_metadata),
+        profile,
     )
     .ok_or_else(|| {
         AppError::StemSeparation(
-            "the six stems are not available or no longer match the selected track".into(),
+            "the four stems are not available or no longer match the selected track".into(),
         )
     })?;
 
@@ -383,7 +459,7 @@ pub fn export(
         "rust",
         "info",
         &format!(
-            "exported six stems as {}",
+            "exported four stems as {}",
             match format {
                 StemExportFormat::Wav => "WAV",
                 StemExportFormat::Mp3 => "MP3",
@@ -454,7 +530,11 @@ fn export_into_directory(
     Ok(())
 }
 
-fn validated_export_cache_dir(package_path: &Path, track_id: Uuid) -> Result<PathBuf, AppError> {
+fn validated_export_cache_dir(
+    package_path: &Path,
+    track_id: Uuid,
+    profile: StemSeparationProfile,
+) -> Result<PathBuf, AppError> {
     let package = package_path
         .canonicalize()
         .map_err(|error| AppError::io(package_path, error))?;
@@ -462,7 +542,9 @@ fn validated_export_cache_dir(package_path: &Path, track_id: Uuid) -> Result<Pat
     let stem_root = stem_root_path
         .canonicalize()
         .map_err(|error| AppError::io(&stem_root_path, error))?;
-    let cache_path = stem_root.join(track_id.to_string());
+    let cache_path = stem_root
+        .join(track_id.to_string())
+        .join(profile.argument());
     let cache = cache_path
         .canonicalize()
         .map_err(|error| AppError::io(&cache_path, error))?;
@@ -611,31 +693,51 @@ fn separate_or_load(
     app: &AppHandle,
     package_path: &Path,
     track_id: Uuid,
+    profile: StemSeparationProfile,
     generation: u64,
     active_generation: &AtomicU64,
     status: &Arc<Mutex<StemStatus>>,
     current_child: &Arc<Mutex<Option<Arc<Mutex<Child>>>>>,
+    cache_only: bool,
 ) -> Result<(), AppError> {
     let backend = StemBackend::preferred();
     let media_path = project::track_media_path(package_path, track_id)?;
     let metadata = media_path
         .metadata()
         .map_err(|error| AppError::io(&media_path, error))?;
-    if let Some(stems) = load_cache(
+    let source_modified_ns = modified_ns(&metadata);
+    if cache_is_available(
         package_path,
         track_id,
         metadata.len(),
-        modified_ns(&metadata),
+        source_modified_ns,
+        profile,
     ) {
-        app.state::<AudioEngine>()
-            .activate_stems(&media_path, stems)?;
-        set_status(status, ready_status(track_id, true, backend.label()));
-        app_log::push_external(
-            backend.log_source(),
-            "info",
-            &format!("{MODEL_NAME}: loaded the verified six-stem cache"),
-        );
-        return Ok(());
+        if let Some(stems) = load_cache(
+            package_path,
+            track_id,
+            metadata.len(),
+            source_modified_ns,
+            profile,
+        ) {
+            app.state::<AudioEngine>()
+                .activate_stems(&media_path, stems)?;
+            set_status(status, ready_status(track_id, true, backend.label()));
+            app_log::push_external(
+                backend.log_source(),
+                "info",
+                &format!(
+                    "{}: loaded the verified four-stem cache",
+                    profile.model_name()
+                ),
+            );
+            return Ok(());
+        }
+    }
+    if cache_only {
+        return Err(AppError::StemSeparation(
+            "the selected separated-track cache is no longer available".into(),
+        ));
     }
     let worker = resolve_worker(app)?;
     set_status(
@@ -647,7 +749,8 @@ fn separate_or_load(
         worker.backend.log_source(),
         "info",
         &format!(
-            "{MODEL_NAME}: starting six-stem generation with {}",
+            "{}: starting four-stem generation with {}",
+            profile.model_name(),
             worker.backend.label()
         ),
     );
@@ -669,6 +772,7 @@ fn separate_or_load(
         active_generation,
         status,
         current_child,
+        profile,
     )
     .and_then(|()| {
         if active_generation.load(Ordering::Acquire) != generation {
@@ -684,7 +788,8 @@ fn separate_or_load(
             worker.backend.log_source(),
             "info",
             &format!(
-                "{MODEL_NAME}: six stems decoded and validated in {:.2}s",
+                "{}: four stems decoded and validated in {:.2}s",
+                profile.model_name(),
                 validation_started.elapsed().as_secs_f64()
             ),
         );
@@ -698,13 +803,15 @@ fn separate_or_load(
             track_id,
             metadata.len(),
             modified_ns(&metadata),
+            profile,
             &stems,
         )?;
         app_log::push_external(
             worker.backend.log_source(),
             "info",
             &format!(
-                "{MODEL_NAME}: six-stem cache written in {:.2}s",
+                "{}: four-stem cache written in {:.2}s",
+                profile.model_name(),
                 cache_started.elapsed().as_secs_f64()
             ),
         );
@@ -718,11 +825,12 @@ fn separate_or_load(
             worker.backend.log_source(),
             "info",
             &format!(
-                "{MODEL_NAME}: six-stem generation completed in {:.2}s",
+                "{}: four-stem generation completed in {:.2}s",
+                profile.model_name(),
                 separation_started.elapsed().as_secs_f64()
             ),
         );
-        info!(%track_id, model = MODEL_NAME, backend = worker.backend.label(), "six-stem cache is ready");
+        info!(%track_id, model = profile.model_name(), backend = worker.backend.label(), "four-stem cache is ready");
         Ok(())
     });
     if output_dir.starts_with(&work_parent) && output_dir.exists() {
@@ -743,6 +851,7 @@ fn run_worker(
     active_generation: &AtomicU64,
     status: &Arc<Mutex<StemStatus>>,
     current_child: &Arc<Mutex<Option<Arc<Mutex<Child>>>>>,
+    profile: StemSeparationProfile,
 ) -> Result<(), AppError> {
     let mut command = Command::new(&worker.executable);
     command
@@ -754,6 +863,8 @@ fn run_worker(
         .arg(output)
         .arg("--model-dir")
         .arg(&worker.model_dir)
+        .arg("--profile")
+        .arg(profile.argument())
         .args(&worker.additional_arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -802,11 +913,22 @@ fn run_worker(
             ));
         }
         match serde_json::from_str::<WorkerEvent>(&line) {
-            Ok(WorkerEvent::Stage { stage, progress })
-            | Ok(WorkerEvent::Progress { stage, progress }) => set_status(
+            Ok(WorkerEvent::Stage { stage, progress }) => set_status(
                 status,
                 active_status(track_id, progress, &stage, worker.backend.label()),
             ),
+            Ok(WorkerEvent::Progress {
+                stage,
+                progress,
+                completed,
+                total,
+            }) => {
+                let (phase_completed, phase_total) = validated_phase_units(completed, total);
+                let mut next = active_status(track_id, progress, &stage, worker.backend.label());
+                next.phase_completed = phase_completed;
+                next.phase_total = phase_total;
+                set_status(status, next);
+            }
             Ok(WorkerEvent::Log { level, message }) => {
                 app_log::push_external(worker.backend.log_source(), safe_level(&level), &message)
             }
@@ -845,7 +967,7 @@ fn run_worker(
     Ok(())
 }
 
-fn resolve_worker(_app: &AppHandle) -> Result<WorkerCommand, AppError> {
+fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
     let backend = StemBackend::preferred();
     #[cfg(debug_assertions)]
     {
@@ -867,10 +989,11 @@ fn resolve_worker(_app: &AppHandle) -> Result<WorkerCommand, AppError> {
         let executable = std::env::var_os(environment_name)
             .map(PathBuf::from)
             .unwrap_or_else(|| development_python(&worker_root));
-        let model_dir = std::env::var_os("SONARCAN_MLX_MODEL_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| root.join("src-tauri/resources/models/demucs-mlx"));
-        let additional_arguments = portable_worker_arguments(backend)?;
+        let model_dir = match std::env::var_os("SONARCAN_STEM_MODEL_DIR") {
+            Some(directory) => PathBuf::from(directory),
+            None => stem_model_cache(app)?,
+        };
+        let additional_arguments = worker_arguments()?;
         validated_worker(
             executable,
             vec!["-m".into(), module.into()],
@@ -881,7 +1004,7 @@ fn resolve_worker(_app: &AppHandle) -> Result<WorkerCommand, AppError> {
     }
     #[cfg(not(debug_assertions))]
     {
-        let resources = _app
+        let resources = app
             .path()
             .resource_dir()
             .map_err(|error| AppError::StemSeparation(error.to_string()))?;
@@ -892,8 +1015,8 @@ fn resolve_worker(_app: &AppHandle) -> Result<WorkerCommand, AppError> {
         validated_worker(
             bundled_python(&resources.join("python-runtime").join("runtime")),
             vec!["-m".into(), module.into()],
-            portable_worker_arguments(backend)?,
-            resources.join("models/demucs-mlx"),
+            worker_arguments()?,
+            stem_model_cache(app)?,
             backend,
         )
     }
@@ -917,19 +1040,26 @@ fn bundled_python(runtime: &Path) -> PathBuf {
     }
 }
 
-fn portable_worker_arguments(backend: StemBackend) -> Result<Vec<String>, AppError> {
-    if matches!(backend, StemBackend::Mlx) {
-        return Ok(Vec::new());
-    }
+fn worker_arguments() -> Result<Vec<String>, AppError> {
     let executable = ffmpeg::find().ok_or_else(|| {
         AppError::StemSeparation(
             "FFmpeg is required by the portable stem backend but is unavailable".into(),
         )
     })?;
+    let executable = executable
+        .canonicalize()
+        .map_err(|error| AppError::io(&executable, error))?;
     Ok(vec![
         "--ffmpeg".into(),
         executable.to_string_lossy().into_owned(),
     ])
+}
+
+fn stem_model_cache(app: &AppHandle) -> Result<PathBuf, AppError> {
+    app.path()
+        .app_data_dir()
+        .map(|directory| directory.join("models").join("stem-separation"))
+        .map_err(|error| AppError::StemSeparation(error.to_string()))
 }
 
 fn validated_worker(
@@ -961,9 +1091,12 @@ fn validated_worker(
             "the pinned {} runtime is missing; prepare its development environment or install a release containing it ({})", backend.label(), executable.display()
         )));
     }
-    if !model_dir.is_dir() || model_dir.is_symlink() {
+    fs::create_dir_all(&model_dir).map_err(|error| AppError::io(&model_dir, error))?;
+    let model_metadata =
+        fs::symlink_metadata(&model_dir).map_err(|error| AppError::io(&model_dir, error))?;
+    if !model_metadata.file_type().is_dir() || model_metadata.file_type().is_symlink() {
         return Err(AppError::StemSeparation(format!(
-            "the bundled {MODEL_NAME} model is missing from {}",
+            "the stem model cache is invalid: {}",
             model_dir.display()
         )));
     }
@@ -986,7 +1119,7 @@ fn load_worker_stems(
         let metadata = fs::symlink_metadata(&path).map_err(|error| AppError::io(&path, error))?;
         if !metadata.file_type().is_file() || metadata.len() > MAX_STEM_BYTES {
             return Err(AppError::StemSeparation(format!(
-                "MLX produced an invalid {name} stem"
+                "the stem worker produced an invalid {name} stem"
             )));
         }
         stems.push(Arc::new(align_stem(
@@ -995,9 +1128,9 @@ fn load_worker_stems(
             source.frames,
         )));
     }
-    stems
-        .try_into()
-        .map_err(|_| AppError::StemSeparation("MLX returned an invalid stem count".into()))
+    stems.try_into().map_err(|_| {
+        AppError::StemSeparation("the stem worker returned an invalid stem count".into())
+    })
 }
 
 fn align_stem(stem: DecodedAudio, target_rate: u32, target_frames: usize) -> DecodedAudio {
@@ -1039,6 +1172,8 @@ fn active_status(track_id: Uuid, progress: f32, stage: &str, backend: &str) -> S
         cached: false,
         error: None,
         compute_backend: Some(backend.into()),
+        phase_completed: None,
+        phase_total: None,
     }
 }
 fn ready_status(track_id: Uuid, cached: bool, backend: &str) -> StemStatus {
@@ -1051,6 +1186,19 @@ fn ready_status(track_id: Uuid, cached: bool, backend: &str) -> StemStatus {
         cached,
         error: None,
         compute_backend: Some(backend.into()),
+        phase_completed: None,
+        phase_total: None,
+    }
+}
+
+fn validated_phase_units(completed: Option<u64>, total: Option<u64>) -> (Option<u64>, Option<u64>) {
+    match (completed, total) {
+        (Some(completed), Some(total))
+            if total > 0 && total <= MAX_PROTOCOL_UNITS && completed <= total =>
+        {
+            (Some(completed), Some(total))
+        }
+        _ => (None, None),
     }
 }
 fn safe_level(level: &str) -> &str {
@@ -1059,8 +1207,11 @@ fn safe_level(level: &str) -> &str {
         _ => "info",
     }
 }
-fn cache_dir(package: &Path, track_id: Uuid) -> PathBuf {
-    package.join("Stems").join(track_id.to_string())
+fn cache_dir(package: &Path, track_id: Uuid, profile: StemSeparationProfile) -> PathBuf {
+    package
+        .join("Stems")
+        .join(track_id.to_string())
+        .join(profile.argument())
 }
 
 fn modified_ns(metadata: &fs::Metadata) -> u64 {
@@ -1077,9 +1228,10 @@ fn store_cache(
     track_id: Uuid,
     source_size: u64,
     source_modified_ns: u64,
+    profile: StemSeparationProfile,
     stems: &[Arc<DecodedAudio>; STEM_COUNT],
 ) -> Result<(), AppError> {
-    let directory = cache_dir(package, track_id);
+    let directory = cache_dir(package, track_id, profile);
     fs::create_dir_all(&directory).map_err(|error| AppError::io(&directory, error))?;
     for (name, stem) in STEM_NAMES.iter().zip(stems) {
         let path = directory.join(format!("{name}.pcm"));
@@ -1107,7 +1259,7 @@ fn store_cache(
     }
     let manifest = StemManifest {
         cache_version: CACHE_VERSION,
-        model_revision: MODEL_REVISION.into(),
+        model_revision: profile.model_revision().into(),
         track_id,
         source_size,
         source_modified_ns,
@@ -1126,9 +1278,11 @@ fn load_cache(
     track_id: Uuid,
     source_size: u64,
     source_modified_ns: u64,
+    profile: StemSeparationProfile,
 ) -> Option<[Arc<DecodedAudio>; STEM_COUNT]> {
-    let directory = cache_dir(package, track_id);
-    let manifest = read_valid_manifest(package, track_id, source_size, source_modified_ns)?;
+    let directory = cache_dir(package, track_id, profile);
+    let manifest =
+        read_valid_manifest(package, track_id, source_size, source_modified_ns, profile)?;
     let mut loaded = Vec::with_capacity(STEM_COUNT);
     for name in STEM_NAMES {
         let mut file = File::open(directory.join(format!("{name}.pcm"))).ok()?;
@@ -1174,12 +1328,14 @@ fn read_valid_manifest(
     track_id: Uuid,
     source_size: u64,
     source_modified_ns: u64,
+    profile: StemSeparationProfile,
 ) -> Option<StemManifest> {
     read_valid_manifest_from_dir(
-        &cache_dir(package, track_id),
+        &cache_dir(package, track_id, profile),
         track_id,
         source_size,
         source_modified_ns,
+        profile,
     )
 }
 
@@ -1188,6 +1344,7 @@ fn read_valid_manifest_from_dir(
     track_id: Uuid,
     source_size: u64,
     source_modified_ns: u64,
+    profile: StemSeparationProfile,
 ) -> Option<StemManifest> {
     let path = directory.join("manifest.json");
     let metadata = fs::symlink_metadata(&path).ok()?;
@@ -1198,11 +1355,73 @@ fn read_valid_manifest_from_dir(
     let manifest: StemManifest =
         serde_json::from_reader(BufReader::new(file.take(MAX_MANIFEST_BYTES))).ok()?;
     (manifest.cache_version == CACHE_VERSION
-        && manifest.model_revision == MODEL_REVISION
+        && manifest.model_revision == profile.model_revision()
         && manifest.track_id == track_id
         && manifest.source_size == source_size
         && manifest.source_modified_ns == source_modified_ns)
         .then_some(manifest)
+}
+
+pub fn available_profiles(
+    package_path: &Path,
+    track_id: Uuid,
+) -> Result<Vec<StemSeparationProfile>, AppError> {
+    let media_path = project::track_media_path(package_path, track_id)?;
+    let metadata = media_path
+        .metadata()
+        .map_err(|error| AppError::io(&media_path, error))?;
+    Ok([StemSeparationProfile::Hq, StemSeparationProfile::Fast]
+        .into_iter()
+        .filter(|profile| {
+            cache_is_available(
+                package_path,
+                track_id,
+                metadata.len(),
+                modified_ns(&metadata),
+                *profile,
+            )
+        })
+        .collect())
+}
+
+fn cache_is_available(
+    package_path: &Path,
+    track_id: Uuid,
+    source_size: u64,
+    source_modified_ns: u64,
+    profile: StemSeparationProfile,
+) -> bool {
+    let directory = cache_dir(package_path, track_id, profile);
+    let Ok(directory_metadata) = fs::symlink_metadata(&directory) else {
+        return false;
+    };
+    if !directory_metadata.file_type().is_dir() || directory_metadata.file_type().is_symlink() {
+        return false;
+    }
+    let Some(manifest) = read_valid_manifest_from_dir(
+        &directory,
+        track_id,
+        source_size,
+        source_modified_ns,
+        profile,
+    ) else {
+        return false;
+    };
+    let Some(sample_bytes) = manifest.frames.checked_mul(2).and_then(|samples| {
+        samples
+            .checked_mul(size_of::<f32>())
+            .and_then(|bytes| bytes.checked_add(PCM_HEADER_BYTES as usize))
+    }) else {
+        return false;
+    };
+    sample_bytes <= MAX_STEM_BYTES as usize
+        && STEM_NAMES.iter().all(|name| {
+            fs::symlink_metadata(directory.join(format!("{name}.pcm"))).is_ok_and(|metadata| {
+                metadata.file_type().is_file()
+                    && !metadata.file_type().is_symlink()
+                    && metadata.len() == sample_bytes as u64
+            })
+        })
 }
 
 fn set_status(target: &Arc<Mutex<StemStatus>>, value: StemStatus) {
@@ -1214,6 +1433,20 @@ fn set_status(target: &Arc<Mutex<StemStatus>>, value: StemStatus) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worker_phase_units_are_bounded_and_consistent() {
+        assert_eq!(
+            validated_phase_units(Some(4), Some(12)),
+            (Some(4), Some(12))
+        );
+        assert_eq!(validated_phase_units(Some(13), Some(12)), (None, None));
+        assert_eq!(
+            validated_phase_units(Some(1), Some(MAX_PROTOCOL_UNITS + 1)),
+            (None, None)
+        );
+        assert_eq!(validated_phase_units(None, Some(12)), (None, None));
+    }
 
     #[cfg(unix)]
     #[test]
@@ -1248,7 +1481,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_round_trips_six_stems() {
+    fn cache_round_trips_four_stems() {
         let project = tempfile::tempdir().unwrap();
         let track_id = Uuid::new_v4();
         let stems = std::array::from_fn(|index| {
@@ -1259,11 +1492,81 @@ mod tests {
                 frames: 2,
             })
         });
-        store_cache(project.path(), track_id, 123, 456, &stems).unwrap();
-        let loaded = load_cache(project.path(), track_id, 123, 456).unwrap();
+        store_cache(
+            project.path(),
+            track_id,
+            123,
+            456,
+            StemSeparationProfile::Fast,
+            &stems,
+        )
+        .unwrap();
+        assert!(cache_is_available(
+            project.path(),
+            track_id,
+            123,
+            456,
+            StemSeparationProfile::Fast,
+        ));
+        assert!(!cache_is_available(
+            project.path(),
+            track_id,
+            123,
+            456,
+            StemSeparationProfile::Hq,
+        ));
+        let loaded = load_cache(
+            project.path(),
+            track_id,
+            123,
+            456,
+            StemSeparationProfile::Fast,
+        )
+        .unwrap();
         assert_eq!(loaded[0].samples, stems[0].samples);
-        assert_eq!(loaded[5].samples, stems[5].samples);
-        assert!(load_cache(project.path(), track_id, 124, 456).is_none());
+        assert_eq!(
+            loaded[STEM_COUNT - 1].samples,
+            stems[STEM_COUNT - 1].samples
+        );
+        assert!(load_cache(
+            project.path(),
+            track_id,
+            124,
+            456,
+            StemSeparationProfile::Fast,
+        )
+        .is_none());
+        assert!(load_cache(
+            project.path(),
+            track_id,
+            123,
+            456,
+            StemSeparationProfile::Hq,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn reset_removes_every_profile_for_only_the_selected_track() {
+        let project = tempfile::tempdir().unwrap();
+        let selected = Uuid::new_v4();
+        let untouched = Uuid::new_v4();
+        for profile in [StemSeparationProfile::Fast, StemSeparationProfile::Hq] {
+            let directory = cache_dir(project.path(), selected, profile);
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(directory.join("manifest.json"), b"generated").unwrap();
+        }
+        let untouched_cache = cache_dir(project.path(), untouched, StemSeparationProfile::Fast);
+        fs::create_dir_all(&untouched_cache).unwrap();
+
+        remove_stem_cache_root(project.path(), selected).unwrap();
+
+        assert!(!project
+            .path()
+            .join("Stems")
+            .join(selected.to_string())
+            .exists());
+        assert!(untouched_cache.exists());
     }
 
     #[test]
@@ -1350,7 +1653,9 @@ mod tests {
         fs::create_dir(outside.join(track_id.to_string())).unwrap();
         symlink(&outside, package.join("Stems")).unwrap();
 
-        assert!(validated_export_cache_dir(&package, track_id).is_err());
+        assert!(
+            validated_export_cache_dir(&package, track_id, StemSeparationProfile::Fast,).is_err()
+        );
     }
 
     #[cfg(unix)]
@@ -1370,7 +1675,7 @@ mod tests {
     }
 
     #[test]
-    fn exports_six_cached_stems_to_mp3_when_ffmpeg_is_available() {
+    fn exports_four_cached_stems_to_mp3_when_ffmpeg_is_available() {
         if ffmpeg::find().is_none() {
             return;
         }
@@ -1393,14 +1698,14 @@ mod tests {
         }
         let manifest = StemManifest {
             cache_version: CACHE_VERSION,
-            model_revision: MODEL_REVISION.into(),
+            model_revision: StemSeparationProfile::Fast.model_revision().into(),
             track_id: Uuid::new_v4(),
             source_size: 0,
             source_modified_ns: 0,
             sample_rate: 8_000,
             frames,
         };
-        let names = ["Voice", "Drums", "Bass", "Other", "Guitar", "Piano"].map(str::to_owned);
+        let names = ["Voice", "Drums", "Bass", "Other"].map(str::to_owned);
 
         export_into_directory(
             &cache,
