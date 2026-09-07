@@ -80,7 +80,7 @@ parts instead and run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.26
+version=v0.1.0-beta.27
 backend=NVIDIA
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-RPM.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.rpm".part-* > "SonArcan-${backend}-GPU.rpm"
