@@ -91,13 +91,14 @@ locking, or IPC.
 
 ## Performance qualification
 
-On 7 September 2026, the previous SCNet HQ candidate was measured on a 16 GB MacBook Air M3 with a
-15-second synthetic 44.1 kHz stereo file. Materializing overlap-add after each
-batch reduced MLX inference from 53.13 s to 30.52 s; model load took 0.20 s and
-decode 0.05 s. Maximum resident memory was 1.60 GB. Batch 2 was slower at
-40.60 s while saving about 285 MB. The replacement SCNet Large graph uses the
-same bounded batch size 4 but still requires its own representative full-song
-benchmark.
+On 7 September 2026, SCNet Large was measured on a 16 GB MacBook Air M3 with a
+15-second synthetic 44.1 kHz stereo file. MLX batch 1 took 56.95 s for inference
+and 68.22 s end to end. Batch 2 took 30.30 s for inference and 41.69 s end to
+end, while producing all four valid stems. Batch 4 exhausted Metal memory on
+GitHub's `macos-15` Apple Silicon release runner. The shared SCNet plan is
+therefore batch 2 on MLX, CUDA, and ROCm; MLX also materializes overlap-add and
+clears unused allocations between forwards. Representative full-song
+benchmarks are still required on every supported accelerator.
 
 The HTDemucs Fast protocol has been exercised end-to-end with both its MLX and
 Torch paths, including safe loading and four output files. Representative

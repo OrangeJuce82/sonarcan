@@ -11,16 +11,10 @@ registry below rather than declared, so a family this port has not
 implemented cannot be silently advertised and then fail deep inside
 construction.
 
-`separate()` reproduces `runtime.demix()`'s exact chunked overlap-add
-arithmetic, including one quirk worth naming rather than silently "fixing":
-Torch's loop applies the edge-correction window (full amplitude at the very
-first/last chunk) to the *whole currently-flushed batch*, not to the
-individual chunk that triggered the edge condition -- when `batch_size > 1`
-and the true edge chunk shares a flush with interior chunks, those interior
-chunks get the edge-corrected window too. This is upstream's own behaviour
-(`spec.batch_size=4`, `num_overlap=4` for the default checkpoint), not a
-bug introduced here, and reproducing the chunking bit-for-bit is what this
-package's parity tests hold both backends to -- so it is kept, not fixed.
+`separate()` reproduces `runtime.demix()`'s chunked overlap-add arithmetic.
+The shared checkpoint plan uses two chunks per forward on every backend: this
+keeps execution consistent while bounding SCNet-large's dominant activation
+allocation on memory-constrained accelerators.
 
 Reads: .base (ChunkingPlan, BackendUnavailable), ..mlx (model classes,
 conversion), torch (checkpoint bytes only -- always a hard dependency of
@@ -158,8 +152,7 @@ class MLXBackend:
             pass
 
     def separate(self, mix: np.ndarray, progress=None) -> dict[str, np.ndarray]:
-        """Chunked overlap-add, mirroring `runtime.demix()`'s exact arithmetic
-        (including its batch-level edge-window quirk -- see module docstring)."""
+        """Chunked overlap-add with the shared memory-bounded batch plan."""
         import mlx.core as mx
 
         plan = self._plan
@@ -217,6 +210,8 @@ class MLXBackend:
                 # forward. Otherwise MLX retains the full song's lazy graph,
                 # causing memory growth proportional to its chunk count.
                 mx.eval(result, counter)
+                del stacked, estimated
+                mx.clear_cache()
                 completed_chunks += len(locations)
                 if progress is not None:
                     progress(min(completed_chunks, total_chunks), total_chunks)
