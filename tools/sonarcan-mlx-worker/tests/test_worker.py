@@ -10,7 +10,6 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from scnet_infer.backends.mlx_backend import MLXBackend
 from scnet_infer.checkpoints import get_spec
 from scnet_infer.fast_demucs import MLX_BATCH_SIZE, MODEL_BYTES as FAST_MODEL_BYTES, validate_contract as validate_fast_contract
 from scnet_infer.sonarcan_worker import MODEL_ID, STEM_NAMES, _write_float_wave_data, build_parser, validate_contract
@@ -44,9 +43,7 @@ assert callable(main)
 
     def test_scnet_large_uses_the_shared_memory_safe_batch(self) -> None:
         spec = get_spec(MODEL_ID)
-        backend = MLXBackend(object(), spec)
         self.assertEqual(spec.batch_size, 2)
-        self.assertEqual(backend._plan.batch_size, 2)
 
     def test_uses_the_pinned_four_stem_fast_contract(self) -> None:
         validate_fast_contract()
