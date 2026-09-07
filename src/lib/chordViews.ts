@@ -100,7 +100,16 @@ export function chordStatistics(chords: readonly TimedChord[]): ChordStatistic[]
 
 export function activeChordIndexAt(chords: readonly TimedChord[], positionSeconds: number, visualLeadSeconds = 0.01): number {
   const displayPosition = positionSeconds + Math.max(0, visualLeadSeconds);
-  return chords.findIndex((chord) => displayPosition >= chord.startSeconds && displayPosition < chord.endSeconds);
+  let low = 0;
+  let high = chords.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((chords[middle]?.startSeconds ?? Number.POSITIVE_INFINITY) <= displayPosition) low = middle + 1;
+    else high = middle;
+  }
+  const index = low - 1;
+  const chord = chords[index];
+  return chord && displayPosition < chord.endSeconds ? index : -1;
 }
 
 export function adjacentChordPosition(

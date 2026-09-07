@@ -2,7 +2,7 @@
   import { onDestroy, tick } from "svelte";
   import type { Language } from "./i18n";
   import type { LyricsDocument, LyricsSearchResult } from "./types";
-  import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, formatLrcTime, lyricsEditorContent, LyricsParseError, parseLyrics } from "./lyrics";
+  import { activeLyricsLineIndex, displayedLyricsWordIndex, estimatedLyricsLineIndex, formatLrcTime, lyricsEditorContent, LyricsParseError, parseLyrics } from "./lyrics";
   import { lyricsDurationRelevanceLevel } from "./lyricsMatching";
   import { lyricsTranslate } from "./lyricsI18n";
   import Icon from "./Icon.svelte";
@@ -209,7 +209,7 @@
     {:else if document}
       <div class="lyrics-lines" bind:this={linesElement} aria-live="off">
         {#each document.lines as line, index}
-          {@const wordIndex = activeLyricsWordIndex(line, currentMs, document.offsetMs)}
+          {@const wordIndex = displayedLyricsWordIndex(line, index, activeIndex, currentMs, document.offsetMs)}
           <button
             type="button"
             data-lyrics-index={index}

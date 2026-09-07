@@ -178,6 +178,22 @@ export function activeLyricsWordIndex(line: LyricsLine | undefined, currentMs: n
   return result;
 }
 
+export function displayedLyricsWordIndex(
+  line: LyricsLine | undefined,
+  lineIndex: number,
+  activeLineIndex: number,
+  currentMs: number,
+  offsetMs: number,
+): number {
+  if (!line?.words.length) return -1;
+  if (activeLineIndex < 0) {
+    const adjusted = currentMs - offsetMs;
+    return (line.words.at(-1)?.startMs ?? Number.POSITIVE_INFINITY) <= adjusted ? line.words.length - 1 : -1;
+  }
+  if (lineIndex < activeLineIndex) return line.words.length - 1;
+  return lineIndex === activeLineIndex ? activeLyricsWordIndex(line, currentMs, offsetMs) : -1;
+}
+
 export function lyricsNavigationPositions(document: LyricsDocument | null, durationSeconds: number): number[] {
   if (!document) return [];
   return document.lines.flatMap((line) => {

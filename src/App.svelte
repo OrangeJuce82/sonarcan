@@ -68,7 +68,8 @@
   let volume = 1;
   let musicVolume = 1;
   let volumeBeforeMute = 1;
-  let masterPeak = 0;
+  let masterMeterPercent = 0;
+  let masterMeterSegments = 0;
   let masterPeakLeft = 0;
   let masterPeakRight = 0;
   let visualizationMeterLeft = emptyMeterState();
@@ -171,7 +172,8 @@
   let stems: StemStatus = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
   let stemMix: StemMix[] = Array.from({ length: 4 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
   let stemNames: string[] = [...canonicalStemNames];
-  let stemPeaks = Array<number>(4).fill(0);
+  let stemMeterPercents = Array<number>(4).fill(0);
+  let stemMeterSegments = Array<number>(4).fill(0);
   let stemStatusRequestActive = false;
   let stemPlaybackLocked = false;
   let stemPlaybackResume: StemPlaybackResumeRequest | null = null;
@@ -486,8 +488,8 @@
     followChord(activeChordIndex);
   }
 
-  function scrollWaveformLyric(node: HTMLElement, state: { progress: number }) {
-    let scrollProgress = lyricsScrollProgress(state.progress);
+  function scrollWaveformLyric(node: HTMLElement, progress: number) {
+    let scrollProgress = lyricsScrollProgress(progress);
     let overflow = 0;
     let appliedOffset = Number.NaN;
     const applyOffset = (): void => {
@@ -507,8 +509,8 @@
     if (node.parentElement) observer.observe(node.parentElement);
     queueMicrotask(measure);
     return {
-      update(next: { progress: number }): void {
-        const nextProgress = lyricsScrollProgress(next.progress);
+      update(next: number): void {
+        const nextProgress = lyricsScrollProgress(next);
         if (Math.abs(nextProgress - scrollProgress) < 0.0001) return;
         scrollProgress = nextProgress;
         applyOffset();
@@ -1169,7 +1171,7 @@
     const bpmTimer = window.setInterval(refreshDisplayedBpm, 500);
     const spectrumTimer = window.setInterval(() => void refreshSpectrum(), 50);
     const stemTimer = window.setInterval(() => void refreshStemStatus(), 400);
-    const metricsTimer = window.setInterval(() => void refreshSystemMetrics(), 1_500);
+    const metricsTimer = window.setInterval(() => void refreshSystemMetrics(), 5_000);
     const importTimer = window.setInterval(() => void refreshImportJobs(), 500);
     const consoleTimer = window.setInterval(() => { if (consoleVisible) void refreshConsole(); }, 350);
     void refreshSystemMetrics();
@@ -1178,6 +1180,13 @@
     const handleUnhandledRejection = (event: PromiseRejectionEvent): void => console.error("Unhandled promise rejection", event.reason);
     window.addEventListener("error", handleWindowError);
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState !== "visible") return;
+      void refreshAudioStatus();
+      void refreshSpectrum();
+      void refreshSystemMetrics();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     void loadUserPreferences().finally(async () => {
       preferencesReady = true;
       await restoreLastProject();
@@ -1250,6 +1259,7 @@
       importDismissTimers.clear();
       window.removeEventListener("error", handleWindowError);
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       console.log = originalConsole.log;
       console.info = originalConsole.info;
       console.warn = originalConsole.warn;
@@ -1556,7 +1566,8 @@
     pitchSemitones = preferences.defaultPitchSemitones;
     volume = preferences.masterVolume;
     volumeBeforeMute = volume > 0 ? volume : 1;
-    masterPeak = 0;
+    masterMeterPercent = 0;
+    masterMeterSegments = 0;
     masterPeakLeft = 0;
     masterPeakRight = 0;
     visualizationMeterLeft = emptyMeterState();
@@ -1596,7 +1607,8 @@
     stemEta = null;
     stemMix = Array.from({ length: 4 }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
     stemNames = [...canonicalStemNames];
-    stemPeaks = Array<number>(4).fill(0);
+    stemMeterPercents = Array<number>(4).fill(0);
+    stemMeterSegments = Array<number>(4).fill(0);
     stemPlaybackLockGeneration += 1;
     stemPlaybackLocked = false;
     stemPlaybackResume = null;
@@ -2173,9 +2185,11 @@
     stemSeparationProfile = track.practice.lastStemProfile ?? null;
     cachedStemProfiles = [];
     stemEta = null;
-    stemPeaks = Array<number>(4).fill(0);
+    stemMeterPercents = Array<number>(4).fill(0);
+    stemMeterSegments = Array<number>(4).fill(0);
     isPlaying = false;
-    masterPeak = 0;
+    masterMeterPercent = 0;
+    masterMeterSegments = 0;
     masterPeakLeft = 0;
     masterPeakRight = 0;
     visualizationMeterLeft = emptyMeterState();
@@ -2482,7 +2496,8 @@
     await stemDisable();
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
     stemEta = null;
-    stemPeaks = Array<number>(4).fill(0);
+    stemMeterPercents = Array<number>(4).fill(0);
+    stemMeterSegments = Array<number>(4).fill(0);
     schedulePracticeSave();
     finishStemPlaybackLock(generatedTrackId);
   }
@@ -2514,7 +2529,8 @@
 
   async function resetStemMixControls(): Promise<void> {
     stemMix = Array.from({ length: canonicalStemNames.length }, () => ({ gain: 1, pan: 0, muted: false, soloed: false }));
-    stemPeaks = Array<number>(canonicalStemNames.length).fill(0);
+    stemMeterPercents = Array<number>(canonicalStemNames.length).fill(0);
+    stemMeterSegments = Array<number>(canonicalStemNames.length).fill(0);
     for (const [index, mix] of stemMix.entries()) {
       await stemSetMix(index, mix.gain, mix.pan, mix.muted, mix.soloed);
     }
@@ -2557,7 +2573,8 @@
     } else if (stems.state === "ready") {
       await stemSetEnabled(false);
       stems = { ...stems, enabled: false };
-      stemPeaks = Array<number>(4).fill(0);
+      stemMeterPercents = Array<number>(4).fill(0);
+      stemMeterSegments = Array<number>(4).fill(0);
       schedulePracticeSave();
     }
   }
@@ -3320,7 +3337,7 @@
         seekGeneration,
         seekPendingAtRequest,
         seekRequestActive || pendingSeekPosition !== null || seekAnimationFrame !== undefined,
-      )) {
+      ) && (document.visibilityState === "visible" || !status.playing)) {
         currentSeconds = status.positionSeconds;
       }
       durationSeconds = status.durationSeconds || durationSeconds;
@@ -3328,22 +3345,35 @@
         if (status.playing) void audioPause();
         isPlaying = false;
       } else isPlaying = status.playing;
-      masterPeak = status.outputPeak;
-      masterPeakLeft = status.outputPeakLeft;
-      masterPeakRight = status.outputPeakRight;
       const now = Date.now();
-      const meterNow = performance.now();
-      const peakHoldMilliseconds = meterPeakHoldMilliseconds(preferences.meterPeakHold);
-      visualizationMeterLeft = updateMeterState(visualizationMeterLeft, masterPeakLeft, preferences.visualizationResponse, peakHoldMilliseconds, meterNow);
-      visualizationMeterRight = updateMeterState(visualizationMeterRight, masterPeakRight, preferences.visualizationResponse, peakHoldMilliseconds, meterNow);
-      if (now - lastEnergySampleMs >= 100) {
-        energyHistory = [...energyHistory.filter((point) => point.timestampMs >= now - 30_000), { timestampMs: now, left: masterPeakLeft, right: masterPeakRight }];
-        lastEnergySampleMs = now;
+      const interfaceVisible = document.visibilityState === "visible";
+      if (interfaceVisible) {
+        const boundedMasterPeak = Math.max(0, Math.min(1, status.outputPeak));
+        masterMeterPercent = Math.round(boundedMasterPeak * 100);
+        masterMeterSegments = Math.floor(boundedMasterPeak * masterMeterLevels.length);
+        const meterVisible = preferences.visualizationSlotOne === "meter" || preferences.visualizationSlotTwo === "meter";
+        if (meterVisible) {
+          masterPeakLeft = status.outputPeakLeft;
+          masterPeakRight = status.outputPeakRight;
+          const meterNow = performance.now();
+          const peakHoldMilliseconds = meterPeakHoldMilliseconds(preferences.meterPeakHold);
+          visualizationMeterLeft = updateMeterState(visualizationMeterLeft, masterPeakLeft, preferences.visualizationResponse, peakHoldMilliseconds, meterNow);
+          visualizationMeterRight = updateMeterState(visualizationMeterRight, masterPeakRight, preferences.visualizationResponse, peakHoldMilliseconds, meterNow);
+        }
+        const energyVisible = preferences.visualizationSlotOne === "energy" || preferences.visualizationSlotTwo === "energy";
+        if (energyVisible && now - lastEnergySampleMs >= 100) {
+          energyHistory = [...energyHistory.filter((point) => point.timestampMs >= now - 30_000), { timestampMs: now, left: status.outputPeakLeft, right: status.outputPeakRight }];
+          lastEnergySampleMs = now;
+        }
+        const nextStemLevels = status.stemPeaks.map(stemMeterLevel);
+        const nextStemPercents = nextStemLevels.map((level) => Math.round(level * 100));
+        const nextStemSegments = nextStemLevels.map((level) => Math.floor(level * stemMeterLevels.length));
+        if (nextStemPercents.some((value, index) => value !== stemMeterPercents[index])) stemMeterPercents = nextStemPercents;
+        if (nextStemSegments.some((value, index) => value !== stemMeterSegments[index])) stemMeterSegments = nextStemSegments;
       }
-      limiterReduction = status.limiterReduction;
+      limiterReduction = Math.round(status.limiterReduction * 1_000) / 1_000;
       normalizationGain = status.normalizationGain;
       integratedLufs = status.integratedLufs;
-      stemPeaks = status.stemPeaks;
       if (status.endedGeneration !== endedGeneration) {
         endedGeneration = status.endedGeneration;
         if (endBehavior === "advance" && (project?.tracks.length ?? 0) > 1) {
@@ -3369,7 +3399,7 @@
 
   async function refreshSpectrum(): Promise<void> {
     const spectrumVisible = preferences.visualizationSlotOne === "spectrum" || preferences.visualizationSlotTwo === "spectrum";
-    if (!currentTrack || !isPlaying || !spectrumVisible || spectrumRequestActive) return;
+    if (document.visibilityState !== "visible" || !currentTrack || !isPlaying || !spectrumVisible || spectrumRequestActive) return;
     const trackId = currentTrack.id;
     const selectionGeneration = trackSelectionGeneration;
     spectrumRequestActive = true;
@@ -3386,6 +3416,7 @@
   }
 
   async function refreshSystemMetrics(): Promise<void> {
+    if (document.visibilityState !== "visible") return;
     try {
       systemMetricsSnapshot = await systemMetrics();
     } catch {
@@ -3715,8 +3746,8 @@
         </button>
         <input aria-label={t("masterVolume")} type="range" min="0" max="2" step="0.01" value={volume} oninput={(event) => changeVolume(Number(event.currentTarget.value))} ondblclick={() => changeVolume(defaultMasterVolume)} />
         <output>{Math.round(volume * 100)}%</output>
-        <div class="master-meter" class:limiting={limiterReduction > 0.001} data-tooltip={limiterReduction > 0.001 ? `Limiter −${(-20 * Math.log10(1 - limiterReduction)).toFixed(1)} dB` : preferences.loudnessNormalization && integratedLufs !== null ? `${t("loudnessNormalization")} ${20 * Math.log10(normalizationGain) >= 0 ? "+" : ""}${(20 * Math.log10(normalizationGain)).toFixed(1)} dB · ${integratedLufs.toFixed(1)} LUFS` : undefined} role="meter" aria-label={`${t("masterVolume")} ${Math.round(masterPeak * 100)}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(masterPeak * 100)}>
-          {#each masterMeterLevels as level}<i class:active={masterPeak * masterMeterLevels.length >= level}></i>{/each}
+        <div class="master-meter" class:limiting={limiterReduction > 0.001} data-tooltip={limiterReduction > 0.001 ? `Limiter −${(-20 * Math.log10(1 - limiterReduction)).toFixed(1)} dB` : preferences.loudnessNormalization && integratedLufs !== null ? `${t("loudnessNormalization")} ${20 * Math.log10(normalizationGain) >= 0 ? "+" : ""}${(20 * Math.log10(normalizationGain)).toFixed(1)} dB · ${integratedLufs.toFixed(1)} LUFS` : undefined} role="meter" aria-label={`${t("masterVolume")} ${masterMeterPercent}%`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={masterMeterPercent}>
+          {#each masterMeterLevels as level}<i class:active={masterMeterSegments >= level}></i>{/each}
         </div>
       </div>
       <span class="header-separator" aria-hidden="true"></span>
@@ -3919,7 +3950,7 @@
                 aria-current={block.index === activeLyricsIndex ? "true" : undefined}
                 title={`${block.line.text} · ${displayTime(block.seekSeconds)}`}
                 onclick={() => seek(block.seekSeconds)}
-              ><span class="waveform-lyrics-viewport"><span class="waveform-lyrics-text" use:scrollWaveformLyric={{ progress: lyricsLinePlaybackProgress(lyricsDocument, block.index, currentSeconds * 1_000, durationSeconds * 1_000) }}>{block.line.text}</span></span></button>
+              ><span class="waveform-lyrics-viewport"><span class="waveform-lyrics-text" use:scrollWaveformLyric={block.index === activeLyricsIndex ? lyricsLinePlaybackProgress(lyricsDocument, block.index, currentSeconds * 1_000, durationSeconds * 1_000) : block.index < activeLyricsIndex ? 1 : 0}>{block.line.text}</span></span></button>
             {/each}
           </div>
         {/if}
@@ -4318,8 +4349,8 @@
                       <output>{formatStemGain(stemMix[index].gain)}</output>
                       <input disabled={!stems.enabled} aria-label={`${stemDisplayName(index)} ${t("volume")}`} aria-valuetext={formatStemGain(stemMix[index].gain)} type="range" min="0" max="2" step="0.01" value={stemMix[index].gain} oninput={(event) => updateStem(index, { gain: Number(event.currentTarget.value) })} ondblclick={() => updateStem(index, { gain: 1 })} />
                     </div>
-                    <div class="stem-vu" role="meter" aria-label={`${stemDisplayName(index)} ${t("level")}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(stemMeterLevel(stemPeaks[index]) * 100)}>
-                      {#each stemMeterLevels as level}<i class:active={stemMeterLevel(stemPeaks[index]) * stemMeterLevels.length >= level} class:hot={level > 11}></i>{/each}
+                    <div class="stem-vu" role="meter" aria-label={`${stemDisplayName(index)} ${t("level")}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={stemMeterPercents[index]}>
+                      {#each stemMeterLevels as level}<i class:active={stemMeterSegments[index] >= level} class:hot={level > 11}></i>{/each}
                     </div>
                   </div>
                   <div class="stem-buttons">

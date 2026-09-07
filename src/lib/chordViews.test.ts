@@ -78,6 +78,12 @@ test("the active chord is shown shortly before its exact boundary", () => {
   assert.equal(activeChordIndexAt(chords, 12.334), 0);
   assert.equal(activeChordIndexAt(chords, 12.335), 1);
   assert.equal(activeChordIndexAt(chords, 12.345), 1);
+  assert.equal(activeChordIndexAt(chords, 9), -1);
+  assert.equal(activeChordIndexAt(chords, 14), -1);
+  assert.equal(activeChordIndexAt([
+    { ...chord("C", 0.8), startSeconds: 0, endSeconds: 1 },
+    { ...chord("G", 0.8), startSeconds: 2, endSeconds: 3 },
+  ], 1.5), -1);
 });
 
 test("chord navigation follows the previous and next displayed segment starts", () => {

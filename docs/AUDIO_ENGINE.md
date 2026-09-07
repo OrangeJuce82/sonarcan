@@ -126,7 +126,11 @@ audio never leaves the engine. The webview samples this bounded status at 20 Hz.
 VU segments change color without animated shadows, lyric overflow geometry is
 remeasured only when its container changes size, and spectrum data is requested
 only while a spectrum panel is visible. These constraints bound presentation
-work independently of the real-time four-stem mix.
+work independently of the real-time four-stem mix. Hidden windows stop updating
+position-driven presentation and optional visualizations until they become
+visible again. System resource telemetry refreshes every five seconds and asks
+the system-information service only for the CPU and memory fields used by the
+interface; the platform-specific GPU sample remains separate.
 
 Python, uv, worker dependencies, inference source revision, checkpoint URL,
 size, SHA-256, and model revision are pinned in the worker projects, the shared

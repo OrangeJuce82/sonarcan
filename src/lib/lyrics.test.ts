@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeLyricsLineIndex, activeLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsLinePlaybackProgress, lyricsNavigationPositions, lyricsScrollProgress, lyricsViewportBlocks, LyricsParseError, normalizedLyricsOffsetMs, parseLyrics } from "./lyrics.ts";
+import { activeLyricsLineIndex, activeLyricsWordIndex, displayedLyricsWordIndex, estimatedLyricsLineIndex, lrclibDocument, lyricsEditorContent, lyricsLinePlaybackProgress, lyricsNavigationPositions, lyricsScrollProgress, lyricsViewportBlocks, LyricsParseError, normalizedLyricsOffsetMs, parseLyrics } from "./lyrics.ts";
 
 test("parses and follows line-synchronized LRC", () => {
   const document = parseLyrics("[00:01.00]Première\n[00:03.50]Deuxième", "fr", 5_000);
@@ -124,4 +124,13 @@ test("waveform lyric scrolling anticipates the ending with an eased progression"
   assert.equal(lyricsScrollProgress(1), 1);
   assert.equal(lyricsScrollProgress(-1), 0);
   assert.equal(lyricsScrollProgress(Number.NaN), 0);
+});
+
+test("word highlighting scans only the active lyrics line", () => {
+  const document = parseLyrics("[00:01.00]<00:01.00>One <00:02.00>two\n[00:03.00]<00:03.00>Three", "en", 5_000);
+  assert.equal(displayedLyricsWordIndex(document.lines[0], 0, 1, 3_200, 0), 1);
+  assert.equal(displayedLyricsWordIndex(document.lines[1], 1, 1, 3_200, 0), 0);
+  assert.equal(displayedLyricsWordIndex(document.lines[1], 1, 0, 3_200, 0), -1);
+  assert.equal(displayedLyricsWordIndex(document.lines[0], 0, -1, 3_200, 0), 1);
+  assert.equal(displayedLyricsWordIndex(document.lines[1], 1, -1, 500, 0), -1);
 });

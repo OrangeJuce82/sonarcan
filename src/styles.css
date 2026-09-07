@@ -352,19 +352,6 @@ button:disabled { opacity: .4; cursor: default; }
 .analysis-grid > *, .harmony-grid > * { min-width: 0; }
 .analysis-grid > .panel, .harmony-grid > .panel { padding: 14px; }
 .analysis-visuals { display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); align-self: stretch; width: 100%; min-height: 0; height: var(--analysis-panel-height); max-height: var(--analysis-panel-height); gap: 14px; }
-.spectrum { padding: 13px 16px 10px; }
-.spectrum .panel-title { margin-bottom: 7px; }
-.spectrum-bars { height: 112px; display: flex; align-items: flex-end; gap: 2px; padding: 8px 6px 0; border-bottom: 1px solid #34434a; background: linear-gradient(180deg, #17343a22, transparent), repeating-linear-gradient(0deg, transparent 0 27px, #52646b18 27px 28px); overflow: hidden; }
-.spectrum-bars i { flex: 1; min-width: 2px; border-radius: 2px 2px 0 0; background: linear-gradient(180deg, #e2b65f, #4fc5bd); opacity: calc(.55 + var(--band) / 150); transition: height 45ms linear; }
-.spectrum-scale { display: flex; justify-content: space-between; padding: 4px 5px 0; color: #5f737b; font-size: .58rem; }
-.stereo-meter { display: flex; flex-direction: column; padding: 13px 16px 10px; }
-.stereo-meter .panel-title { margin-bottom: 7px; }
-.stereo-meter-channels { display: grid; align-content: center; gap: 13px; flex: 1; }
-.stereo-channel { display: grid; grid-template-columns: 16px minmax(0, 1fr) 38px; align-items: center; gap: 8px; }
-.stereo-channel > span { color: #aeb9be; font-size: .7rem; font-weight: 800; }
-.stereo-channel output { color: #6f858e; font-size: .58rem; text-align: right; }
-.stereo-track { height: 9px; overflow: hidden; border: 1px solid #304047; border-radius: 999px; background: #10191d; }
-.stereo-track i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #4fc5bd 0 72%, #d8aa4e 86%, #db5966 100%); transition: width 70ms linear; }
 .loop-controls { display: grid; gap: 5px; }
 .loop-actions .control-separator { width: 1px; height: 22px; margin-inline: 2px; background: var(--button-border); }
 .transport-right .control-separator, .metronome-control .control-separator { flex: 0 0 1px; width: 1px; height: 22px; margin-inline: 2px; background: var(--button-border); }
@@ -758,10 +745,6 @@ dt { color: #778b94; } dd { margin: 0; }
 .metronome-control button.active { border-color: var(--gold); color: var(--gold-text); background: var(--gold-bg); }
 .loop-actions .loop-snap-button.active, .metronome-control button.dbn.active { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-bg); box-shadow: none; }
 .metronome-control button.dbn.beating { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 27%, transparent), 0 0 14px color-mix(in srgb, var(--accent) 47%, transparent); }
-.spectrum-bars { border-bottom-color: var(--border-strong); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent), repeating-linear-gradient(0deg, transparent 0 27px, color-mix(in srgb, var(--muted) 10%, transparent) 27px 28px); }
-.stereo-channel > span { color: var(--panel-title); }
-.stereo-channel output { color: var(--muted); }
-.stereo-track { border-color: var(--border-strong); background: var(--meter-track); }
 .loop-actions .loop-action-a { border-color: var(--purple); color: var(--purple-text); background: var(--purple-bg); }
 .loop-actions .loop-action-a:hover:not(:disabled) { border-color: var(--purple); color: var(--purple-text); background: color-mix(in srgb, var(--purple-bg) 80%, var(--surface-hover)); }
 .loop-actions .loop-action-b { border-color: var(--gold); color: var(--gold-text); background: var(--gold-bg); }

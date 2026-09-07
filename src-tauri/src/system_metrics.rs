@@ -16,7 +16,10 @@ pub struct SystemMetricsService(Mutex<System>);
 
 impl Default for SystemMetricsService {
     fn default() -> Self {
-        Self(Mutex::new(System::new_all()))
+        let mut system = System::new();
+        system.refresh_cpu_usage();
+        system.refresh_memory();
+        Self(Mutex::new(system))
     }
 }
 
@@ -25,7 +28,8 @@ impl SystemMetricsService {
         let Ok(mut system) = self.0.lock() else {
             return unavailable_snapshot();
         };
-        system.refresh_all();
+        system.refresh_cpu_usage();
+        system.refresh_memory();
         let cpu_percent = system.global_cpu_usage().clamp(0.0, 100.0);
         let memory_bytes = system.used_memory();
         let total_memory = system.total_memory();
