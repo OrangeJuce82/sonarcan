@@ -1,8 +1,26 @@
-# SonArcan 0.1.0-beta.26
+# SonArcan 0.1.0-beta.27
 
-This beta introduces platform-specific Full GPU and Light releases. Choose the
-installer whose name matches your computer; all editions share the same `.sac`
-project format.
+This beta makes Full-edition installation smaller and adds a guided, verified
+first-run setup for the analysis models. It also expands four-stem separation,
+improves synchronized practice tools, and reduces playback rendering load.
+
+## First-run model installation
+
+On the first Full-edition launch, SonArcan downloads SCNet-large, HTDemucs, and
+Beat This! one at a time from their pinned upstream locations. The welcome
+screen identifies each model and shows both per-model and overall progress.
+Every checkpoint is checked against its expected byte length and SHA-256 digest
+before it is moved atomically into the application cache. An interrupted or
+invalid download is never used and can be retried from the same screen.
+
+LV-Chordia remains bundled with the Full runtime and its five checkpoints are
+verified before the workspace opens. Subsequent launches reuse all verified
+cached models, so the network setup happens only once unless the cache is
+removed or a future release changes a checkpoint.
+
+Stem separation now offers two four-stem profiles: SCNet-large for the primary
+high-quality path and HTDemucs as the alternate profile. Both produce vocals,
+drums, bass, and other.
 
 ## Which file should I download?
 
@@ -47,7 +65,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.26
+version=v0.1.0-beta.27
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -83,7 +101,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.26'
+$version = 'v0.1.0-beta.27'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -106,21 +124,14 @@ Expand-Archive -LiteralPath $archive -DestinationPath "SonArcan-NVIDIA-GPU-$vers
 
 PowerShell stops before reconstruction if a part is missing or altered.
 
-## Other fixes
+## Other improvements
 
-- Previous/next navigation now moves consistently to the adjacent beat, chord,
-  or synchronized lyric marker, even from the middle of the current segment.
-- The previous-track control restarts the current track when playback is past
-  its first second, and moves to the preceding track when already at the start.
-- Clicking a timed chord or lyric seeks to it without changing the selected
-  navigation mode.
-- Waveform clicks now seek to the exact pointed position without beat, chord,
-  or lyric snapping; keyboard and transport navigation remain unchanged.
-- Startup now loads and applies user preferences before rendering the workspace,
-  then keeps a localized bootstrap screen visible until the recent or temporary
-  project is active.
-- Windows desktop builds no longer leave a console window open.
-- Intel macOS FFmpeg assembly now falls back safely when NASM is unavailable.
-- Full and Light editions use distinct product names and bundle identifiers.
+- Synchronized lyrics are displayed directly on the waveform.
+- Chord blocks can show their beat counts, and analysis navigation behaves more
+  consistently across beat, chord, lyric, and time modes.
+- Practice controls and the desktop release variants have been refined.
+- Playback interface rendering is bounded to reduce avoidable GPU and UI load.
+- Worker contract tests remain dependency-free, and CI now uses the same Python
+  3.13 generation required by the packaged workers on every platform.
 
 See the README for detailed minimum configurations and installation guidance.
