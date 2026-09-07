@@ -278,7 +278,7 @@ button:disabled { opacity: .4; cursor: default; }
 .bpm-indicator > strong, .bpm-indicator-value { display: flex; align-items: center; justify-content: center; min-height: 30px; color: var(--text); font-variant-numeric: tabular-nums; }
 .bpm-indicator-value .mini-spinner { width: 13px; height: 13px; }
 .button-spinner { width: 17px; height: 17px; border-color: #6f572c; border-top-color: #17130b; }
-.playhead, .overview-playhead { position: absolute; z-index: 6; top: 0; bottom: 0; width: 1px; background: #e1a23d; pointer-events: none; }
+.playhead, .overview-playhead { position: absolute; z-index: 6; top: 0; bottom: 0; left: 0; width: 1px; background: #e1a23d; transform: translate3d(0, 0, 0); will-change: transform; pointer-events: none; }
 .beat-grid { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
 .beat-grid i { position: absolute; top: 0; bottom: 0; width: 1px; background: repeating-linear-gradient(to bottom, #9cb4ba66 0 3px, transparent 3px 7px); }
 .beat-grid i.accent { background: #d9a64a55; box-shadow: 1px 0 #0005; }

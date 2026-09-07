@@ -42,6 +42,7 @@
   import { preferredStemProfile } from "./lib/stemProfiles";
   import { chordSegmentsForJams } from "./lib/chordExport";
   import { trackTitleBounceMetrics } from "./lib/trackTitleMotion";
+  import { shouldPublishPlaybackUiPosition } from "./lib/playbackRendering";
   import { activeLyricsLineIndex, lrclibDocument, lyricsLinePlaybackProgress, lyricsNavigationPositions, lyricsScrollProgress, lyricsViewportBlocks, normalizedLyricsOffsetMs } from "./lib/lyrics";
   import { lyricsSearchQueries, preferredLyricsResult } from "./lib/lyricsMatching";
   import { lyricsTranslate } from "./lib/lyricsI18n";
@@ -67,6 +68,13 @@
   let isPlaying = false;
   let playRequestActive: Promise<void> | null = null;
   let currentSeconds = 0;
+  let latestPlaybackSeconds = 0;
+  let lastPlaybackUiPublicationMs = Number.NEGATIVE_INFINITY;
+  type LivePlayheadBinding = { node: HTMLElement; width: number };
+  let detailedPlayhead: LivePlayheadBinding | undefined;
+  let overviewPlayhead: LivePlayheadBinding | undefined;
+  let liveSeekInput: HTMLInputElement | undefined;
+  let livePositionText: HTMLElement | undefined;
   let durationSeconds = 0;
   let playbackRate = 1;
   let pitchSemitones = 0;
@@ -316,7 +324,7 @@
       detectedBpm = null;
       return;
     }
-    detectedBpm = localBpmAt(activeBeats, currentSeconds, playbackRate)
+    detectedBpm = localBpmAt(activeBeats, latestPlaybackSeconds, playbackRate)
       ?? (activeBeatTimeline.bpm === null ? null : activeBeatTimeline.bpm * playbackRate);
   }
 
@@ -419,7 +427,6 @@
 
   $: detailedPeaks = visiblePeaks(waveform?.peaks ?? [], waveformZoom, waveformStart, 1_000);
   $: overviewPeaks = visiblePeaks(waveform?.peaks ?? [], 1, 0, 700);
-  $: playheadPercent = durationSeconds > 0 ? ((currentSeconds / durationSeconds - waveformStart) * waveformZoom * 100) : 0;
   $: waveformFollowSuspended = waveformPointerInside
     || waveformFocusWithin
     || waveformDragPointerId !== null
@@ -440,6 +447,13 @@
     } else if (waveformFollowAnimationFrame === undefined) {
       waveformStart = centeredStart;
     }
+  }
+  $: {
+    waveformStart;
+    waveformZoom;
+    durationSeconds;
+    preferences.timeDisplay;
+    renderLivePlaybackPosition(getLatestPlaybackPosition(), durationSeconds);
   }
   $: detailedBeatLines = calculateDetectedBeatLines(
     activeBeats,
@@ -524,6 +538,68 @@
         observer.disconnect();
       },
     };
+  }
+
+  function livePlayhead(node: HTMLElement, kind: "detail" | "overview") {
+    const binding: LivePlayheadBinding = { node, width: node.parentElement?.clientWidth ?? 0 };
+    if (kind === "detail") detailedPlayhead = binding;
+    else overviewPlayhead = binding;
+    const observer = new ResizeObserver(() => {
+      binding.width = node.parentElement?.clientWidth ?? 0;
+      renderLivePlaybackPosition(latestPlaybackSeconds, durationSeconds);
+    });
+    if (node.parentElement) observer.observe(node.parentElement);
+    renderLivePlaybackPosition(latestPlaybackSeconds, durationSeconds);
+    return {
+      destroy(): void {
+        observer.disconnect();
+        if (kind === "detail" && detailedPlayhead === binding) detailedPlayhead = undefined;
+        if (kind === "overview" && overviewPlayhead === binding) overviewPlayhead = undefined;
+      },
+    };
+  }
+
+  function liveSeek(node: HTMLInputElement) {
+    liveSeekInput = node;
+    renderLivePlaybackPosition(latestPlaybackSeconds, durationSeconds);
+    return { destroy: () => { if (liveSeekInput === node) liveSeekInput = undefined; } };
+  }
+
+  function livePosition(node: HTMLElement) {
+    livePositionText = node;
+    renderLivePlaybackPosition(latestPlaybackSeconds, durationSeconds);
+    return { destroy: () => { if (livePositionText === node) livePositionText = undefined; } };
+  }
+
+  function placePlayhead(binding: LivePlayheadBinding | undefined, ratio: number, hideOutside: boolean): void {
+    if (!binding) return;
+    const boundedRatio = Math.max(0, Math.min(1, Number.isFinite(ratio) ? ratio : 0));
+    binding.node.style.transform = `translate3d(${boundedRatio * binding.width}px, 0, 0)`;
+    binding.node.hidden = hideOutside && (ratio < 0 || ratio > 1);
+  }
+
+  function renderLivePlaybackPosition(positionSeconds: number, nextDurationSeconds: number): void {
+    const safeDuration = nextDurationSeconds > 0 ? nextDurationSeconds : durationSeconds;
+    const overviewRatio = safeDuration > 0 ? positionSeconds / safeDuration : 0;
+    const detailRatio = (overviewRatio - waveformStart) * waveformZoom;
+    placePlayhead(detailedPlayhead, detailRatio, true);
+    placePlayhead(overviewPlayhead, overviewRatio, false);
+    if (liveSeekInput && document.activeElement !== liveSeekInput) liveSeekInput.value = String(positionSeconds);
+    if (livePositionText) {
+      const nextText = displayTime(positionSeconds);
+      if (livePositionText.textContent !== nextText) livePositionText.textContent = nextText;
+    }
+  }
+
+  function getLatestPlaybackPosition(): number {
+    return latestPlaybackSeconds;
+  }
+
+  function setPlaybackPosition(positionSeconds: number): void {
+    latestPlaybackSeconds = positionSeconds;
+    currentSeconds = positionSeconds;
+    lastPlaybackUiPublicationMs = performance.now();
+    renderLivePlaybackPosition(positionSeconds, durationSeconds);
   }
 
   function followChord(index: number): void {
@@ -738,7 +814,7 @@
   function selectChordStatistic(label: string): void {
     repertoireKeyboardLabel = label;
     const occurrences = timelineChords.filter((chord) => chord.label === label);
-    const next = occurrences.find((chord) => chord.startSeconds > currentSeconds + 0.01) ?? occurrences[0];
+    const next = occurrences.find((chord) => chord.startSeconds > latestPlaybackSeconds + 0.01) ?? occurrences[0];
     if (next) seek(next.startSeconds);
   }
 
@@ -1581,7 +1657,7 @@
     chordFocusWithin = false;
     chordFocusRestorePending = false;
     chordProgrammaticScroll = false;
-    currentSeconds = 0;
+    setPlaybackPosition(0);
     durationSeconds = 0;
     playbackRate = preferences.defaultPlaybackRate;
     pitchSemitones = preferences.defaultPitchSemitones;
@@ -1894,7 +1970,7 @@
   }
 
   function fitThirtySecondWaveform(): void {
-    applyWaveformViewport(waveformViewportForWindow(durationSeconds, 30, currentSeconds));
+    applyWaveformViewport(waveformViewportForWindow(durationSeconds, 30, latestPlaybackSeconds));
   }
 
   function addTracks(): void {
@@ -2229,7 +2305,7 @@
     const loopBounds = defaultLoopBounds(track.practice.loopASeconds, track.practice.loopBSeconds, durationSeconds);
     loopA = loopBounds.a;
     loopB = loopBounds.b;
-    currentSeconds = trackLoadPosition(loopEnabled, loopA, preferences.loopLoadPosition);
+    setPlaybackPosition(trackLoadPosition(loopEnabled, loopA, preferences.loopLoadPosition));
     usingDefaultLoopBounds = track.practice.loopASeconds === null && track.practice.loopBSeconds === null;
     metronomeEnabled = analysisFeaturesAvailable && (track.practice.metronomeEnabled ?? false);
     metronomeVolume = preferences.metronomeVolume;
@@ -2772,8 +2848,8 @@
       if (!stillSelected()) return;
       endedGeneration = status.endedGeneration;
       applyLoopToEngine();
-      const loopWasDisabled = await audioSeek(currentSeconds);
-      if (loopWasDisabled) disableLoopBeyondB(currentSeconds);
+      const loopWasDisabled = await audioSeek(latestPlaybackSeconds);
+      if (loopWasDisabled) disableLoopBeyondB(latestPlaybackSeconds);
       if (!stillSelected()) return;
       audioLoading = false;
       loadingTrackId = null;
@@ -2887,7 +2963,7 @@
 
   function moveTrack(offset: number): void {
     if (!project?.tracks.length) return;
-    if (offset < 0 && currentTrack && shouldRestartCurrentTrack(currentSeconds)) {
+    if (offset < 0 && currentTrack && shouldRestartCurrentTrack(latestPlaybackSeconds)) {
       seek(0);
       return;
     }
@@ -2899,7 +2975,7 @@
   function seek(position: number): void {
     if (!Number.isFinite(position)) return;
     seekGeneration += 1;
-    currentSeconds = Math.max(0, Math.min(position, durationSeconds));
+    setPlaybackPosition(Math.max(0, Math.min(position, durationSeconds)));
     disableLoopBeyondB(currentSeconds);
     pendingSeekPosition = currentSeconds;
     if (seekAnimationFrame !== undefined) {
@@ -2912,7 +2988,7 @@
   function scrub(position: number): void {
     if (!Number.isFinite(position)) return;
     seekGeneration += 1;
-    currentSeconds = Math.max(0, Math.min(position, durationSeconds));
+    setPlaybackPosition(Math.max(0, Math.min(position, durationSeconds)));
     disableLoopBeyondB(currentSeconds);
     pendingSeekPosition = currentSeconds;
     schedulePendingSeek();
@@ -2964,7 +3040,7 @@
   function navigate(direction: -1 | 1): void {
     seek(navigationPosition(
       activeNavigationMode,
-      currentSeconds,
+      latestPlaybackSeconds,
       direction,
       preferences.navigationTimeSeconds,
       activeBeats,
@@ -3088,7 +3164,7 @@
   async function activateTrainingAtA(generation: number): Promise<void> {
     if (loopA === null || loopB === null) return;
     cancelPendingSeek();
-    currentSeconds = loopA;
+    setPlaybackPosition(loopA);
     try {
       await audioSetLoopTrainer(true, trainerStartRate, trainerRepetitions, trainerIncrement, trainerTargetRate, loopA, loopB);
       if (generation !== loopCommandGeneration || !trainerEnabled) return;
@@ -3123,7 +3199,7 @@
   }
 
   function setLoopA(): void {
-    loopA = snappedLoopTime(currentSeconds);
+    loopA = snappedLoopTime(latestPlaybackSeconds);
     if (usingDefaultLoopBounds || (loopB !== null && loopB <= loopA)) loopB = null;
     usingDefaultLoopBounds = false;
     loopEnabled = true;
@@ -3135,7 +3211,7 @@
     if (loopA === null) {
       loopA = 0;
     }
-    const nextLoopB = snappedLoopTime(currentSeconds);
+    const nextLoopB = snappedLoopTime(latestPlaybackSeconds);
     if (nextLoopB > loopA) loopB = nextLoopB;
     usingDefaultLoopBounds = false;
     loopEnabled = true;
@@ -3285,7 +3361,7 @@
     const a = loopA;
     const b = loopB;
     cancelPendingSeek();
-    currentSeconds = a;
+    setPlaybackPosition(a);
     try {
       await audioSetLoop(a, b);
       if (generation !== loopCommandGeneration || !loopEnabled) return;
@@ -3359,7 +3435,18 @@
         seekPendingAtRequest,
         seekRequestActive || pendingSeekPosition !== null || seekAnimationFrame !== undefined,
       ) && (document.visibilityState === "visible" || !status.playing)) {
-        currentSeconds = status.positionSeconds;
+        latestPlaybackSeconds = status.positionSeconds;
+        renderLivePlaybackPosition(status.positionSeconds, status.durationSeconds);
+        const playbackUiNow = performance.now();
+        const semanticBoundaryChanged = activeChordIndexAt(timelineChords, status.positionSeconds) !== activeChordIndex
+          || activeLyricsLineIndex(lyricsDocument, status.positionSeconds * 1_000) !== activeLyricsIndex
+          || (metronomeEnabled
+            && isDetectedBeatActive(status.positionSeconds, activeBeats, status.playbackRate) !== metronomeBeating);
+        if (semanticBoundaryChanged
+          || shouldPublishPlaybackUiPosition(lastPlaybackUiPublicationMs, playbackUiNow, status.playing)) {
+          currentSeconds = status.positionSeconds;
+          lastPlaybackUiPublicationMs = playbackUiNow;
+        }
       }
       durationSeconds = status.durationSeconds || durationSeconds;
       if (stemPlaybackLocked) {
@@ -3481,7 +3568,7 @@
     try {
       const updated = await updatePracticeState(packagePath, trackId, {
         trackNotes,
-        positionSeconds: Math.max(0, currentSeconds),
+        positionSeconds: Math.max(0, latestPlaybackSeconds),
         playbackRate,
         pitchSemitones,
         volume,
@@ -3941,7 +4028,7 @@
               {#if loopB !== null}
                 <i class="loop-boundary b" aria-hidden="true" style={`left:${(loopB / durationSeconds - waveformStart) * waveformZoom * 100}%`}></i>
               {/if}
-              {#if playheadPercent >= 0 && playheadPercent <= 100}<i class="playhead" style={`left:${playheadPercent}%`}></i>{/if}
+              <i class="playhead" use:livePlayhead={"detail"}></i>
             </div>
             {#if loopA !== null}
               <button class="loop-handle a" style={`left:${(loopA / durationSeconds - waveformStart) * waveformZoom * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", true)} onpointermove={(event) => moveLoopDrag(event, true)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
@@ -3999,7 +4086,7 @@
               {#if loopA !== null && loopB !== null}
                 <i class="loop-region overview" class:disabled={!loopEnabled} aria-hidden="true" style={`left:${loopA / durationSeconds * 100}%;width:${(loopB - loopA) / durationSeconds * 100}%`}></i>
               {/if}
-              <i class="overview-playhead" style={`left:${durationSeconds ? currentSeconds / durationSeconds * 100 : 0}%`}></i>
+              <i class="overview-playhead" use:livePlayhead={"overview"}></i>
             </div>
             {#if loopA !== null}
               <button class="loop-handle overview a" style={`left:${loopA / durationSeconds * 100}%`} aria-label={`${t("moveStart")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveStart")} · ${t("doubleClickResetA")}`} onpointerdown={(event) => startLoopDrag(event, "a", false)} onpointermove={(event) => moveLoopDrag(event, false)} onpointerup={finishLoopDrag} onpointercancel={finishLoopDrag} ondblclick={(event) => resetLoopBoundary(event, "a")}>A</button>
@@ -4017,13 +4104,13 @@
           min="0"
           max={durationSeconds || 1}
           step="0.01"
-          value={currentSeconds}
+          use:liveSeek
           oninput={(event) => scrub(Number(event.currentTarget.value))}
           onchange={(event) => seek(Number(event.currentTarget.value))}
         />
         <div class="loop-status">
           <span>A {loopA === null ? "—" : displayTime(loopA)}</span>
-          <strong class="playback-position" aria-label={t("playbackPosition")}>{displayTime(currentSeconds)}</strong>
+          <strong class="playback-position" aria-label={t("playbackPosition")} use:livePosition></strong>
           <span>B {loopB === null ? "—" : displayTime(loopB)}</span>
         </div>
         <div class="waveform-transport-row">

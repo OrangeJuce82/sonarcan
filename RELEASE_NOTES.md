@@ -1,8 +1,9 @@
-# SonArcan 0.1.0-beta.32
+# SonArcan 0.1.0-beta.33
 
-This beta makes Full-edition installation smaller and adds a guided, verified
-first-run setup for the analysis models. It also expands four-stem separation,
-improves synchronized practice tools, and reduces playback rendering load.
+This beta reduces WebView rendering work during playback and exposes the raw
+beat post-processing status needed to keep rhythm presentation explicit. It
+also retains the guided, verified first-run model setup and four-stem profiles
+introduced in the previous beta.
 
 ## First-run model installation
 
@@ -68,7 +69,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.32
+version=v0.1.0-beta.33
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -83,7 +84,7 @@ parts instead and run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.32
+version=v0.1.0-beta.33
 backend=NVIDIA
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-RPM.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.rpm".part-* > "SonArcan-${backend}-GPU.rpm"
@@ -104,7 +105,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.32'
+$version = 'v0.1.0-beta.33'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -129,6 +130,15 @@ PowerShell stops before reconstruction if a part is missing or altered.
 
 ## Other improvements
 
+- Playback status remains sampled at 20 Hz, while expensive Svelte position
+  updates are bounded to 10 Hz and still react immediately at chord, lyric, and
+  metronome boundaries.
+- The detailed and overview playheads now move on isolated composited
+  transforms instead of layout-affecting `left` updates. The seek control and
+  position readout keep the full status cadence without invalidating the main
+  component tree.
+- Beat post-processing exposes its raw status so the selected presentation mode
+  remains distinguishable from the detected source timeline.
 - Synchronized lyrics are displayed directly on the waveform.
 - Chord blocks can show their beat counts, and analysis navigation behaves more
   consistently across beat, chord, lyric, and time modes.
