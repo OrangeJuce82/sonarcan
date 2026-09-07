@@ -1,4 +1,4 @@
-# SonArcan 0.1.0-beta.27
+# SonArcan 0.1.0-beta.28
 
 This beta makes Full-edition installation smaller and adds a guided, verified
 first-run setup for the analysis models. It also expands four-stem separation,
@@ -65,7 +65,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.27
+version=v0.1.0-beta.28
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -80,7 +80,7 @@ parts instead and run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.27
+version=v0.1.0-beta.28
 backend=NVIDIA
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-RPM.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.rpm".part-* > "SonArcan-${backend}-GPU.rpm"
@@ -101,7 +101,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.27'
+$version = 'v0.1.0-beta.28'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2

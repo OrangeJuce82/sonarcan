@@ -15,7 +15,22 @@ const workerRoot = join(root, configuration.root);
 const virtualPython = process.platform === "win32"
   ? join(workerRoot, ".venv/Scripts/python.exe")
   : join(workerRoot, ".venv/bin/python");
-const python = existsSync(virtualPython) ? virtualPython : process.platform === "win32" ? "python" : "python3";
+const runtimeExecutable = process.platform === "win32" ? "python.exe" : "bin/python3.13";
+const runtimePython = [
+  process.env.SONARCAN_PYTHON_RUNTIME_DIR,
+  join(root, "src-tauri/resources/python-runtime/runtime"),
+  join(root, "src-tauri/resources/light-python-runtime/runtime"),
+]
+  .filter(Boolean)
+  .map((directory) => join(directory, runtimeExecutable))
+  .find((candidate) => existsSync(candidate));
+const python = existsSync(virtualPython)
+  ? virtualPython
+  : runtimePython
+    ? runtimePython
+    : process.platform === "win32"
+      ? "python"
+      : "python3.13";
 const environment = {
   ...process.env,
   PYTHONPATH: [
