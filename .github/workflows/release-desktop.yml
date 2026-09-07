@@ -282,7 +282,11 @@ jobs:
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
           mkdir "$verification_root/rpm"
-          (cd "$verification_root/rpm" && rpm2cpio "$GITHUB_WORKSPACE/$rpm_path" | cpio -idm --quiet)
+          rpm --checksig "$rpm_path"
+          # cpio can close the pipe after its trailer while rpm2cpio is still
+          # writing padding. Keep the archive digest check strict, but do not
+          # turn that harmless upstream SIGPIPE into a packaging failure.
+          (cd "$verification_root/rpm" && set +o pipefail && rpm2cpio "$GITHUB_WORKSPACE/$rpm_path" | cpio -idm --quiet)
           npm run verify:bundled-release -- "$verification_root/rpm"
           (
             cd "$verification_root"
@@ -453,7 +457,10 @@ jobs:
           rpm_path="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/rpm -maxdepth 1 -type f -name '*.rpm' -print -quit)"
           test -n "$rpm_path"
           mkdir "$verification_root/rpm"
-          (cd "$verification_root/rpm" && rpm2cpio "$GITHUB_WORKSPACE/$rpm_path" | cpio -idm --quiet)
+          rpm --checksig "$rpm_path"
+          # The payload digest is checked above. Ignore only rpm2cpio's
+          # harmless broken pipe once cpio has consumed the archive trailer.
+          (cd "$verification_root/rpm" && set +o pipefail && rpm2cpio "$GITHUB_WORKSPACE/$rpm_path" | cpio -idm --quiet)
           npm run verify:bundled-release -- "$verification_root/rpm"
           rm -rf "$verification_root" src-tauri/resources/python-runtime src-tauri/resources/models
 
