@@ -1,7 +1,7 @@
 {
   "name": "sonarcan",
   "private": true,
-  "version": "0.1.0-beta.30",
+  "version": "0.1.0-beta.31",
   "type": "module",
   "scripts": {
     "clean": "node scripts/clean.mjs",
@@ -45,7 +45,10 @@
     "format:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked",
-    "quality": "npm run check && npm run test && npm run test:mlx && npm run test:stems && npm run test:chords && npm run build && npm run format:rust && npm run lint:rust && npm run test:rust",
+    "quality:shared": "npm run check && npm run test && npm run build && npm run format:rust && npm run lint:rust && npm run test:rust",
+    "quality:full": "npm run test:mlx && npm run test:stems && npm run test:chords && npm run quality:shared",
+    "quality:light": "npm run quality:shared && npm run verify:light-frontend",
+    "quality": "npm run quality:full",
     "security:npm": "npm audit --package-lock-only --audit-level=low",
     "security:osv": "osv-scanner scan source --recursive --config osv-scanner.toml .",
     "security": "npm run security:npm && npm run security:osv",

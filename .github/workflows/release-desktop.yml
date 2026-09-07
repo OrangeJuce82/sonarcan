@@ -89,7 +89,8 @@ jobs:
       - run: npm run verify:ffmpeg-release
       - name: Qualify MLX separation performance
         run: npm run qualify:stem-performance
-      - run: npm run quality
+      - name: Run Full quality gate
+        run: npm run quality:full
       - name: Ad-hoc sign embedded release binaries
         run: npm run sign:release-resources
       - name: Build ad-hoc signed app and create draft release
@@ -192,7 +193,8 @@ jobs:
       - run: npm run verify:light-runtime
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - run: npm run quality
+      - name: Run Light quality gate
+        run: npm run quality:light
       - name: Ad-hoc sign Light release binaries
         run: npm run sign:release-resources
       - name: Build Light app and DMG
@@ -254,7 +256,8 @@ jobs:
       - run: npm run verify:light-runtime
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - run: npm run quality
+      - name: Run Light quality gate
+        run: npm run quality:light
       - name: Build Linux packages and upload them to the draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -317,7 +320,8 @@ jobs:
       - run: npm run verify:light-runtime
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - run: npm run quality
+      - name: Run Light quality gate
+        run: npm run quality:light
       - name: Build bundle and upload it to the draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -398,7 +402,8 @@ jobs:
       - run: npm run verify:ytdlp-search-release
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - run: npm run quality
+      - name: Run Full quality gate
+        run: npm run quality:full
       - name: Free build caches before the large GPU package
         run: |
           uv_cache_dir="$(uv cache dir)"
@@ -505,7 +510,8 @@ jobs:
       - run: npm run verify:ytdlp-search-release
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - run: npm run quality
+      - name: Run Full quality gate
+        run: npm run quality:full
       - name: Free build caches before the large GPU package
         run: |
           $uvCacheDir = uv cache dir

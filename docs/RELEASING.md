@@ -112,7 +112,7 @@ npm run ytdlp:search
 npm run verify:ytdlp-search-release
 npm run ffmpeg:runtime
 npm run verify:ffmpeg-release
-npm run quality
+npm run quality:full
 ```
 
 Run `npm run security` as well only when the release changes a dependency or

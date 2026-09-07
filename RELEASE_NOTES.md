@@ -1,4 +1,4 @@
-# SonArcan 0.1.0-beta.30
+# SonArcan 0.1.0-beta.31
 
 This beta makes Full-edition installation smaller and adds a guided, verified
 first-run setup for the analysis models. It also expands four-stem separation,
@@ -68,7 +68,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.30
+version=v0.1.0-beta.31
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -83,7 +83,7 @@ parts instead and run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.30
+version=v0.1.0-beta.31
 backend=NVIDIA
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-RPM.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.rpm".part-* > "SonArcan-${backend}-GPU.rpm"
@@ -104,7 +104,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.30'
+$version = 'v0.1.0-beta.31'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -136,5 +136,8 @@ PowerShell stops before reconstruction if a part is missing or altered.
 - Playback interface rendering is bounded to reduce avoidable GPU and UI load.
 - Worker contract tests remain dependency-free, and CI now uses the same Python
   3.13 generation required by the packaged workers on every platform.
+- Light release jobs run only the shared application checks and Light leakage
+  verifiers; model-worker suites and accelerator qualifications run only for
+  Full editions.
 
 See the README for detailed minimum configurations and installation guidance.

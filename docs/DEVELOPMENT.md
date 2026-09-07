@@ -16,6 +16,13 @@ dependency gate with `npm run security` only when adding a new library or packag
 Use focused validation for trust-boundary changes. See `CONTRIBUTING.md` and
 `SECURITY.md` for the exact policy.
 
+`npm run quality:full` is the explicit Full-edition gate and includes the MLX,
+Torch, and chord-worker suites. Release jobs for Light use
+`SONARCAN_EDITION=light npm run quality:light`; that gate excludes every model
+suite and verifies the reduced frontend after building it. The separate
+`verify:light-runtime` release step rejects NumPy, Torch, MLX, and the other
+heavy analysis packages if any leak into the Light runtime.
+
 ## Debugging workflow
 
 For a defect:

@@ -28,7 +28,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run test
-      - run: npm run test:mlx
+      - name: Run dependency-free worker contract tests
+        run: npm run test:mlx
       - run: npm run build
 
   native:
@@ -80,12 +81,10 @@ jobs:
             librsvg2-dev \
             patchelf
       - run: npm ci
-      - run: npm run check
-      - run: npm run test
-      - run: npm run test:mlx
-      - run: npm run test:stems
-      - run: npm run test:chords
-      - run: npm run format:rust
-      - run: npm run lint:rust
-      - run: npm run test:rust
+      - name: Run Full quality gate
+        if: matrix.edition == 'full'
+        run: npm run quality:full
+      - name: Run Light quality gate
+        if: matrix.edition == 'light'
+        run: npm run quality:light
       - run: npm run build:ci
