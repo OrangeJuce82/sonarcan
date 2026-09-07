@@ -1,21 +1,38 @@
 from __future__ import annotations
 
 import json
+import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-import numpy as np
-
 from scnet_infer.checkpoints import get_spec
 from scnet_infer.fast_demucs import MODEL_BYTES as FAST_MODEL_BYTES, validate_contract as validate_fast_contract
-from scnet_infer.sonarcan_worker import MODEL_ID, STEM_NAMES, build_parser, validate_contract, write_float_wave
+from scnet_infer.sonarcan_worker import MODEL_ID, STEM_NAMES, _write_float_wave_data, build_parser, validate_contract
 from sonarcan_mlx_worker.worker import main
 
 
 class WorkerContractTests(unittest.TestCase):
+    def test_contract_imports_do_not_require_inference_packages(self) -> None:
+        script = """
+import sys
+for name in ('mlx', 'numpy', 'torch'):
+    sys.modules[name] = None
+import scnet_infer
+from scnet_infer.fast_demucs import validate_contract as validate_fast_contract
+from scnet_infer.sonarcan_worker import validate_contract
+from sonarcan_mlx_worker.worker import main
+validate_contract()
+validate_fast_contract()
+assert callable(main)
+"""
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_uses_the_pinned_four_stem_scnet_contract(self) -> None:
         validate_contract()
         spec = get_spec(MODEL_ID)
@@ -48,7 +65,8 @@ class WorkerContractTests(unittest.TestCase):
     def test_writes_ieee_float_wave(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             destination = Path(temporary) / "stem.wav"
-            write_float_wave(destination, np.array([[0.0, 0.5], [0.25, -0.5]], dtype=np.float32))
+            samples = struct.pack("<ffff", 0.0, 0.25, 0.5, -0.5)
+            _write_float_wave_data(destination, samples, frames=2)
             wave = destination.read_bytes()
             self.assertEqual(wave[:4], b"RIFF")
             self.assertEqual(wave[8:12], b"WAVE")

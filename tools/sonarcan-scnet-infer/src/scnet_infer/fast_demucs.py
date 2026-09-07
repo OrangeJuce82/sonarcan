@@ -10,8 +10,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-import numpy as np
-
 from .checkpoints import get_spec, resolve_checkpoint
 
 MODEL_ID = "htdemucs-v4"
@@ -73,6 +71,8 @@ def resolve_model(model_dir: Path, progress: Progress) -> tuple[Path, bool]:
 
 
 def _normalise(mix: np.ndarray) -> tuple[np.ndarray, float, float]:
+    import numpy as np
+
     reference = mix.mean(axis=0)
     mean = float(reference.mean())
     std = float(reference.std()) + 1e-8
@@ -88,6 +88,7 @@ def _validated_sources(model: Any) -> None:
 
 
 def _load_safe_torch_model(checkpoint: Path, torch: Any) -> Any:
+    import numpy as np
     from demucs.demucs import Demucs
     from demucs.hdemucs import HDemucs
     from demucs.htdemucs import HTDemucs
@@ -207,6 +208,7 @@ def _mlx_progress(progress: Progress) -> Iterator[None]:
 
 def separate_mlx(mix: np.ndarray, checkpoint: Path, progress: Progress) -> dict[str, np.ndarray]:
     import mlx.core as mx
+    import numpy as np
     from demucs_mlx.apply_mlx import apply_model
 
     model = _load_mlx_model(checkpoint)

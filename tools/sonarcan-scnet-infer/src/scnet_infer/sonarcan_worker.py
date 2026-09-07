@@ -13,9 +13,6 @@ import time
 from pathlib import Path
 from typing import Any, Sequence
 
-import numpy as np
-
-from .api import SCNetSession
 from .checkpoints import get_spec
 
 MODEL_ID = "scnet-large-starrytong-v1.0.9"
@@ -60,6 +57,8 @@ def choose_torch_device(torch: Any) -> str:
 
 
 def decode_audio(ffmpeg: Path, input_path: Path, raw_path: Path) -> np.ndarray:
+    import numpy as np
+
     command = [
         str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
         "-i", str(input_path), "-map_metadata", "-1", "-vn", "-ac", "2",
@@ -81,11 +80,17 @@ def decode_audio(ffmpeg: Path, input_path: Path, raw_path: Path) -> np.ndarray:
 
 
 def write_float_wave(path: Path, samples: Any, sample_rate: int = SAMPLE_RATE) -> None:
+    import numpy as np
+
     audio = np.asarray(samples, dtype="<f4").T
     if audio.ndim != 2 or audio.shape[1] != 2:
         raise RuntimeError("SCNet returned an invalid stereo stem")
-    frames = int(audio.shape[0])
-    data = audio.tobytes(order="C")
+    _write_float_wave_data(path, audio.tobytes(order="C"), int(audio.shape[0]), sample_rate)
+
+
+def _write_float_wave_data(path: Path, data: bytes, frames: int, sample_rate: int = SAMPLE_RATE) -> None:
+    if frames < 0 or len(data) != frames * 8:
+        raise RuntimeError("SCNet returned invalid stereo float PCM")
     with path.open("wb") as output:
         output.write(b"RIFF")
         output.write(struct.pack("<I", 48 + len(data)))
@@ -166,6 +171,8 @@ def separate(
         emit("complete", stage="complete", progress=1.0, stems=list(STEM_NAMES))
         return
 
+    from .api import SCNetSession
+
     session = SCNetSession(
         MODEL_ID,
         backend=backend,
@@ -237,6 +244,7 @@ def accelerator_self_test(backend: str) -> None:
     validate_contract()
     if backend == "mlx":
         import mlx.core as mx
+        import numpy as np
 
         value = mx.matmul(mx.ones((4, 4)), mx.ones((4, 4)))
         mx.eval(value)

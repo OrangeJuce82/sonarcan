@@ -89,6 +89,9 @@ npm run quality
 
 This runs Svelte/TypeScript diagnostics, frontend unit tests, the production
 bundle, Rust formatting, Clippy with warnings denied, and all Rust tests.
+Worker protocol and checkpoint-contract tests must remain runnable with a clean
+system Python and no inference packages. CI uses that lightweight path for the
+frontend and Light editions; full locked runtimes are validated separately.
 
 Only when adding a new library or package:
 
