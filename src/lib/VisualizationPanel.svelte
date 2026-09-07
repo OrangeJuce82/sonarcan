@@ -64,7 +64,7 @@
   <div class="visualization-body">
     {#if kind === "spectrum"}
       {#if spectrumStyle === "bars"}
-        <div class="visual-spectrum-bars" aria-label={t("spectrum")}>{#each visibleBands as magnitude}<i style={`height:${Math.max(1, magnitude * 100)}%`}></i>{/each}</div>
+        <div class="visual-spectrum-bars" aria-label={t("spectrum")}>{#each visibleBands as magnitude}<i style={`--spectrum-level:${Math.max(0.01, magnitude)}`}></i>{/each}</div>
       {:else}
         <svg class="visual-line-chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label={t("spectrum")}><path class="area" d={`${spectrumPath} L100,100 L0,100 Z`}></path><path d={spectrumPath}></path></svg>
       {/if}
@@ -95,7 +95,7 @@
   .visualization-settings-menu select { width: 100%; max-width: none; }
   .visualization-body { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; }
   .visual-spectrum-bars { display: flex; flex: 1; align-items: flex-end; min-height: 0; padding: 5px 4px 0; gap: 2px; overflow: hidden; border-bottom: 1px solid var(--border-strong); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent), repeating-linear-gradient(0deg, transparent 0 24%, color-mix(in srgb, var(--muted) 10%, transparent) 24% 25%); }
-  .visual-spectrum-bars i { flex: 1; min-width: 1px; border-radius: 2px 2px 0 0; background: linear-gradient(180deg, var(--gold), var(--accent)); transition: height 45ms linear; }
+  .visual-spectrum-bars i { flex: 1; min-width: 1px; height: 100%; border-radius: 2px 2px 0 0; background: linear-gradient(180deg, var(--gold), var(--accent)); transform: scaleY(var(--spectrum-level)); transform-origin: bottom; }
   .visual-line-chart { flex: 1; width: 100%; min-height: 0; overflow: visible; border-bottom: 1px solid var(--border-strong); background: repeating-linear-gradient(0deg, transparent 0 24%, color-mix(in srgb, var(--muted) 10%, transparent) 24% 25%); }
   .visual-line-chart path { fill: none; stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
   .visual-line-chart path.area { fill: color-mix(in srgb, var(--accent) 18%, transparent); stroke: none; }

@@ -146,11 +146,10 @@ button:disabled { opacity: .4; cursor: default; }
 .master-output.boosted output { color: var(--master-volume-color); font-weight: 750; }
 .master-volume-preference { accent-color: var(--master-volume-color, var(--accent)); transition: accent-color 120ms linear; }
 .master-meter { grid-column: 3; grid-row: 1 / 3; display: grid; grid-template-rows: repeat(8, 1fr); gap: 1px; width: 10px; height: 27px; }
-.master-meter i { display: block; min-height: 2px; border-radius: 1px; background: #263238; transition: background-color 45ms linear, box-shadow 45ms linear; }
-.master-meter i.active { background: #4fc5bd; box-shadow: 0 0 3px #4fc5bd88; }
-.master-meter i:nth-child(2).active, .master-meter i:nth-child(3).active { background: #d8aa4e; box-shadow: 0 0 3px #d8aa4e88; }
-.master-meter i:first-child.active { background: #db5966; box-shadow: 0 0 3px #db596688; }
-.master-meter.limiting i:first-child { background: #db5966; box-shadow: 0 0 5px #db5966bb; }
+.master-meter i { display: block; min-height: 2px; border-radius: 1px; background: #263238; }
+.master-meter i.active { background: #4fc5bd; }
+.master-meter i:nth-child(2).active, .master-meter i:nth-child(3).active { background: #d8aa4e; }
+.master-meter i:first-child.active, .master-meter.limiting i:first-child { background: #db5966; }
 .eyebrow { color: #55c5bd; letter-spacing: .22em; font-size: .7rem; font-weight: 800; }
 .panel { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 45px rgba(0,0,0,.15); }
 .workspace { display: grid; grid-template-columns: 270px 1fr; gap: 14px; flex: 1; }
@@ -463,11 +462,11 @@ button:disabled { opacity: .4; cursor: default; }
 .stem-fader { display: grid; grid-template-rows: 13px minmax(0, 1fr); align-self: stretch; justify-items: center; gap: 4px; min-height: 0; height: 100%; }
 .stem-fader input[type="range"] { width: 18px; min-height: 72px; height: 100%; margin: 0; writing-mode: vertical-lr; direction: rtl; accent-color: var(--stem-color); cursor: ns-resize; }
 .stem-vu { display: flex; flex-direction: column-reverse; gap: 2px; align-self: end; width: 10px; min-height: 72px; height: calc(100% - 17px); padding: 2px; border: 1px solid var(--vu-border); border-radius: 3px; background: var(--vu-bg); box-shadow: inset 0 0 3px color-mix(in srgb, var(--text) 16%, transparent); }
-.stem-vu i { flex: 1; border-radius: 1px; background: var(--vu-off); transition: background .06s linear, box-shadow .06s linear; }
-.stem-vu i.active { background: var(--vu-on); box-shadow: 0 0 4px color-mix(in srgb, var(--vu-on) 58%, transparent); }
+.stem-vu i { flex: 1; border-radius: 1px; background: var(--vu-off); }
+.stem-vu i.active { background: var(--vu-on); }
 .stem-vu i.hot { background: var(--vu-hot-off); }
-.stem-vu i.hot.active { background: var(--vu-hot-on); box-shadow: 0 0 4px color-mix(in srgb, var(--vu-hot-on) 66%, transparent); }
-.stem-vu i.hot:last-child.active { background: var(--vu-clip); box-shadow: 0 0 5px color-mix(in srgb, var(--vu-clip) 66%, transparent); }
+.stem-vu i.hot.active { background: var(--vu-hot-on); }
+.stem-vu i.hot:last-child.active { background: var(--vu-clip); }
 .stem-buttons { display: flex; gap: 5px; }
 .stem-buttons button { min-width: 31px; padding: 5px 6px; border-color: #344147; color: #7f8f95; background: #12191c; font-size: .62rem; font-weight: 900; }
 .stem-buttons button.muted { border-color: #b43b3b; color: #fff; background: #c84444; box-shadow: 0 0 7px #d6464666; }
@@ -477,7 +476,7 @@ button:disabled { opacity: .4; cursor: default; }
 .stem-channel-label input { box-sizing: border-box; width: 100%; min-width: 0; padding: 3px 2px; border: 1px solid transparent; color: inherit; background: transparent; font: inherit; letter-spacing: inherit; text-transform: uppercase; text-overflow: ellipsis; }
 .stem-channel-label input:not(:disabled):hover { border-color: #334148; background: #0b1114; }
 .stem-channel-label input:focus { border-color: var(--stem-color); background: #080d0f; outline: none; }
-@media (prefers-reduced-motion: reduce) { .stem-switch > i, .stem-switch > i b, .stem-mixer, .stem-vu i { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .stem-switch > i, .stem-switch > i b, .stem-mixer { transition: none; } }
 .chips { display: flex; gap: 9px; }
 .chord-panel-title { display: grid; align-items: stretch; justify-content: stretch; gap: 8px; width: 100%; min-width: 0; }
 .chord-title-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; min-width: 0; }

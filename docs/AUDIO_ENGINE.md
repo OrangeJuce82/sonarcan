@@ -122,7 +122,11 @@ The bounded `AudioStatus` snapshot exposes the decaying master peak and
 independent left/right output peaks for the UI meters. Meter levels are measured
 after the limiter and calibrated so its −1 dBFS ceiling is the top of the UI
 scale. These scalar values are the only output-level data crossing IPC; raw
-audio never leaves the engine.
+audio never leaves the engine. The webview samples this bounded status at 20 Hz.
+VU segments change color without animated shadows, lyric overflow geometry is
+remeasured only when its container changes size, and spectrum data is requested
+only while a spectrum panel is visible. These constraints bound presentation
+work independently of the real-time four-stem mix.
 
 Python, uv, worker dependencies, inference source revision, checkpoint URL,
 size, SHA-256, and model revision are pinned in the worker projects, the shared

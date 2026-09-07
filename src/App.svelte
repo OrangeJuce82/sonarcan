@@ -487,21 +487,31 @@
   }
 
   function scrollWaveformLyric(node: HTMLElement, state: { progress: number }) {
-    let current = state;
-    const position = (): void => {
-      const containerWidth = node.parentElement?.clientWidth ?? 0;
-      const overflow = Math.max(0, node.scrollWidth - containerWidth);
-      node.style.setProperty("--lyrics-start-offset", `${overflow * 0.5}px`);
-      node.style.setProperty("--lyrics-scroll-offset", `${overflow * lyricsScrollProgress(current.progress)}px`);
+    let scrollProgress = lyricsScrollProgress(state.progress);
+    let overflow = 0;
+    let appliedOffset = Number.NaN;
+    const applyOffset = (): void => {
+      const offset = overflow * scrollProgress;
+      if (Math.abs(offset - appliedOffset) < 0.25) return;
+      node.style.setProperty("--lyrics-scroll-offset", `${offset}px`);
+      appliedOffset = offset;
     };
-    const observer = new ResizeObserver(position);
+    const measure = (): void => {
+      const containerWidth = node.parentElement?.clientWidth ?? 0;
+      overflow = Math.max(0, node.scrollWidth - containerWidth);
+      node.style.setProperty("--lyrics-start-offset", `${overflow * 0.5}px`);
+      applyOffset();
+    };
+    const observer = new ResizeObserver(measure);
     observer.observe(node);
     if (node.parentElement) observer.observe(node.parentElement);
-    queueMicrotask(position);
+    queueMicrotask(measure);
     return {
       update(next: { progress: number }): void {
-        current = next;
-        queueMicrotask(position);
+        const nextProgress = lyricsScrollProgress(next.progress);
+        if (Math.abs(nextProgress - scrollProgress) < 0.0001) return;
+        scrollProgress = nextProgress;
+        applyOffset();
       },
       destroy(): void {
         observer.disconnect();
@@ -1155,7 +1165,7 @@
     window.addEventListener("pointerout", handleHelpOut);
     window.addEventListener("focusin", handleHelpFocus);
     window.addEventListener("focusout", handleHelpBlur);
-    const statusTimer = window.setInterval(() => void refreshAudioStatus(), 33);
+    const statusTimer = window.setInterval(() => void refreshAudioStatus(), 50);
     const bpmTimer = window.setInterval(refreshDisplayedBpm, 500);
     const spectrumTimer = window.setInterval(() => void refreshSpectrum(), 50);
     const stemTimer = window.setInterval(() => void refreshStemStatus(), 400);
@@ -3358,7 +3368,8 @@
   }
 
   async function refreshSpectrum(): Promise<void> {
-    if (!currentTrack || !isPlaying || spectrumRequestActive) return;
+    const spectrumVisible = preferences.visualizationSlotOne === "spectrum" || preferences.visualizationSlotTwo === "spectrum";
+    if (!currentTrack || !isPlaying || !spectrumVisible || spectrumRequestActive) return;
     const trackId = currentTrack.id;
     const selectionGeneration = trackSelectionGeneration;
     spectrumRequestActive = true;
