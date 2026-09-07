@@ -149,10 +149,11 @@ between adjacent beats as the decision boundary, and chord ranges are half-open.
 A beat near a shared boundary therefore belongs to the following chord even when
 the model transition is slightly early or late, without changing either analysis
 result. The waveform lane and timed chord grid render the same derived count.
-The per-track three-state beat-grid control applies one reversible presentation
-layer to the selected raw or DBN Beat This! timeline. Auto follows the dominant
-interval cluster; Eighth selects the coarser detected octave and Sixteenth its
-denser counterpart. Only sustained intervals close to a 2:1 ratio are changed:
+The per-track four-state beat-grid control applies one reversible presentation
+layer to the selected raw or DBN Beat This! timeline. Off passes that selected
+timeline through unchanged. Auto follows the dominant interval cluster; Eighth
+selects the coarser detected octave and Sixteenth its denser counterpart. Only
+sustained intervals close to a 2:1 ratio are changed in the three active modes:
 dense runs retain alternating source beats with downbeat-aware phase selection,
 while sparse runs gain midpoint beats that are never promoted to downbeats. The
 derived timeline is shared by BPM display, metronome, navigation, loop snapping,

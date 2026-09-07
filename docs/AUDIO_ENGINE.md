@@ -219,6 +219,11 @@ prevents a wrong scalar BPM from shifting the grid. The metronome stays silent
 before the first detected beat. Its enabled state remains part of track practice
 state; volume and timbre are global preferences.
 
+The per-track beat-grid control cycles through Off, Auto, Eighth, and Sixteenth.
+Off sends the selected raw or DBN Beat This! timeline to every beat-driven view
+unchanged. The other modes apply only the reversible presentation-layer density
+homogenization; they never rewrite the cached analysis.
+
 The detailed waveform introduces downbeats at `1.5×` zoom and draws every beat
 and chord block once its viewport contains at most 30 seconds. Shorter tracks
 show those details while fitted in full. An independent UI magnet can

@@ -3,10 +3,19 @@ import test from "node:test";
 
 import { homogenizeBeatTimeline, nextBeatSubdivisionMode } from "./beatHomogenization.ts";
 
-test("the beat subdivision button cycles through its three states", () => {
+test("the beat subdivision button cycles through its four states", () => {
+  assert.equal(nextBeatSubdivisionMode("off"), "auto");
   assert.equal(nextBeatSubdivisionMode("auto"), "eighth");
   assert.equal(nextBeatSubdivisionMode("eighth"), "sixteenth");
-  assert.equal(nextBeatSubdivisionMode("sixteenth"), "auto");
+  assert.equal(nextBeatSubdivisionMode("sixteenth"), "off");
+});
+
+test("off returns the selected Beat This timeline unchanged", () => {
+  const beats = [0.12, 0.61, 1.1, 2.08];
+  const downbeats = [0.12, 2.08];
+  const result = homogenizeBeatTimeline(beats, downbeats, "off");
+
+  assert.deepEqual(result, { beats, downbeats, bpm: null });
 });
 
 test("auto removes a sustained double-density region and preserves its downbeat phase", () => {

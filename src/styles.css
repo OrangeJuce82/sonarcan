@@ -358,7 +358,7 @@ button:disabled { opacity: .4; cursor: default; }
 .metronome-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .metronome-control { justify-content: flex-end; }
 .metronome-control > button.beat-subdivision-toggle { min-width: 42px; padding-inline: 6px; color: var(--muted); background: var(--surface); font-size: .65rem; }
-.metronome-control > button.beat-subdivision-toggle[data-mode="eighth"], .metronome-control > button.beat-subdivision-toggle[data-mode="sixteenth"] { border-color: var(--accent-border); color: var(--accent-strong); background: var(--accent-soft); }
+.metronome-control > button.beat-subdivision-toggle:not([data-mode="off"]) { border-color: var(--accent-border); color: var(--accent-strong); background: var(--accent-soft); }
 .metronome-sound { width: 94px; min-width: 0; height: 28px; padding: 3px 20px 3px 6px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); background: var(--surface); font-size: .62rem; }
 .metronome-control button.active { border-color: #d9a64a; background: #3a2d17; color: #ffd892; }
 .metronome-control button.beating { color: #fff5cf; background: #78581d; border-color: #ffd36a; box-shadow: 0 0 0 2px #d9a64a33, 0 0 14px #d9a64a66; }

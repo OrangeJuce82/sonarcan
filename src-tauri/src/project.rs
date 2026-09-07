@@ -121,6 +121,7 @@ pub enum ChordEditMode {
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum BeatSubdivisionMode {
+    Off,
     #[default]
     Auto,
     Eighth,
@@ -1585,6 +1586,23 @@ mod tests {
         assert!(rewritten.get("beatThisDbn").is_none());
         assert!(rewritten.get("beatSubdivisionMode").is_none());
         assert!(rewritten.get("trackNotes").is_none());
+    }
+
+    #[test]
+    fn persists_the_raw_beat_grid_mode() {
+        let state = PracticeState {
+            beat_subdivision_mode: BeatSubdivisionMode::Off,
+            ..PracticeState::default()
+        };
+        let value = serde_json::to_value(&state).unwrap();
+
+        assert_eq!(value["beatSubdivisionMode"], "off");
+        assert_eq!(
+            serde_json::from_value::<PracticeState>(value)
+                .unwrap()
+                .beat_subdivision_mode,
+            BeatSubdivisionMode::Off
+        );
     }
 
     #[test]

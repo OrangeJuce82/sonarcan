@@ -1,4 +1,4 @@
-export type BeatSubdivisionMode = "auto" | "eighth" | "sixteenth";
+export type BeatSubdivisionMode = "off" | "auto" | "eighth" | "sixteenth";
 
 export interface HomogenizedBeatTimeline {
   beats: number[];
@@ -6,7 +6,7 @@ export interface HomogenizedBeatTimeline {
   bpm: number | null;
 }
 
-const BEAT_SUBDIVISION_MODES: readonly BeatSubdivisionMode[] = ["auto", "eighth", "sixteenth"];
+const BEAT_SUBDIVISION_MODES: readonly BeatSubdivisionMode[] = ["off", "auto", "eighth", "sixteenth"];
 
 export function nextBeatSubdivisionMode(mode: BeatSubdivisionMode): BeatSubdivisionMode {
   const index = BEAT_SUBDIVISION_MODES.indexOf(mode);
@@ -97,6 +97,9 @@ export function homogenizeBeatTimeline(
   downbeats: readonly number[],
   mode: BeatSubdivisionMode,
 ): HomogenizedBeatTimeline {
+  if (mode === "off") {
+    return { beats: [...beats], downbeats: [...downbeats], bpm: null };
+  }
   const sourceBeats = [...new Set(beats.filter((beat) => Number.isFinite(beat) && beat >= 0))]
     .sort((left, right) => left - right);
   const sourceDownbeats = [...new Set(downbeats.filter((beat) => Number.isFinite(beat) && beat >= 0))]
