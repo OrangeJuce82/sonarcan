@@ -16,9 +16,10 @@ user experience.
 
 1. An empty MIX panel presents Fast and HQ as two explicit buttons. There is no
    preselection and no separation profile in user preferences.
-2. Choosing a profile downloads its verified checkpoint on first use, prepares
-   the platform graph, then separates vocals, drums, bass, and other.
-3. One progress bar covers download, model preparation, audio loading,
+2. The first Full-edition application launch downloads both verified checkpoints.
+   Choosing a profile later prepares the platform graph, then separates vocals,
+   drums, bass, and other.
+3. The first-run screen covers downloads and verification. The mixer progress bar covers model preparation, audio loading,
    inference, writing, validation, and caching. The UI displays a continuously
    updated, smoothed remaining-time estimate.
 4. The mixer appears only after all four outputs validate. Later use of the same
@@ -34,7 +35,7 @@ remain global and are applied after stem summing.
 
 ## Model cache and integrity
 
-Checkpoints are not embedded in the installer or downloaded at startup. Tauri's
+Checkpoints are not embedded in the installer. The first-run model installation downloads them before opening the workspace. Tauri's
 application-data directory contains `models/stem-separation/`, with
 `htdemucs-v4/` and `scnet-large-starrytong-v1.0.9/` below it. This resolves to:
 

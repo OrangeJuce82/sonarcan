@@ -111,6 +111,8 @@ export interface AnalysisCapabilities {
   reason: "editionLight" | "acceleratorUnavailable" | null;
 }
 
+export type { ModelInstallProgress, ModelInstallResult } from "./modelInstallation";
+
 export interface WaveformPeak {
   min: number;
   max: number;

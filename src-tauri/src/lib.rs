@@ -10,6 +10,7 @@ mod ffmpeg;
 mod importer;
 mod loudness;
 mod lyrics;
+mod model_install;
 mod native_menu;
 mod native_menu_translations;
 mod preferences;
@@ -941,6 +942,14 @@ async fn analysis_capabilities(
     })
 }
 
+#[tauri::command]
+async fn prepare_models(app: AppHandle) -> Result<model_install::ModelInstallResult, AppError> {
+    let worker_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || model_install::prepare(&worker_app))
+        .await
+        .map_err(|error| AppError::BackgroundTask(error.to_string()))?
+}
+
 pub fn run() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("sonarcan=info"));
@@ -1037,6 +1046,7 @@ pub fn run() {
             audio_set_end_behavior,
             audio_status,
             analysis_capabilities,
+            prepare_models,
             system_metrics,
             audio_spectrum,
             stem_start,

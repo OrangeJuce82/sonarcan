@@ -201,7 +201,7 @@ Choose exactly one of the following profiles.
 
 MLX handles four-stem separation; PyTorch MPS handles Beat and Chords. Stem
 checkpoints are not part of the source tree or development preparation: the
-selected Fast or HQ checkpoint is downloaded and verified on first separation.
+Fast and HQ checkpoints are downloaded and verified during the first Full-edition launch.
 
 ```bash
 npm run mlx:sync
@@ -216,9 +216,9 @@ npm run tauri dev -- --config src-tauri/tauri.macos-arm.conf.json
 ### Windows or Linux Full: Torch GPU
 
 Run `npm run stems:sync`, not `mlx:sync`. The runtime contains the selected
-Torch backend and stem inference code, but no stem checkpoint. Fast HTDemucs or
-HQ SCNet Large is downloaded into the application-data cache only after the user
-chooses that profile, then verified against its pinned size and SHA-256.
+Torch backend and stem inference code, but no stem checkpoint. Fast HTDemucs and
+HQ SCNet Large are downloaded into the application-data cache during the initial
+model setup, then verified against their pinned sizes and SHA-256 values.
 
 For NVIDIA on Linux or in a Unix-like Windows shell:
 
@@ -278,8 +278,8 @@ install Python, `uv`, FFmpeg, or model dependencies themselves.
 
 | Build profile | Targets | Analysis implementation | Bundled resources |
 | --- | --- | --- | --- |
-| **MLX Full** | Apple Silicon | `sonarcan-mlx-worker` for four-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, stem inference code, Beat This!, LV-Chordia, FFmpeg and yt-dlp; no stem checkpoint |
-| **Torch GPU Full** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for four-stem separation and Beat/Chords | Backend-specific PyTorch runtime, stem inference code, Beat This!, LV-Chordia, FFmpeg and yt-dlp; no stem checkpoint |
+| **MLX Full** | Apple Silicon | `sonarcan-mlx-worker` for four-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
+| **Torch GPU Full** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for four-stem separation and Beat/Chords | Backend-specific PyTorch runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
 | **Light** | Apple Silicon, Intel Mac, Windows x64 and Linux x64 | No ML worker and no heavy analysis | Minimal Python runtime for yt-dlp plus FFmpeg; no Torch, MLX or analysis models |
 
 The tag workflow is the authoritative cross-platform build recipe: it chooses

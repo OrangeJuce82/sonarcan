@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Language } from "./i18n";
 import type { JamsChordSegment } from "./chordExport";
-import type { AnalysisCapabilities, AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemSeparationProfile, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
+import type { AnalysisCapabilities, AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, ModelInstallResult, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemSeparationProfile, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -142,6 +142,7 @@ export const audioSpectrum = (): Promise<SpectrumFrame> => invoke("audio_spectru
 export const audioStatus = (): Promise<AudioStatus> => invoke("audio_status");
 export const systemMetrics = (): Promise<SystemMetrics> => invoke("system_metrics");
 export const getAnalysisCapabilities = (): Promise<AnalysisCapabilities> => invoke("analysis_capabilities");
+export const prepareModels = (): Promise<ModelInstallResult> => invoke("prepare_models");
 export const stemStart = (packagePath: string, trackId: string, profile: StemSeparationProfile): Promise<void> => invoke("stem_start", { packagePath, trackId, profile });
 export const stemLoadCached = (packagePath: string, trackId: string, profile: StemSeparationProfile): Promise<void> => invoke("stem_load_cached", { packagePath, trackId, profile });
 export const stemAvailableProfiles = (packagePath: string, trackId: string): Promise<StemSeparationProfile[]> => invoke("stem_available_profiles", { packagePath, trackId });

@@ -69,7 +69,14 @@ rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
-Heavy analysis is capability-gated once per application launch. SonArcan enables
+Heavy analysis is capability-gated once per application launch. On the first Full-edition launch,
+SonArcan installs the pinned SCNet-large, HTDemucs, and Beat This! checkpoints sequentially
+into the application-data cache, verifies their sizes and SHA-256 digests, and reports bounded
+progress while the welcome screen remains responsive. Interrupted downloads use adjacent
+temporary files and resume as a clean retry; subsequent launches verify the cache. LV-Chordia's
+five pinned weights remain part of the shared runtime and are verified in the same startup flow.
+Installation never constructs an inference model or keeps weights resident in memory.
+SonArcan enables
 Beat This!, LV-Chordia, and four-stem separation only after the platform backend
 has been release-qualified and a bounded on-device inference probe succeeds.
 The probe exercises the production accelerator and rejects invalid values,

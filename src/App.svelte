@@ -4,7 +4,7 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { handleWindowCloseRequest, projectOpenDialogOptions } from "./lib/applicationLifecycle";
-  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openLrclibSearch, openProject, openYoutubeVideo, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemAvailableProfiles, stemDisable, stemLoadCached, stemReset, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openLrclibSearch, openProject, openYoutubeVideo, prepareModels, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemAvailableProfiles, stemDisable, stemLoadCached, stemReset, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
   import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
   import { deduplicateImportCandidates, importRelevanceLevel, importRelevancePercent, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
@@ -29,6 +29,8 @@
   import LyricsPanel from "./lib/LyricsPanel.svelte";
   import VisualizationPanel from "./lib/VisualizationPanel.svelte";
   import ResourceThermometer from "./lib/ResourceThermometer.svelte";
+  import ModelInstallation from "./lib/ModelInstallation.svelte";
+  import { modelInstallationCopy, type ModelInstallProgress } from "./lib/modelInstallation";
   import { emptyMeterState, meterPeakHoldMilliseconds, smoothValues, updateMeterState, visualizationKinds, type EnergyPoint } from "./lib/visualization";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsChords, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, zoomWaveformViewportAroundCenter, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
@@ -50,6 +52,9 @@
   let startupProjectAction: ProjectStartupAction = "checking";
   let preferencesReady = false;
   let applicationReady = false;
+  let modelInstallRunning = false;
+  let modelInstallError = "";
+  let modelInstallProgress: ModelInstallProgress = { modelId: "startup", modelName: "SonArcan", stage: "checking", progress: 0, completedBytes: 0, totalBytes: 0, modelIndex: 0, modelCount: 0 };
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
   let analysisFeaturesAvailable = false;
   let applicationEdition: "full" | "light" = "full";
@@ -1050,6 +1055,7 @@
     let unlistenClose: (() => void) | undefined;
     let unlistenExit: UnlistenFn | undefined;
     let unlistenProjectOpen: UnlistenFn | undefined;
+    let unlistenModelInstall: UnlistenFn | undefined;
     const appWindow = getCurrentWindow();
     void diagnostics().then((value) => runtimeOs = value.os).catch(() => undefined);
     let activeParameterShortcut: ParameterShortcut | null = null;
@@ -1060,6 +1066,7 @@
       unlistenProjectOpen = stop;
       void openRequestedProject();
     });
+    const modelInstallListenerReady = listen<ModelInstallProgress>("model-install-progress", (event) => modelInstallProgress = event.payload).then((stop) => unlistenModelInstall = stop);
     const handleKeydown = (event: KeyboardEvent): void => {
       if (analysisFeaturesAvailable && shouldToggleBeatThisDbnShortcut(event)) {
         event.preventDefault();
@@ -1189,8 +1196,8 @@
     document.addEventListener("visibilitychange", handleVisibilityChange);
     void loadUserPreferences().finally(async () => {
       preferencesReady = true;
-      await restoreLastProject();
-      applicationReady = true;
+      await modelInstallListenerReady;
+      await continueApplicationStartup();
     });
     const finishPlaylistDrag = (): void => finishTrackDrag();
     const handleWindowPointerDown = (event: PointerEvent): void => {
@@ -1271,6 +1278,7 @@
       unlistenClose?.();
       unlistenExit?.();
       unlistenProjectOpen?.();
+      unlistenModelInstall?.();
     };
   });
 
@@ -1314,13 +1322,8 @@
 
   async function loadUserPreferences(): Promise<void> {
     try {
-      const [savedPreferences, capabilities] = await Promise.all([
-        getPreferences(),
-        getAnalysisCapabilities(),
-      ]);
+      const savedPreferences = await getPreferences();
       preferences = savedPreferences;
-      analysisFeaturesAvailable = capabilities.accelerated;
-      applicationEdition = capabilities.edition;
       language = preferences.language;
       volume = preferences.masterVolume;
       musicVolume = preferences.musicVolume;
@@ -1336,6 +1339,21 @@
       await audioSetMusicVolume(musicVolume);
       await audioSetLoudnessNormalization(preferences.loudnessNormalization);
       await audioSetMetronome(false, metronomeVolume, metronomeSound);
+    } catch {
+      applyTheme();
+      notify("warn", t("preferencesLoadFallback"));
+    }
+  }
+
+  async function continueApplicationStartup(): Promise<void> {
+    if (modelInstallRunning || applicationReady) return;
+    modelInstallRunning = true;
+    modelInstallError = "";
+    try {
+      await prepareModels();
+      const capabilities = await getAnalysisCapabilities();
+      analysisFeaturesAvailable = capabilities.accelerated;
+      applicationEdition = capabilities.edition;
       const noticeSeen = applicationEdition === "light"
         ? preferences.lightEditionNoticeSeen
         : preferences.degradedAnalysisNoticeSeen;
@@ -1346,9 +1364,12 @@
           : { ...preferences, degradedAnalysisNoticeSeen: true };
         preferences = await savePreferences(preferences);
       }
-    } catch {
-      applyTheme();
-      notify("warn", t("preferencesLoadFallback"));
+      await restoreLastProject();
+      applicationReady = true;
+    } catch (error) {
+      modelInstallError = errorText(error);
+    } finally {
+      modelInstallRunning = false;
     }
   }
 
@@ -4628,11 +4649,20 @@
     </div>
   {/if}
   {:else}
-    <div class="application-bootstrap" role="status" aria-label="SonArcan">
-      <span class="application-bootstrap-mark" aria-hidden="true"><img src={sonarcanLogo} alt="" /></span>
-      <strong>SonArcan</strong>
-      <i aria-hidden="true"></i>
-      {#if preferencesReady}<small>{t(startupProjectAction === "checking" ? "checkingProjects" : startupProjectAction === "restoreRecent" ? "loadingRecentProject" : "noProject")}</small>{/if}
-    </div>
+    {#if preferencesReady}
+      <ModelInstallation
+        progress={modelInstallProgress}
+        copy={modelInstallationCopy(language)}
+        error={modelInstallError}
+        retry={() => void continueApplicationStartup()}
+        quit={() => void confirmApplicationExit()}
+      />
+    {:else}
+      <div class="application-bootstrap" role="status" aria-label="SonArcan">
+        <span class="application-bootstrap-mark" aria-hidden="true"><img src={sonarcanLogo} alt="" /></span>
+        <strong>SonArcan</strong>
+        <i aria-hidden="true"></i>
+      </div>
+    {/if}
   {/if}
 </main>

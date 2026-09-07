@@ -61,8 +61,9 @@ Throttle visualization snapshots to the lowest useful rate and update local UI
 state locally.
 
 Load only the selected audio immediately. Preload imminent work deliberately and
-bound caches by both count and memory. Optional models and expensive analysis are
-lazy, cancellable where practical, and never block initial interaction. Record a
+bound caches by both count and memory. Full-edition model artifacts are installed
+by the responsive first-run welcome flow; model construction and expensive
+analysis remain lazy and cancellable where practical. Record a
 baseline and a before/after result for performance changes.
 
 ## Security

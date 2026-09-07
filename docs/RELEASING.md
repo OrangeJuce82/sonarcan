@@ -5,8 +5,8 @@
 The tag workflow produces a Full MLX bundle for Apple Silicon, NVIDIA CUDA 12.6
 bundles for Windows/Linux, an AMD ROCm 7.2 bundle for Linux, plus Light bundles
 for Apple Silicon, Intel macOS, Windows x64, and Linux x64. Full/GPU contains the
-analysis runtime and the chord/rhythm models. The HTDemucs and SCNet stem
-checkpoints are downloaded and verified on first use rather than bundled. Light contains only a target-native minimal Python
+analysis runtime and LV-Chordia models. The Beat This!, HTDemucs, and SCNet
+checkpoints are downloaded and verified during the first Full-edition launch rather than bundled. Light contains only a target-native minimal Python
 3.13 standard library for the pinned `yt-dlp` artifact and excludes Torch, MLX,
 LV-Chordia, Beat This!, HTDemucs, SCNet, NumPy, SciPy, and their model files. Never copy a
 runtime between targets or combine target architectures into a universal macOS
@@ -69,8 +69,8 @@ asset.
 - AMD Linux releases resolve Torch 2.13.0 from PyTorch's pinned ROCm 7.2 index;
 - BtbN Linux and Windows FFmpeg archives are selected from one immutable release
   tag and verified through a checksum manifest whose SHA-256 is pinned in source;
-- target-native Python environments, chord/rhythm models, FFmpeg, and FFprobe
-  are bundled. Stem checkpoints are first-use network downloads; no
+- target-native Python environments, LV-Chordia models, FFmpeg, and FFprobe
+  are bundled. Beat This! and stem checkpoints are first-run network downloads; no
   package manager runs on an end-user machine.
 
 The release workflow signs every Mach-O executable, dynamic library, and Python
@@ -147,8 +147,8 @@ embedded-runtime signing script use the same ad-hoc identity.
    **draft** GitHub Release, then runs the macOS, Light, NVIDIA GPU, and AMD GPU
    jobs concurrently. Every runtime and media tool is verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
-   declaration, bundled executables, and absence of HTDemucs and SCNet stem
-   checkpoints.
+   declaration, bundled executables, and absence of Beat This!, HTDemucs, and
+   SCNet checkpoints.
 7. Download and smoke-test every draft package. Reconstruct every multipart GPU
    DEB, RPM, and Zip64 archive and verify its format-specific part hashes first.
    Install the NVIDIA and Light RPMs on Fedora, test the AMD RPM on a

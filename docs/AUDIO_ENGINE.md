@@ -56,10 +56,10 @@ implementations use one four-stem protocol and profile-specific caches.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.
 
-The installer contains neither checkpoint. The empty MIX panel requires an
-explicit Fast HTDemucs or HQ SCNet Large by starrytong choice. The worker downloads the
-selected upstream asset on first separation into the application-data model
-cache. It rejects symlinks, partial files, unexpected byte lengths, and any
+The installer contains neither checkpoint. The first-run welcome flow downloads
+both Fast HTDemucs and HQ SCNet Large by starrytong into the application-data
+model cache; the empty MIX panel still requires an explicit profile choice. The
+installer rejects symlinks, partial files, unexpected byte lengths, and any
 SHA-256 mismatch before atomically publishing
 the cache entry. The
 worker emits bounded newline-delimited JSON for stage changes, segment progress,

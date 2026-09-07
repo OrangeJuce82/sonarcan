@@ -46,7 +46,7 @@ def verify_checkpoints() -> None:
 
 def verify_downbeat_checkpoint(checkpoint: Path) -> None:
     if not checkpoint.is_file():
-        raise RuntimeError("the bundled Beat This! final0 checkpoint is unavailable")
+        raise RuntimeError("the installed Beat This! final0 checkpoint is unavailable")
     digest = _file_sha256(checkpoint)
     if digest != BEAT_THIS_CHECKPOINT_SHA256:
         raise RuntimeError("Beat This! final0 checkpoint failed SHA-256 verification")

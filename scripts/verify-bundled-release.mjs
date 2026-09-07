@@ -26,20 +26,21 @@ function required(path, label) {
   return path;
 }
 
-function findForbiddenStemCheckpoint(directory, depth = 0) {
+function findForbiddenModelCheckpoint(directory, depth = 0) {
   if (depth > 12) return undefined;
   const forbidden = new Set([
     "955717e8-8726e21a.th",
     "htdemucs.safetensors",
     "htdemucs_6s.safetensors",
     "SCNet-large_starrytong_fixed.ckpt",
+    "final0.ckpt",
   ]);
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.isSymbolicLink()) continue;
     const path = join(directory, entry.name);
     if (entry.isFile() && forbidden.has(entry.name)) return path;
     if (entry.isDirectory()) {
-      const found = findForbiddenStemCheckpoint(path, depth + 1);
+      const found = findForbiddenModelCheckpoint(path, depth + 1);
       if (found) return found;
     }
   }
@@ -62,43 +63,36 @@ function run(command, argumentsList, label, capture = false) {
 
 const resources = findResourceRoot(root);
 if (!resources) throw new Error(`could not locate SonArcan resources inside ${root}`);
-const forbiddenStemCheckpoint = findForbiddenStemCheckpoint(resources);
-if (forbiddenStemCheckpoint) {
-  throw new Error(`stem checkpoints must not be bundled: ${forbiddenStemCheckpoint}`);
+const forbiddenModelCheckpoint = findForbiddenModelCheckpoint(resources);
+if (forbiddenModelCheckpoint) {
+  throw new Error(`first-run model checkpoints must not be bundled: ${forbiddenModelCheckpoint}`);
 }
 
 const windows = process.platform === "win32";
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
 const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
 const suffix = windows ? ".exe" : "";
-const fullEdition = existsSync(join(resources, "models", "beat-this", "final0.ckpt"));
 const sharedPython = required(
   windows
     ? join(resources, "python-runtime", "runtime", "python.exe")
     : join(resources, "python-runtime", "runtime", "bin", "python3.13"),
   "bundled shared Python 3.13",
 );
+const fullEdition = existsSync(join(resources, "python-runtime", "runtime", "share", "lv-chordia", "cache_data"));
 if (fullEdition) {
-  const beatModel = required(join(resources, "models", "beat-this", "final0.ckpt"), "Beat This model");
   const chordOutput = run(sharedPython, [
-    "-m", "sonarcan_chord_worker.worker", "--self-test", "--downbeat-model", beatModel,
-  ], "bundled chord/downbeat worker", true);
-  const chordHealth = JSON.parse(chordOutput);
-  if (!chordHealth.ok || chordHealth.modes?.join(",") !== "complete,essential,standard") {
-    throw new Error("bundled chord/downbeat worker returned an invalid contract");
-  }
+    "-c", "from sonarcan_chord_worker.engine import DICTIONARIES, verify_checkpoints; verify_checkpoints(); print(','.join(sorted(DICTIONARIES)))",
+  ], "bundled LV-Chordia worker", true);
+  if (chordOutput !== "complete,essential,standard") throw new Error("bundled LV-Chordia worker returned an invalid contract");
   const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
   run(sharedPython, [
     "-m", stemModule, "self-test",
   ], `bundled ${appleSilicon ? "MLX" : "Torch"} stem worker`);
   if (appleSilicon) {
     const chordAcceleratorOutput = run(sharedPython, [
-      "-m", "sonarcan_chord_worker.worker", "--accelerator-self-test", "--downbeat-model", beatModel,
-    ], "bundled MPS chord/downbeat accelerator", true);
-    const chordAccelerator = JSON.parse(chordAcceleratorOutput);
-    if (!chordAccelerator.accelerated || chordAccelerator.backend !== "MPS") {
-      throw new Error("bundled chord/downbeat worker did not qualify MPS");
-    }
+      "-c", "import torch; from lv_chordia.chord_recognition import load_ensemble; device=torch.device('mps'); value=torch.zeros((1,16,252),device=device); outputs=[output for member in load_ensemble(False,device=device) for output in member.net(value)]; assert all(torch.isfinite(output).all().item() for output in outputs); torch.mps.synchronize(); print('MPS')",
+    ], "bundled MPS LV-Chordia accelerator", true);
+    if (chordAcceleratorOutput !== "MPS") throw new Error("bundled LV-Chordia worker did not qualify MPS");
     run(sharedPython, [
       "-m", stemModule, "accelerator-self-test",
     ], "bundled MLX stem accelerator");

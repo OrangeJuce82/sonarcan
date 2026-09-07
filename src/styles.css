@@ -94,6 +94,22 @@ button:disabled { opacity: .4; cursor: default; }
 .application-bootstrap > i { width: 42px; height: 2px; overflow: hidden; border-radius: 2px; background: var(--loading-bg); }
 .application-bootstrap > i::after { display: block; width: 45%; height: 100%; border-radius: inherit; background: var(--accent); content: ""; animation: application-bootstrap-progress 900ms ease-in-out infinite alternate; }
 .application-bootstrap small { min-height: 1.4em; color: var(--muted-strong); font-size: .68rem; }
+.model-installation { display: grid; width: min(520px, calc(100vw - 64px)); justify-items: stretch; gap: 14px; color: var(--muted-strong); }
+.model-installation-mark { display: grid; width: 72px; height: 72px; place-self: center; place-items: center; border-radius: 18px; box-shadow: var(--shadow-panel); }
+.model-installation-mark img { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: contain; }
+.model-installation-heading { display: grid; justify-items: center; gap: 6px; text-align: center; }
+.model-installation-heading strong { color: var(--text-strong); font-size: .95rem; letter-spacing: .06em; }
+.model-installation-heading small { max-width: 430px; line-height: 1.45; }
+.model-installation-status, .model-installation-totals { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: .72rem; }
+.model-installation-status span { overflow: hidden; color: var(--text-strong); text-overflow: ellipsis; white-space: nowrap; }
+.model-installation-status small { flex: none; }
+.model-installation-progress { width: 100%; height: 7px; overflow: hidden; border-radius: 99px; background: var(--loading-bg); }
+.model-installation-progress i { display: block; min-width: 2px; height: 100%; border-radius: inherit; background: var(--accent); transition: width 120ms linear; }
+.model-installation-totals { color: var(--muted); font-variant-numeric: tabular-nums; }
+.model-installation p { margin: 4px 0 0; color: var(--danger); font-size: .76rem; line-height: 1.45; text-align: center; }
+.model-installation details { max-width: 100%; color: var(--muted); font-size: .68rem; overflow-wrap: anywhere; }
+.model-installation-actions { display: flex; justify-content: center; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .model-installation-progress i { transition: none; } }
 .shell.help-open { --workspace-bottom-inset: 54px; padding-bottom: 54px; }
 .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 50; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; min-height: 68px; padding: 10px 24px; border-bottom: 1px solid var(--header-border); background: var(--header-bg); box-shadow: 0 8px 24px rgba(0,0,0,.16); }
 .toast-stack { position: fixed; z-index: 11000; inset: 80px 16px auto auto; display: flex; flex-direction: column; align-items: stretch; width: min(340px, calc(100vw - 32px)); height: fit-content; min-height: 0; max-height: calc(100vh - 96px); margin: 0; padding: 0; gap: 7px; overflow: visible; border: 0; color: inherit; background: transparent; pointer-events: none; }

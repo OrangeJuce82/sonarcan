@@ -222,26 +222,10 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
 }
 
 fn resolve_downbeat_model(app: &AppHandle) -> Result<PathBuf, AppError> {
-    #[cfg(debug_assertions)]
-    {
-        let _ = app;
-        let path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/models/beat-this/final0.ckpt");
-        path.is_file().then_some(path).ok_or_else(|| {
-            AppError::ChordAnalysis(
-                "the Beat This! model is unavailable; run npm run chords:downbeat-model".into(),
-            )
-        })
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = app;
-        return crate::python_runtime::resource_path("models/beat-this/final0.ckpt")
-            .filter(|path| path.is_file())
-            .ok_or_else(|| {
-                AppError::ChordAnalysis("the bundled Beat This! model is unavailable".into())
-            });
-    }
+    let path = crate::model_install::beat_this_path(app)?;
+    path.is_file().then_some(path).ok_or_else(|| {
+        AppError::ChordAnalysis("the verified Beat This! model is not installed".into())
+    })
 }
 
 pub fn accelerator_self_test(app: &AppHandle) -> bool {

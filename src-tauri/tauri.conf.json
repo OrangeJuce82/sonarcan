@@ -34,7 +34,6 @@
     "resources": {
       "resources/python-runtime": "python-runtime",
       "resources/ytdlp-search": "ytdlp-search",
-      "resources/models/beat-this": "models/beat-this",
       "resources/audio-tools": "audio-tools"
     },
     "icon": [

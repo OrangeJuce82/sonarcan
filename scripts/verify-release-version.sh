@@ -64,13 +64,13 @@ if ! grep -Fq 'npm run chords:downbeat-model' "$release_workflow"; then
   echo "The macOS release workflow must download and verify the pinned Beat This! model." >&2
   exit 1
 fi
-if ! grep -Fq -- '--self-test --downbeat-model "$app_bundle/Contents/Resources/models/beat-this/final0.ckpt"' "$release_workflow"; then
-  echo "The bundled chord/downbeat self-test must receive the bundled Beat This! model." >&2
+if ! grep -Fq -- 'from sonarcan_chord_worker.engine import verify_checkpoints; verify_checkpoints()' "$release_workflow"; then
+  echo "The bundled LV-Chordia checkpoints must be verified before release." >&2
   exit 1
 fi
-if ! grep -Fq -- '--accelerator-self-test' "$repository_root/scripts/verify-bundled-release.mjs" \
+if ! grep -Fq -- 'load_ensemble(False,device=device)' "$repository_root/scripts/verify-bundled-release.mjs" \
   || ! grep -Fq -- '"accelerator-self-test"' "$repository_root/scripts/verify-bundled-release.mjs"; then
-  echo "The bundled Apple Silicon release must qualify both MPS and MLX accelerators." >&2
+  echo "The bundled Apple Silicon release must qualify LV-Chordia MPS and stem MLX accelerators." >&2
   exit 1
 fi
 if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
