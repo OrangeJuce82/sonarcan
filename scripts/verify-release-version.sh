@@ -52,6 +52,12 @@ if ! grep -Fq 'SHA256SUMS.txt' "$release_workflow"; then
   echo "The macOS release workflow must publish a DMG checksum." >&2
   exit 1
 fi
+if ! grep -Fq 'cancel-in-progress: true' "$release_workflow" \
+  || ! grep -Fq 'select(.draft and .tag_name' "$release_workflow" \
+  || ! grep -Fq 'gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"' "$release_workflow"; then
+  echo "Release retries must cancel stale runs and recreate only the draft for their tag." >&2
+  exit 1
+fi
 if ! grep -Fq '3.13.5' "$release_workflow"; then
   echo "The release workflow must install the shared Python runtime version." >&2
   exit 1
@@ -121,9 +127,9 @@ if ! grep -Fq 'release-windows-gpu:' "$release_workflow" \
   exit 1
 fi
 for gpu_config in \
-  "$repository_root/src-tauri/tauri.nvidia-gpu.conf.json" \
-  "$repository_root/src-tauri/tauri.amd-gpu.conf.json"; do
-  rpm_compression="$(node -p "const config = require('$gpu_config'); JSON.stringify(config.bundle?.linux?.rpm?.compression)")"
+  "src-tauri/tauri.nvidia-gpu.conf.json" \
+  "src-tauri/tauri.amd-gpu.conf.json"; do
+  rpm_compression="$(node -p "const config = require('./$gpu_config'); JSON.stringify(config.bundle?.linux?.rpm?.compression)")"
   if [[ "$rpm_compression" != '{"type":"zstd","level":3}' ]]; then
     echo "GPU RPM bundles must use fast level-3 Zstandard compression." >&2
     exit 1

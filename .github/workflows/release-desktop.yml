@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   prepare-release:
@@ -26,10 +26,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:release-version
-      - name: Create draft release before parallel uploads
+      - name: Recreate draft release before parallel uploads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          while IFS= read -r draft_id; do
+            if [[ -n "$draft_id" ]]; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"
+            fi
+          done < <(
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq ".[][] | select(.draft and .tag_name == \"$GITHUB_REF_NAME\") | .id"
+          )
+
           release_args=(--draft --notes-file RELEASE_NOTES.md --title "SonArcan $GITHUB_REF_NAME")
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             release_args+=(--prerelease)
