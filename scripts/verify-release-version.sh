@@ -53,8 +53,10 @@ if ! grep -Fq 'SHA256SUMS.txt' "$release_workflow"; then
   exit 1
 fi
 if ! grep -Fq 'cancel-in-progress: true' "$release_workflow" \
+  || ! grep -Fq 'draft_ids="$(' "$release_workflow" \
   || ! grep -Fq 'select(.draft and .tag_name' "$release_workflow" \
-  || ! grep -Fq 'gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"' "$release_workflow"; then
+  || ! grep -Fq 'gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"' "$release_workflow" \
+  || grep -Fq -- '--slurp' "$release_workflow"; then
   echo "Release retries must cancel stale runs and recreate only the draft for their tag." >&2
   exit 1
 fi
