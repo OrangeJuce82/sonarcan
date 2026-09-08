@@ -123,20 +123,14 @@ if ! grep -Fq 'release-windows-gpu:' "$release_workflow" \
   || ! grep -Fq 'release-linux-gpu:' "$release_workflow" \
   || ! grep -Fq 'SONARCAN_GPU_BACKEND: nvidia' "$release_workflow" \
   || ! grep -Fq 'backend: amd' "$release_workflow" \
-  || [[ "$(grep -Fc 'bundle: deb' "$release_workflow")" -lt 2 ]] \
-  || [[ "$(grep -Fc 'bundle: rpm' "$release_workflow")" -lt 2 ]]; then
+  || [[ "$(grep -Fc -- '--bundles deb' "$release_workflow")" -lt 1 ]]; then
   echo "The release workflow must publish Windows NVIDIA and Linux NVIDIA/AMD GPU editions." >&2
   exit 1
 fi
-for gpu_config in \
-  "src-tauri/tauri.nvidia-gpu.conf.json" \
-  "src-tauri/tauri.amd-gpu.conf.json"; do
-  rpm_compression="$(node -p "const config = require('./$gpu_config'); JSON.stringify(config.bundle?.linux?.rpm?.compression)")"
-  if [[ "$rpm_compression" != '{"type":"zstd","level":3}' ]]; then
-    echo "GPU RPM bundles must use fast level-3 Zstandard compression." >&2
-    exit 1
-  fi
-done
+if grep -Eiq '(^|[^[:alnum:]_])rpm([^[:alnum:]_]|$)' "$release_workflow"; then
+  echo "The release workflow must not build or verify RPM packages." >&2
+  exit 1
+fi
 if ! grep -Fq -- '--notes-file RELEASE_NOTES.md' "$release_workflow"; then
   echo "The release workflow must publish the curated edition notes." >&2
   exit 1

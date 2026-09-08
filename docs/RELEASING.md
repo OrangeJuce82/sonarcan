@@ -31,9 +31,9 @@ FFprobe, and yt-dlp health checks from those packaged locations. A missing,
 foreign-architecture, or non-relocatable runtime therefore fails the release
 while it is still a draft.
 
-Linux Light publishes verified DEB, RPM, and AppImage bundles. Linux GPU
-editions publish verified DEB and RPM bundles, each split into numbered volumes
-smaller than 2 GiB. Windows GPU publishes a similarly split portable Zip64
+Linux Light publishes verified DEB and AppImage bundles. Linux GPU editions
+publish verified DEB bundles split into numbered volumes smaller than 2 GiB.
+Windows GPU publishes a similarly split portable Zip64
 archive because NSIS and GitHub Release assets both have 2 GiB limits. Each
 multipart package has a format-specific checksum file with SHA-256 hashes for
 all parts. Parts must be concatenated byte-for-byte in filename order before
@@ -150,9 +150,9 @@ embedded-runtime signing script use the same ad-hoc identity.
    declaration, bundled executables, and absence of Beat This!, HTDemucs, and
    SCNet checkpoints.
 7. Download and smoke-test every draft package. Reconstruct every multipart GPU
-   DEB, RPM, and Zip64 archive and verify its format-specific part hashes first.
-   Install the NVIDIA and Light RPMs on Fedora, test the AMD RPM on a
-   ROCm-supported RPM distribution, and exercise the Light AppImage directly.
+   DEB and Zip64 archive and verify its platform-specific part hashes first.
+   Install both GPU DEBs on compatible systems and exercise the Light AppImage
+   directly on a distribution without DEB support.
    On macOS, verify with
    `codesign --verify --deep --strict --verbose=2 /Applications/SonArcan.app`,
    confirm that Gatekeeper initially blocks the unidentified build, authorize it

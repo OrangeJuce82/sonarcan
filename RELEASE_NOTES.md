@@ -56,11 +56,10 @@ assets rather than merely hiding them.
 
 CUDA and ROCm runtimes are too large for GitHub's 2 GiB limit per release file.
 Each GPU package is therefore split into numbered `part-000`, `part-001`, …
-files, accompanied by a platform/backend/format-specific `SHA256SUMS` file.
-Download every part for one edition and package format, plus its matching
-`SHA256SUMS` file, into the same directory. Linux Light is published as DEB,
-RPM, and AppImage; macOS and Windows Light remain conventional single-file
-downloads.
+files, accompanied by a platform/backend-specific `SHA256SUMS` file. Download
+every part for one edition, plus its matching `SHA256SUMS` file, into the same
+directory. Linux Light is published as DEB and AppImage; macOS and Windows
+Light remain conventional single-file downloads.
 
 ### Linux NVIDIA or AMD
 
@@ -79,24 +78,9 @@ sudo apt install "./SonArcan-${backend}-GPU.deb"
 Do not install the reconstructed package if `sha256sum` reports a missing file
 or a checksum failure.
 
-On Fedora with a CUDA 12.6-compatible NVIDIA setup, download the NVIDIA RPM
-parts instead and run:
-
-```bash
-cd ~/Downloads
-version=v0.1.0-beta.33
-backend=NVIDIA
-sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-RPM.txt"
-cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.rpm".part-* > "SonArcan-${backend}-GPU.rpm"
-sudo dnf install "./SonArcan-${backend}-GPU.rpm"
-```
-
-For Light on Fedora, download the single RPM and install it with
-`sudo dnf install ./<downloaded-file>.rpm`. The Light AppImage is the portable
-alternative: make it executable with `chmod +x ./<downloaded-file>.AppImage`,
-then launch it directly. The AMD RPM is intended for RPM-based systems that AMD
-lists as compatible with ROCm 7.2; Fedora is not an officially supported ROCm
-7.2 host, so Fedora users with an AMD GPU should choose Light.
+On distributions without DEB support, use the Light AppImage: make it executable
+with `chmod +x ./<downloaded-file>.AppImage`, then launch it directly. GPU
+editions are currently distributed only as DEB packages.
 
 ### Windows NVIDIA
 
@@ -149,7 +133,7 @@ PowerShell stops before reconstruction if a part is missing or altered.
 - Light release jobs run only the shared application checks and Light leakage
   verifiers; model-worker suites and accelerator qualifications run only for
   Full editions.
-- Linux RPM verification checks the package digest before extraction and no
-  longer treats the extractor's harmless end-of-stream signal as corruption.
+- Linux Light is available as DEB and AppImage, while Linux GPU editions are
+  published as DEB.
 
 See the README for detailed minimum configurations and installation guidance.
