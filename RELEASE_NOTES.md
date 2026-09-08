@@ -1,4 +1,4 @@
-# SonArcan 0.1.0-beta.33
+# SonArcan 0.1.1-beta.1
 
 This beta reduces WebView rendering work during playback and exposes the raw
 beat post-processing status needed to keep rhythm presentation explicit. It
@@ -68,7 +68,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.33
+version=v0.1.1-beta.1
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -89,7 +89,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.33'
+$version = 'v0.1.1-beta.1'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
