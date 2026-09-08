@@ -348,9 +348,9 @@ jobs:
           npm run verify:bundled-release -- "$installRoot"
 
   release-linux-gpu:
-    name: Release Linux x64 ${{ matrix.label }}
+    name: Release Linux x64 ${{ matrix.label }} ${{ matrix.package }}
     needs: prepare-release
-    timeout-minutes: 180
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -358,9 +358,23 @@ jobs:
           - label: NVIDIA GPU
             backend: nvidia
             config: src-tauri/tauri.nvidia-gpu.conf.json
+            bundle: deb
+            package: DEB
+          - label: NVIDIA GPU
+            backend: nvidia
+            config: src-tauri/tauri.nvidia-gpu.conf.json
+            bundle: rpm
+            package: RPM
           - label: AMD GPU
             backend: amd
             config: src-tauri/tauri.amd-gpu.conf.json
+            bundle: deb
+            package: DEB
+          - label: AMD GPU
+            backend: amd
+            config: src-tauri/tauri.amd-gpu.conf.json
+            bundle: rpm
+            package: RPM
     runs-on: ubuntu-22.04
     env:
       SONARCAN_EDITION: full
@@ -414,11 +428,14 @@ jobs:
           uv cache clean
           mkdir -p "$uv_cache_dir"
           cargo clean --manifest-path src-tauri/Cargo.toml
-      # GPU runtimes are larger than GitHub's 2 GiB per-asset limit. Build and
-      # verify each native package, then split it into downloadable volumes.
+      # GPU runtimes are larger than GitHub's 2 GiB per-asset limit. Give DEB
+      # and RPM independent runners so one large package cannot consume the
+      # other's disk, memory, or timeout budget.
       - name: Build GPU DEB
+        if: matrix.bundle == 'deb'
         run: npm exec tauri build -- --target x86_64-unknown-linux-gnu --bundles deb --config ${{ matrix.config }}
       - name: Verify and upload multipart Linux GPU DEB
+        if: matrix.bundle == 'deb'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -446,9 +463,11 @@ jobs:
             sleep "$((attempt * 10))"
           done
           rm -f "$portable_path".part-* "$checksum_path"
-      - name: Build GPU RPM from the verified application
-        run: npm exec tauri bundle -- --target x86_64-unknown-linux-gnu --bundles rpm --config ${{ matrix.config }}
+      - name: Build GPU RPM
+        if: matrix.bundle == 'rpm'
+        run: npm exec tauri build -- --target x86_64-unknown-linux-gnu --bundles rpm --config ${{ matrix.config }}
       - name: Verify and upload multipart Linux GPU RPM
+        if: matrix.bundle == 'rpm'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

@@ -4,5 +4,15 @@
   "identifier": "music.sonarcan.desktop.amd",
   "build": {
     "beforeBuildCommand": "npm run verify:stem-release && npm run verify:chord-release && npm run verify:gpu-runtime && npm run verify:ytdlp-search-release && npm run verify:ffmpeg-release && npm run build"
+  },
+  "bundle": {
+    "linux": {
+      "rpm": {
+        "compression": {
+          "type": "zstd",
+          "level": 3
+        }
+      }
+    }
   }
 }
