@@ -18,6 +18,7 @@
   import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
   import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shiftedTrackShortcutOffset, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleBeatThisDbnShortcut, shouldToggleChordEditModeShortcut, shouldToggleLoopOnRelease, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
   import { localBpmAt } from "./lib/localTempo";
+  import { nextHarmonyView } from "./lib/harmonyViews";
   import { activeChordIndexAt, adjacentChordGridIndex, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordStatistics, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, nextChordPanelView, presentChordLabel, presentChordSequence, visibleChords, type ChordAccidentalMode, type ChordColorMode, type ChordPanelView } from "./lib/chordViews";
   import { applyChordEdits, centeredChordOptionScrollTop, chordEditKey, chordEditKeyboardAction, chordEditOptions, chordEditPointerAction, chordGridKeyboardAction, chordSuggestions, shouldSeekChordFromClick, updateChordEdits, validateChordEntry } from "./lib/chordEditing";
   import Icon from "./lib/Icon.svelte";
@@ -1054,10 +1055,14 @@
   }
 
   function cycleHarmonyView(): void {
+    const currentView = detailView === "lyrics" ? "lyrics" : harmonyView;
+    const nextView = nextHarmonyView(currentView);
+    if (nextView === "lyrics") {
+      detailView = "lyrics";
+      return;
+    }
     detailView = "instrument";
-    const views: Array<typeof harmonyView> = ["piano", "guitar", "ukulele"];
-    const index = views.indexOf(harmonyView);
-    harmonyView = views[(index + 1) % views.length] ?? "piano";
+    harmonyView = nextView;
   }
 
   function selectedChordIndex(): number {

@@ -136,8 +136,8 @@ Clicking a timed chord or lyric seeks to its timestamp without changing the
 selected navigation mode. Loop magnetism uses chord boundaries in Chord mode,
 synchronized line starts in Lyrics mode, and Beat This! beats in Time or Beat
 mode, falling back to beats while chord data is unavailable. `I` cycles the
-piano, guitar, and ukulele views. Global shortcuts remain inactive while editing
-text.
+piano, guitar, ukulele, and lyrics views. Global shortcuts remain inactive while
+editing text.
 The detailed waveform places those same visible chord segments in a compact,
 clickable lane using the waveform viewport and playhead, so zooming, panning,
 automatic follow, chord filtering, edits, and transposition remain synchronized.
