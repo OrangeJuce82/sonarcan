@@ -1,9 +1,11 @@
-# SonArcan 0.1.1-beta.1
+# SonArcan 0.1.1-beta.2
 
-This beta reduces WebView rendering work during playback and exposes the raw
-beat post-processing status needed to keep rhythm presentation explicit. It
-also retains the guided, verified first-run model setup and four-stem profiles
-introduced in the previous beta.
+This beta adds Lyrics to the harmony-view shortcut. Pressing `I` now cycles
+through Piano, Guitar, Ukulele, and Lyrics before returning to Piano.
+
+It retains the WebView playback rendering improvements, explicit raw beat
+post-processing status, guided and verified first-run model setup, and
+four-stem profiles introduced in previous betas.
 
 Windows YouTube searches and imports now keep their `yt-dlp` process hidden
 instead of flashing a terminal window. SonArcan Light also restores the global
@@ -73,7 +75,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.1-beta.1
+version=v0.1.1-beta.2
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -94,7 +96,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.1-beta.1'
+$version = 'v0.1.1-beta.2'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -119,6 +121,7 @@ PowerShell stops before reconstruction if a part is missing or altered.
 
 ## Other improvements
 
+- The `I` shortcut treats Lyrics as part of the harmony-view cycle.
 - Playback status remains sampled at 20 Hz, while expensive Svelte position
   updates are bounded to 10 Hz and still react immediately at chord, lyric, and
   metronome boundaries.
