@@ -5,6 +5,11 @@ beat post-processing status needed to keep rhythm presentation explicit. It
 also retains the guided, verified first-run model setup and four-stem profiles
 introduced in the previous beta.
 
+Windows YouTube searches and imports now keep their `yt-dlp` process hidden
+instead of flashing a terminal window. SonArcan Light also restores the global
+A/B loop shortcuts and makes synchronized Lyrics navigation and loop snapping
+available without installing any analysis model.
+
 ## First-run model installation
 
 On the first Full-edition launch, SonArcan downloads SCNet-large, HTDemucs, and

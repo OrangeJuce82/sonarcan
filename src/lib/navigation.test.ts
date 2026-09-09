@@ -18,6 +18,7 @@ test("analysis navigation falls back to time until its data is available", () =>
 test("only validated navigation modes can be selected or cycled", () => {
   assert.deepEqual(availableNavigationModes([], [], []), ["time"]);
   assert.deepEqual(availableNavigationModes([1], chords, []), ["time", "beat", "chord"]);
+  assert.deepEqual(availableNavigationModes([], [], [2]), ["time", "lyrics"]);
   assert.equal(navigationModeAvailable("lyrics", [1], chords, []), false);
   assert.equal(navigationModeAvailable("lyrics", [], [], [2]), true);
 });

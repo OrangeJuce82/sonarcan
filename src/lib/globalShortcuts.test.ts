@@ -36,7 +36,10 @@ test("Space toggles playback over controls but not while entering text", () => {
 });
 
 test("global shortcuts ignore composition and command modifiers", () => {
+  const button = Object.assign(new EventTarget(), { closest: () => null });
   assert.equal(shouldHandleGlobalShortcut(shortcutEvent()), true);
+  assert.equal(shouldHandleGlobalShortcut(shortcutEvent({ key: "a", target: button })), true);
+  assert.equal(shouldHandleGlobalShortcut(shortcutEvent({ key: "b", target: button })), true);
   assert.equal(shouldHandleGlobalShortcut(shortcutEvent({ isComposing: true })), false);
   assert.equal(shouldHandleGlobalShortcut(shortcutEvent({ metaKey: true })), false);
   assert.equal(shouldHandleGlobalShortcut(shortcutEvent({ ctrlKey: true })), false);

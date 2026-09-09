@@ -84,8 +84,10 @@ timeouts, missing drivers, unavailable devices, and silent CPU fallback. Rust
 keeps the result as session state and rejects analysis IPC when the probe has not
 succeeded, independently of UI visibility. In degraded mode the UI does not
 render Beat, Chords, Mix, BPM, or the analysis-driven metronome; navigation is
-Time-only, while playback, lyrics, spectrum, and the stereo meter remain
-available. The explanation is persisted as a once-per-user-profile notice.
+Time or Lyrics when synchronized lyric lines are available, while playback,
+lyrics, spectrum, and the stereo meter remain available. Loop snapping follows
+those synchronized lines in Lyrics mode. The explanation is persisted as a
+once-per-user-profile notice.
 The compile-time `SONARCAN_EDITION` contract defaults to `full` for development
 and accepts only `full` or `light`. Full Windows/Linux release builds also pin
 `SONARCAN_GPU_BACKEND` to `nvidia` or `amd`; source builds without that explicit

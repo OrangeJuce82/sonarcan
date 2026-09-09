@@ -301,12 +301,17 @@
     || chordAnalysis.dbnBeats.length
   ));
   $: lyricNavigationPoints = lyricsNavigationPositions(lyricsDocument, durationSeconds);
-  $: availableNavigationModeOptions = analysisFeaturesAvailable
-    ? availableNavigationModes(activeBeats, timelineChords, lyricNavigationPoints)
-    : ["time"];
-  $: activeNavigationMode = analysisFeaturesAvailable
-    ? effectiveNavigationMode(preferences.navigationMode, activeBeats, timelineChords, lyricNavigationPoints)
-    : "time";
+  $: availableNavigationModeOptions = availableNavigationModes(
+    analysisFeaturesAvailable ? activeBeats : [],
+    analysisFeaturesAvailable ? timelineChords : [],
+    lyricNavigationPoints,
+  );
+  $: activeNavigationMode = effectiveNavigationMode(
+    preferences.navigationMode,
+    analysisFeaturesAvailable ? activeBeats : [],
+    analysisFeaturesAvailable ? timelineChords : [],
+    lyricNavigationPoints,
+  );
   $: loopSnapAvailable = activeNavigationMode === "chord"
     ? Boolean(timelineChords.length || activeBeats.length)
     : activeNavigationMode === "lyrics"
@@ -1026,8 +1031,9 @@
   }
 
   function changeNavigationMode(mode: NavigationMode): void {
-    if (!analysisFeaturesAvailable && mode !== "time") return;
-    if (!navigationModeAvailable(mode, activeBeats, timelineChords, lyricNavigationPoints)) return;
+    const availableBeats = analysisFeaturesAvailable ? activeBeats : [];
+    const availableChords = analysisFeaturesAvailable ? timelineChords : [];
+    if (!navigationModeAvailable(mode, availableBeats, availableChords, lyricNavigationPoints)) return;
     if (mode === "lyrics") detailView = "lyrics";
     if (preferences.navigationMode === mode) return;
     preferences = { ...preferences, navigationMode: mode };
@@ -1202,13 +1208,13 @@
         event.preventDefault();
         if (!event.repeat) cycleHarmonyView();
       }
+      else if (key === "a" && project) { event.preventDefault(); setLoopA(); }
+      else if (key === "b" && project) { event.preventDefault(); setLoopB(); }
       else if (target?.closest("button, a[href]") || !project) return;
       else if (trackOffset) {
         event.preventDefault();
         if (!event.repeat) moveTrack(trackOffset);
       }
-      else if (key === "a") { event.preventDefault(); setLoopA(); }
-      else if (key === "b") { event.preventDefault(); setLoopB(); }
       else if (key === "l") { event.preventDefault(); toggleLoop(); }
       else if (event.key === "Escape") { event.preventDefault(); clearLoop(); }
       else if (event.key === "ArrowLeft") { event.preventDefault(); navigate(-1); }
@@ -3941,7 +3947,7 @@
             <div class="load-states">{#if audioLoading}<span><i class="mini-spinner"></i>{t("loadingAudio")}</span>{/if}{#if waveformLoading}<span><i class="mini-spinner"></i>{t("waveformLoading")}</span>{/if}</div>
           </div>
           <div class="navigation-controls">
-            <label class="navigation-mode"><span>{t("navigation")}</span><select value={activeNavigationMode} onchange={(event) => changeNavigationMode(event.currentTarget.value as NavigationMode)} aria-keyshortcuts="N"><option value="time">{t("navigationTime")} · {preferences.navigationTimeSeconds} {t("secondsShort")}</option>{#if analysisFeaturesAvailable}<option value="beat" disabled={!availableNavigationModeOptions.includes("beat")}>{t("navigationBeat")}</option><option value="chord" disabled={!availableNavigationModeOptions.includes("chord")}>{t("navigationChord")}</option><option value="lyrics" disabled={!availableNavigationModeOptions.includes("lyrics")}>{lyricsTranslate(language, "navigationLyrics")}</option>{/if}</select></label>
+            <label class="navigation-mode"><span>{t("navigation")}</span><select value={activeNavigationMode} onchange={(event) => changeNavigationMode(event.currentTarget.value as NavigationMode)} aria-keyshortcuts="N"><option value="time">{t("navigationTime")} · {preferences.navigationTimeSeconds} {t("secondsShort")}</option>{#if analysisFeaturesAvailable}<option value="beat" disabled={!availableNavigationModeOptions.includes("beat")}>{t("navigationBeat")}</option><option value="chord" disabled={!availableNavigationModeOptions.includes("chord")}>{t("navigationChord")}</option>{/if}<option value="lyrics" disabled={!availableNavigationModeOptions.includes("lyrics")}>{lyricsTranslate(language, "navigationLyrics")}</option></select></label>
             <button
               type="button"
               class="follow-playhead"
@@ -4138,8 +4144,8 @@
         <div class="control-block loop-controls">
           <span class="control-block-label">{t("loop")}</span>
           <div class="control-group loop-actions">
-            <button class="loop-action-a" onclick={setLoopA} ondblclick={(event) => resetLoopBoundary(event, "a")} aria-label={`${t("moveA")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveA")} · ${t("doubleClickResetA")}`}>A</button>
-            <button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button>
+            <button class="loop-action-a" onclick={setLoopA} ondblclick={(event) => resetLoopBoundary(event, "a")} aria-keyshortcuts="A" aria-label={`${t("moveA")}. ${t("doubleClickResetA")}`} data-tooltip={`${t("moveA")} · ${t("doubleClickResetA")}`}>A</button>
+            <button class="loop-action-b" onclick={setLoopB} ondblclick={(event) => resetLoopBoundary(event, "b")} aria-keyshortcuts="B" aria-label={`${t("moveB")}. ${t("doubleClickResetB")}`} data-tooltip={`${t("moveB")} · ${t("doubleClickResetB")}`}>B</button>
             <i class="control-separator" aria-hidden="true"></i>
             <button class:active={loopEnabled} onclick={toggleLoop} aria-pressed={loopEnabled} aria-label={t("toggleLoop")} data-tooltip={t("toggleLoop")}><Icon name="infinity" size="14px" /></button>
             <button class="loop-snap-button" class:active={loopSnapEnabled} disabled={!loopSnapAvailable} onclick={toggleLoopSnap} aria-pressed={loopSnapEnabled} aria-label={t("loopSnap")} data-tooltip={activeNavigationMode === "chord" ? t("loopSnapChordHelp") : activeNavigationMode === "lyrics" ? lyricsTranslate(language, "loopSnapLyricsHelp") : t("loopSnapBeatHelp")}><Icon name="magnet" size="12px" /></button>
@@ -4594,7 +4600,7 @@
       <div class="preferences-grid" onchange={autosavePreferences}>
         <section><h3>{t("shortcutInterface")}</h3><label>{t("language")}<select value={preferences.language} onchange={(event) => { event.stopPropagation(); changeLanguage(event.currentTarget.value as Language); }}>{#each languageOptions as option}<option value={option.value}>{option.label}</option>{/each}</select></label><label>{t("theme")}<select bind:value={preferences.theme}><option value="system">{t("system")}</option><option value="dark">{t("dark")}</option><option value="light">{t("light")}</option></select></label><label>{t("timeDisplay")}<select bind:value={preferences.timeDisplay}><option value="simple">{t("timeDisplaySimple")}</option><option value="precise">{t("timeDisplayPrecise")}</option></select></label><label>{t("notificationDuration")}<span class="preference-number"><input type="number" min="1" max="10" bind:value={preferences.toastDurationSeconds} /><small>{t("seconds")}</small></span></label></section>
         <section><h3>{t("audio")}{#if analysisFeaturesAvailable} · {t("metronome")}{/if}</h3><label>{t("masterVolume")}<input class="master-volume-preference" type="range" min="0" max="2" step="0.01" bind:value={preferences.masterVolume} style={`--master-volume-color: ${masterVolumeColor(preferences.masterVolume)}`} ondblclick={() => resetPreferenceVolume("masterVolume")} /></label><label>{t("musicVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.musicVolume} ondblclick={() => resetPreferenceVolume("musicVolume")} /></label><label>{t("loudnessNormalization")}<input type="checkbox" bind:checked={preferences.loudnessNormalization} /></label>{#if analysisFeaturesAvailable}<label>{t("metronomeVolume")}<input type="range" min="0" max="1" step="0.01" bind:value={preferences.metronomeVolume} ondblclick={() => resetPreferenceVolume("metronomeVolume")} /></label><label>{t("metronomeSound")}<select bind:value={preferences.metronomeSound}><option value="electronic">{t("metronomeElectronic")}</option><option value="woodblock">{t("metronomeWoodblock")}</option><option value="metallic">{t("metronomeMetallic")}</option></select></label>{/if}</section>
-        <section><h3>{t("navigation")} · {t("loop")}</h3>{#if analysisFeaturesAvailable}<label>{t("beatModeDefault")}<select bind:value={preferences.beatThisDbn}><option value={false}>Beat This!</option><option value={true}>{t("beatThisDbn")}</option></select></label><label>{t("chordAnalysisType")}<select bind:value={preferences.chordMode}><option value="essential">{t("chordEssential")}</option><option value="standard">{t("chordStandard")}</option><option value="complete">{t("chordComplete")}</option></select></label><label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option><option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option><option value="lyrics">{lyricsTranslate(language, "navigationLyrics")}</option></select></label>{/if}<label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label></section>
+        <section><h3>{t("navigation")} · {t("loop")}</h3>{#if analysisFeaturesAvailable}<label>{t("beatModeDefault")}<select bind:value={preferences.beatThisDbn}><option value={false}>Beat This!</option><option value={true}>{t("beatThisDbn")}</option></select></label><label>{t("chordAnalysisType")}<select bind:value={preferences.chordMode}><option value="essential">{t("chordEssential")}</option><option value="standard">{t("chordStandard")}</option><option value="complete">{t("chordComplete")}</option></select></label>{/if}<label>{t("navigationDefault")}<select bind:value={preferences.navigationMode}><option value="time">{t("navigationTime")}</option>{#if analysisFeaturesAvailable}<option value="beat">{t("navigationBeat")}</option><option value="chord">{t("navigationChord")}</option>{/if}<option value="lyrics">{lyricsTranslate(language, "navigationLyrics")}</option></select></label><label>{t("navigationTimeStep")}<span class="preference-number"><input type="number" min="1" max="60" bind:value={preferences.navigationTimeSeconds} /><small>{t("seconds")}</small></span></label><label>{t("loopLoadPosition")}<select bind:value={preferences.loopLoadPosition}><option value="beginning">{t("fromBeginning")}</option><option value="loopStart">{t("fromLoopStart")}</option></select></label><label>{t("loopSnap")}<input type="checkbox" bind:checked={preferences.loopSnapEnabled} /></label></section>
         <section><h3>{t("training")}</h3><label>{t("startSpeed")}<input type="number" min="50" max="199" value={preferences.defaultTrainerStartRate * 100} onchange={(event) => preferences.defaultTrainerStartRate = Number(event.currentTarget.value) / 100} /></label><label>{t("endSpeed")}<input type="number" min="51" max="200" value={preferences.defaultTrainerTargetRate * 100} onchange={(event) => preferences.defaultTrainerTargetRate = Number(event.currentTarget.value) / 100} /></label><label>{t("stepSize")}<input type="number" min="1" max="25" value={preferences.defaultTrainerIncrement * 100} onchange={(event) => preferences.defaultTrainerIncrement = Number(event.currentTarget.value) / 100} /></label><label>{t("loopsPerStep")}<input type="number" min="1" max="99" bind:value={preferences.defaultTrainerRepetitions} /></label></section>
         <section><h3>{t("visualizations")}</h3><label>{t("visualizationOne")}<select value={preferences.visualizationSlotOne} onchange={(event) => { event.stopPropagation(); changeVisualization(1, event.currentTarget.value as VisualizationKind); }}>{#each visualizationKinds as kind}<option value={kind}>{t(kind === "spectrum" ? "spectrum" : kind === "meter" ? "stereoMeter" : "energyHistory")}</option>{/each}</select></label><label>{t("visualizationTwo")}<select value={preferences.visualizationSlotTwo} onchange={(event) => { event.stopPropagation(); changeVisualization(2, event.currentTarget.value as VisualizationKind); }}>{#each visualizationKinds as kind}<option value={kind}>{t(kind === "spectrum" ? "spectrum" : kind === "meter" ? "stereoMeter" : "energyHistory")}</option>{/each}</select></label></section>
         <section class="preferences-section-wide"><h3>{t("importSettings")} · {t("conversionFormat")}</h3><label>{t("simultaneousDownloads")}<input type="number" min="1" max="8" bind:value={preferences.concurrentDownloads} /></label><label>{t("youtubeAutoSelectBestMatch")}<input type="checkbox" bind:checked={preferences.youtubeAutoSelectBestMatch} /></label><label>{t("conversionFormat")}<select bind:value={preferences.conversionFormat}><option value="keep">{t("keepSupported")}</option><option value="mp3">MP3</option><option value="wav">WAV</option><option value="flac">FLAC</option></select></label><label>{t("mp3Quality")}<select bind:value={preferences.mp3Quality}><option value="vbrHigh">{t("mp3VbrHigh")}</option><option value="kbps320">320 kb/s</option><option value="kbps256">256 kb/s</option><option value="kbps192">192 kb/s</option></select></label><label>{t("sampleRate")}<select bind:value={preferences.sampleRate}><option value="preserve">{t("preserve")}</option><option value="hz44100">44.1 kHz</option><option value="hz48000">48 kHz</option></select></label><label>{t("channels")}<select bind:value={preferences.channels}><option value="preserve">{t("preserve")}</option><option value="stereo">{t("stereo")}</option><option value="mono">{t("mono")}</option></select></label></section>

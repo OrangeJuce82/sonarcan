@@ -37,8 +37,22 @@ impl YtDlpCommand {
     pub(crate) fn command(&self) -> Command {
         let mut command = Command::new(&self.executable);
         command.args(&self.prefix_arguments);
+        suppress_console_window(&mut command);
         command
     }
+}
+
+fn suppress_console_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    #[cfg(not(windows))]
+    let _ = command;
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1001,7 +1015,9 @@ pub(crate) fn ytdlp_command() -> Result<YtDlpCommand, AppError> {
 }
 
 fn ensure_ytdlp() -> Result<PathBuf, AppError> {
-    if Command::new("yt-dlp")
+    let mut probe = Command::new("yt-dlp");
+    suppress_console_window(&mut probe);
+    if probe
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1116,6 +1132,20 @@ mod tests {
             "%(playlist_index&{} - |)s%(title).180B.%(ext)s"
         );
         assert!(!YOUTUBE_OUTPUT_TEMPLATE.contains("%(id)"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hidden_ytdlp_commands_still_capture_output() {
+        let tool = YtDlpCommand {
+            executable: PathBuf::from("cmd.exe"),
+            prefix_arguments: vec!["/D".into(), "/C".into(), "echo".into(), "hidden".into()],
+        };
+
+        let output = tool.command().output().unwrap();
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hidden");
     }
 
     #[test]
