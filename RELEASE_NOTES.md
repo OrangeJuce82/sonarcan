@@ -1,27 +1,30 @@
-# SonArcan 0.1.1-beta.2
+# SonArcan 0.1.1-beta.3
 
-This beta adds Lyrics to the harmony-view shortcut. Pressing `I` now cycles
-through Piano, Guitar, Ukulele, and Lyrics before returning to Piano.
+This beta removes the separate Light edition and its duplicate build pipeline.
+SonArcan is now one application with target-specific packages: qualified GPU
+builds expose local Beat, Chords, and Mix analysis, while standard Windows and
+Linux packages retain the safe simplified mode without requiring a GPU.
 
-It retains the WebView playback rendering improvements, explicit raw beat
-post-processing status, guided and verified first-run model setup, and
-four-stem profiles introduced in previous betas.
+The waveform gains aligned marker, chord, and synchronized-lyrics lanes. Their
+blocks can be created, renamed, resized, aligned across lanes with Shift, or
+removed from an explicit right-click menu. Chord editing reuses the grid's full
+validated option selector and Shift can replace every matching chord.
 
-Windows YouTube searches and imports now keep their `yt-dlp` process hidden
-instead of flashing a terminal window. SonArcan Light also restores the global
-A/B loop shortcuts and makes synchronized Lyrics navigation and loop snapping
-available without installing any analysis model.
+Imports now distinguish YouTube and SoundCloud searches and recognize direct
+SoundCloud, Bandcamp, and Mixcloud links. Provider chapters become navigable
+track markers when available. Marker navigation joins the `N` shortcut cycle,
+and older project practice values are normalized safely when reopened.
 
 ## First-run model installation
 
-On the first Full-edition launch, SonArcan downloads SCNet-large, HTDemucs, and
+On the first launch with a qualified GPU backend, SonArcan downloads SCNet-large, HTDemucs, and
 Beat This! one at a time from their pinned upstream locations. The welcome
 screen identifies each model and shows both per-model and overall progress.
 Every checkpoint is checked against its expected byte length and SHA-256 digest
 before it is moved atomically into the application cache. An interrupted or
 invalid download is never used and can be retried from the same screen.
 
-LV-Chordia remains bundled with the Full runtime and its five checkpoints are
+LV-Chordia remains bundled with the shared analysis runtime and its five checkpoints are
 verified before the workspace opens. Subsequent launches reuse all verified
 cached models, so the network setup happens only once unless the cache is
 removed or a future release changes a checkpoint.
@@ -38,16 +41,17 @@ memory-constrained Macs.
 | Release name | Computer | Beat, Chords, Mix | Included compute runtime |
 | --- | --- | --- | --- |
 | SonArcan | Apple-silicon Mac (M1 or newer) | Yes | Apple MLX and MPS |
+| SonArcan | Windows x64 or Linux x64 without a qualified GPU backend | No; simplified mode | Shared CPU runtime |
 | SonArcan NVIDIA GPU | Windows x64 or Linux x64 with a compatible NVIDIA GPU | Yes, after the startup probe succeeds | PyTorch CUDA 12.6 |
 | SonArcan AMD GPU | Linux x64 with a ROCm 7.2-compatible AMD GPU | Yes, after the startup probe succeeds | PyTorch ROCm 7.2 |
-| SonArcan Light | Apple-silicon Mac, Intel Mac, Windows x64, or Linux x64 | No | No ML runtime or models |
 
 There is no AMD GPU edition for Windows in this beta. AMD's Windows support is
 currently limited to selected recent GPUs and requires a separate Python 3.12
-runtime, which has not yet completed SonArcan's release qualification. Use
-SonArcan Light on an AMD-only Windows computer. Intel GPUs are not qualified yet.
+runtime, which has not yet completed SonArcan's release qualification. Use the
+standard SonArcan build in simplified mode on an AMD-only Windows computer.
+Intel GPUs are not qualified yet.
 
-Full GPU releases never run Beat, Chords, or Mix silently on the CPU. At every
+GPU releases never run Beat, Chords, or Mix silently on the CPU. At every
 application launch, SonArcan exercises the actual production model graphs on the detected
 accelerator. If the driver, device, runtime, model, memory, or inference result
 is incompatible, SonArcan enters safe degraded mode for that session. Beat,
@@ -55,18 +59,14 @@ Chords, Mix, BPM, the analysis metronome, and the piano/guitar/ukulele chord
 views are hidden; playback, time navigation, lyrics, spectrum, and stereo meters
 remain available. The explanation is shown once per user profile.
 
-Light is the smallest and safest download for older hardware. It physically
-excludes Torch, MLX, the analysis models, and the chord-instrument frontend
-assets rather than merely hiding them.
-
 ## GPU download format
 
 CUDA and ROCm runtimes are too large for GitHub's 2 GiB limit per release file.
 Each GPU package is therefore split into numbered `part-000`, `part-001`, …
 files, accompanied by a platform/backend-specific `SHA256SUMS` file. Download
-every part for one edition, plus its matching `SHA256SUMS` file, into the same
-directory. Linux Light is published as DEB and AppImage; macOS and Windows
-Light remain conventional single-file downloads.
+every part for one backend, plus its matching `SHA256SUMS` file, into the same
+directory. Standard Linux is published as DEB and AppImage; macOS and standard
+Windows remain conventional single-file downloads.
 
 ### Linux NVIDIA or AMD
 
@@ -75,7 +75,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.1-beta.2
+version=v0.1.1-beta.3
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -85,7 +85,7 @@ sudo apt install "./SonArcan-${backend}-GPU.deb"
 Do not install the reconstructed package if `sha256sum` reports a missing file
 or a checksum failure.
 
-On distributions without DEB support, use the Light AppImage: make it executable
+On distributions without DEB support, use the standard AppImage: make it executable
 with `chmod +x ./<downloaded-file>.AppImage`, then launch it directly. GPU
 editions are currently distributed only as DEB packages.
 
@@ -96,7 +96,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.1-beta.2'
+$version = 'v0.1.1-beta.3'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -121,27 +121,18 @@ PowerShell stops before reconstruction if a part is missing or altered.
 
 ## Other improvements
 
-- The `I` shortcut treats Lyrics as part of the harmony-view cycle.
-- Playback status remains sampled at 20 Hz, while expensive Svelte position
-  updates are bounded to 10 Hz and still react immediately at chord, lyric, and
-  metronome boundaries.
-- The detailed and overview playheads now move on isolated composited
-  transforms instead of layout-affecting `left` updates. The seek control and
-  position readout keep the full status cadence without invalidating the main
-  component tree.
-- Beat post-processing exposes its raw status so the selected presentation mode
-  remains distinguishable from the detected source timeline.
-- Synchronized lyrics are displayed directly on the waveform.
-- Chord blocks can show their beat counts, and analysis navigation behaves more
-  consistently across beat, chord, lyric, and time modes.
-- Practice controls and the desktop release variants have been refined.
-- Playback interface rendering is bounded to reduce avoidable GPU and UI load.
-- Worker contract tests remain dependency-free, and CI now uses the same Python
-  3.13 generation required by the packaged workers on every platform.
-- Light release jobs run only the shared application checks and Light leakage
-  verifiers; model-worker suites and accelerator qualifications run only for
-  Full editions.
-- Linux Light is available as DEB and AppImage, while Linux GPU editions are
-  published as DEB.
+- Timeline lanes, waveform, overview, time scale, playback slider, help,
+  transport, loop, and metronome controls share one horizontal axis.
+- Shift can be pressed before or during a timeline-edge drag to snap to another
+  category without changing the independent A/B loop magnet preference.
+- Import provider selection is highlighted, source logos remain beside
+  relevance information, and long failed-import titles wrap instead of being
+  truncated.
+- Standard Windows and Linux builds carry the shared runtime needed for imports
+  but never enable heavy analysis without a qualified accelerator build.
+- Release and CI jobs use one application contract and no longer maintain Light
+  aliases, manifests, runtime builders, or verification branches.
+- Existing analysis caches and `.sac` project data remain preserved when the
+  application runs in simplified mode.
 
 See the README for detailed minimum configurations and installation guidance.

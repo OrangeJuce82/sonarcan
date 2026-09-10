@@ -102,6 +102,8 @@ test("waveform lyric blocks share its zoomed viewport and clip edge lines", () =
   ]);
   document.offsetMs = 500;
   assert.equal(lyricsViewportBlocks(document, 12, 1, 0)[0]?.seekSeconds, 0.5);
+  document.lines[0].endMs = 7_000;
+  assert.equal(lyricsViewportBlocks(document, 12, 1, 0)[0]?.widthPercent, 4 / 12 * 100);
   assert.deepEqual(lyricsViewportBlocks(parseLyrics("One\nTwo", "en"), 12, 1, 0), []);
   assert.deepEqual(lyricsViewportBlocks(document, Number.NaN, 1, 0), []);
   assert.deepEqual(lyricsViewportBlocks(document, 12, Number.NaN, 0), []);

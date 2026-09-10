@@ -81,6 +81,17 @@ export interface PracticeState {
   stemMix: StemMix[];
   stemNames: string[];
   chordEdits: ChordEdit[];
+  chordTimelines?: ChordTimeline[];
+  markers?: TrackMarker[];
+}
+
+export type MarkerOrigin = "source" | "detected" | "user";
+export interface TrackMarker {
+  id: string;
+  label: string;
+  startSeconds: number;
+  endSeconds?: number | null;
+  origin: MarkerOrigin;
 }
 
 export interface ProjectSummary {
@@ -107,8 +118,7 @@ export interface DiagnosticsSnapshot {
 export interface AnalysisCapabilities {
   accelerated: boolean;
   backend: string | null;
-  edition: "full" | "light";
-  reason: "editionLight" | "acceleratorUnavailable" | null;
+  reason: "acceleratorUnavailable" | null;
 }
 
 export type { ModelInstallProgress, ModelInstallResult } from "./modelInstallation";
@@ -172,6 +182,16 @@ export interface ChordEdit {
   endSeconds: number;
   label: string;
 }
+export interface ChordRegion {
+  id: string;
+  label: string;
+  startSeconds: number;
+  endSeconds: number;
+}
+export interface ChordTimeline {
+  mode: ChordMode;
+  regions: ChordRegion[];
+}
 export type MetronomeSound = "electronic" | "woodblock" | "metallic";
 
 export interface ChordAnalysis {
@@ -213,7 +233,7 @@ export type ChannelPreference = "preserve" | "stereo" | "mono";
 export type Mp3Quality = "vbrHigh" | "kbps320" | "kbps256" | "kbps192";
 export type LoopLoadPosition = "beginning" | "loopStart";
 export type TimeDisplay = "simple" | "precise";
-export type NavigationMode = "time" | "beat" | "chord" | "lyrics";
+export type NavigationMode = "time" | "beat" | "chord" | "marker" | "lyrics";
 export type VisualizationKind = "spectrum" | "meter" | "energy";
 export type SpectrumStyle = "bars" | "curve";
 export type SpectrumRange = "full" | "low" | "mid" | "high";
@@ -222,8 +242,10 @@ export type MeterUnit = "percent" | "dbfs";
 export type MeterPeakHold = "off" | "oneSecond" | "threeSeconds";
 export type StemSeparationProfile = "fast" | "hq";
 export type VisualizationSetting = "spectrumStyle" | "spectrumRange" | "visualizationResponse" | "meterUnit" | "meterPeakHold" | "energyWindowSeconds";
-export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; chordMode: ChordMode; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; visualizationSlotOne: VisualizationKind; visualizationSlotTwo: VisualizationKind; spectrumStyle: SpectrumStyle; spectrumRange: SpectrumRange; visualizationResponse: VisualizationResponse; meterUnit: MeterUnit; meterPeakHold: MeterPeakHold; energyWindowSeconds: number; degradedAnalysisNoticeSeen: boolean; lightEditionNoticeSeen: boolean; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
+export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; chordMode: ChordMode; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; visualizationSlotOne: VisualizationKind; visualizationSlotTwo: VisualizationKind; spectrumStyle: SpectrumStyle; spectrumRange: SpectrumRange; visualizationResponse: VisualizationResponse; meterUnit: MeterUnit; meterPeakHold: MeterPeakHold; energyWindowSeconds: number; degradedAnalysisNoticeSeen: boolean; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
 export type ImportJobState = "queued" | "downloading" | "converting" | "importing" | "completed" | "failed";
+export type ImportProvider = "youtube" | "soundcloud" | "bandcamp" | "mixcloud" | "web" | "local";
+export type SearchProvider = "youtube" | "soundcloud";
 export interface ImportJob { id: string; label: string; state: ImportJobState; progress: number; error: string | null; suggestion: string | null; diagnostic: string | null; }
-export interface ImportCandidate { input: string; title: string; detail: string; kind: "local" | "video" | "playlist" | "search"; matchScore?: number; thumbnailUrl?: string; videoId?: string; }
+export interface ImportCandidate { input: string; title: string; detail: string; kind: "local" | "video" | "playlist" | "search"; matchScore?: number; thumbnailUrl?: string; videoId?: string; provider?: ImportProvider; sourceUrl?: string; }
 export interface AppLogEntry { timestampMs: number; origin: string; level: string; message: string; }

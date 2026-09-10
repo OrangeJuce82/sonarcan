@@ -130,7 +130,7 @@ pub fn beat_this_path(app: &AppHandle) -> Result<PathBuf, AppError> {
 }
 
 pub fn prepare(app: &AppHandle) -> Result<ModelInstallResult, AppError> {
-    if crate::application_edition() != "full" {
+    if !crate::accelerated_analysis_available() {
         emit(app, "runtime", "Runtime", "complete", 1.0, 0, 0, 1, 1);
         return Ok(ModelInstallResult {
             installed: false,

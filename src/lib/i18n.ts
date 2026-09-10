@@ -22,8 +22,6 @@ const baseMessages = {
   en: {
     degradedAnalysisTitle: "Limited experience on this computer",
     degradedAnalysisMessage: "No compatible, qualified GPU accelerator is available. To protect system stability, Beat, Chords, Mix, BPM, and metronome analysis have been disabled. Playback, time navigation, lyrics, spectrum, and the stereo meter remain available.",
-    lightEditionTitle: "SonArcan Light",
-    lightEditionMessage: "This lightweight edition intentionally omits Beat, Chords, Mix, BPM, and the analysis metronome. Playback, time navigation, lyrics, spectrum, and the stereo meter remain available.",
     resetChordEdits: "Reset to the original analysis",
     chordEditMode: "Chord edit mode", chordEditModeHelp: "Enable or disable chord editing (E)", noChord: "No chord",
     checkingProjects: "Checking for recent projects…",
@@ -61,8 +59,6 @@ const baseMessages = {
   fr: {
     degradedAnalysisTitle: "Expérience limitée sur cet ordinateur",
     degradedAnalysisMessage: "Aucun accélérateur GPU compatible et qualifié n’est disponible. Pour préserver la stabilité du système, Beat, Accords, Mix, BPM et le métronome lié à l’analyse ont été désactivés. La lecture, la navigation temporelle, les paroles, le spectre et le VU-mètre restent disponibles.",
-    lightEditionTitle: "SonArcan Light",
-    lightEditionMessage: "Cette édition allégée n’inclut volontairement ni Beat, ni Accords, ni Mix, ni BPM, ni métronome lié à l’analyse. La lecture, la navigation temporelle, les paroles, le spectre et le VU-mètre restent disponibles.",
     resetChordEdits: "Rétablir les accords de l’analyse d’origine",
     chordEditMode: "Mode édition des accords", chordEditModeHelp: "Activer ou désactiver l’édition des accords (E)", noChord: "Aucun accord",
     checkingProjects: "Recherche des projets récents…",

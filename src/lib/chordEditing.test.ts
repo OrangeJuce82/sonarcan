@@ -58,9 +58,12 @@ test("simple chord navigation seeks horizontally while edit mode exposes editing
   assert.equal(chordGridKeyboardAction(true, "Enter"), "beginEdit");
 });
 
-test("option clicks validate edits while outside clicks cancel them", () => {
+test("plain and Shift option clicks request one or all replacements", () => {
   assert.equal(chordEditPointerAction("option", 0, false), "commit");
   assert.equal(chordEditPointerAction("option", 0, true), "commitAll");
+});
+
+test("outside clicks cancel chord editing", () => {
   assert.equal(chordEditPointerAction("outside", 0, false), "cancel");
   assert.equal(chordEditPointerAction("editor", 0, false), null);
   assert.equal(chordEditPointerAction("option", 1, false), null);

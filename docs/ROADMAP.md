@@ -115,6 +115,5 @@ project recovery, and cross-platform GPU editions.
 - [x] import cancellation and automatic completed-job pruning
 - [ ] import retry controls
 - [x] macOS Apple Silicon packaging with MLX
-- [x] macOS Intel Light packaging after current LV-Chordia/Torch wheels stopped supporting Full
-- [x] Linux x64 Light, NVIDIA CUDA, and AMD ROCm packaging
-- [x] Windows x64 Light and NVIDIA CUDA packaging
+- [x] single-edition Linux x64 standard, NVIDIA CUDA, and AMD ROCm packaging
+- [x] single-edition Windows x64 standard and NVIDIA CUDA packaging

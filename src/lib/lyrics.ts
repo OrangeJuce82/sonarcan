@@ -95,7 +95,12 @@ export function lyricsViewportBlocks(
     if (line.startMs === null) return [];
     const nextStartMs = document.lines[index + 1]?.startMs;
     const lineStart = (line.startMs + document.offsetMs) / 1_000;
-    const lineEnd = ((line.endMs ?? nextStartMs ?? durationSeconds * 1_000) + document.offsetMs) / 1_000;
+    const rawEndMs = Math.min(
+      line.endMs ?? Number.POSITIVE_INFINITY,
+      nextStartMs ?? Number.POSITIVE_INFINITY,
+      durationSeconds * 1_000 - document.offsetMs,
+    );
+    const lineEnd = (rawEndMs + document.offsetMs) / 1_000;
     const visibleStart = Math.max(0, viewportStart, lineStart);
     const visibleEnd = Math.min(durationSeconds, viewportEnd, lineEnd);
     if (visibleEnd <= visibleStart) return [];

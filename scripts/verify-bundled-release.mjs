@@ -78,35 +78,27 @@ const sharedPython = required(
     : join(resources, "python-runtime", "runtime", "bin", "python3.13"),
   "bundled shared Python 3.13",
 );
-const fullEdition = existsSync(join(resources, "python-runtime", "runtime", "share", "lv-chordia", "cache_data"));
-if (fullEdition) {
-  const chordOutput = run(sharedPython, [
-    "-c", "from sonarcan_chord_worker.engine import DICTIONARIES, verify_checkpoints; verify_checkpoints(); print(','.join(sorted(DICTIONARIES)))",
-  ], "bundled LV-Chordia worker", true);
-  if (chordOutput !== "complete,essential,standard") throw new Error("bundled LV-Chordia worker returned an invalid contract");
-  const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
+const chordOutput = run(sharedPython, [
+  "-c", "from sonarcan_chord_worker.engine import DICTIONARIES, verify_checkpoints; verify_checkpoints(); print(','.join(sorted(DICTIONARIES)))",
+], "bundled LV-Chordia worker", true);
+if (chordOutput !== "complete,essential,standard") throw new Error("bundled LV-Chordia worker returned an invalid contract");
+const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
+run(sharedPython, [
+  "-m", stemModule, "self-test",
+], `bundled ${appleSilicon ? "MLX" : "Torch"} stem worker`);
+if (appleSilicon) {
+  const chordAcceleratorOutput = run(sharedPython, [
+    "-c", "import torch; from lv_chordia.chord_recognition import load_ensemble; device=torch.device('mps'); value=torch.zeros((1,16,252),device=device); outputs=[output for member in load_ensemble(False,device=device) for output in member.net(value)]; assert all(torch.isfinite(output).all().item() for output in outputs); torch.mps.synchronize(); print('MPS')",
+  ], "bundled MPS LV-Chordia accelerator", true);
+  if (chordAcceleratorOutput !== "MPS") throw new Error("bundled LV-Chordia worker did not qualify MPS");
   run(sharedPython, [
-    "-m", stemModule, "self-test",
-  ], `bundled ${appleSilicon ? "MLX" : "Torch"} stem worker`);
-  if (appleSilicon) {
-    const chordAcceleratorOutput = run(sharedPython, [
-      "-c", "import torch; from lv_chordia.chord_recognition import load_ensemble; device=torch.device('mps'); value=torch.zeros((1,16,252),device=device); outputs=[output for member in load_ensemble(False,device=device) for output in member.net(value)]; assert all(torch.isfinite(output).all().item() for output in outputs); torch.mps.synchronize(); print('MPS')",
-    ], "bundled MPS LV-Chordia accelerator", true);
-    if (chordAcceleratorOutput !== "MPS") throw new Error("bundled LV-Chordia worker did not qualify MPS");
-    run(sharedPython, [
-      "-m", stemModule, "accelerator-self-test",
-    ], "bundled MLX stem accelerator");
-  } else if (gpuBackend) {
-    const qualification = gpuBackend === "nvidia"
-      ? "assert torch.version.cuda and not torch.version.hip"
-      : "assert torch.version.hip";
-    run(sharedPython, ["-c", `import torch; ${qualification}`], `bundled ${gpuBackend} GPU runtime`);
-  }
-} else {
-  run(sharedPython, [
-    "-c",
-    "import importlib.util; forbidden=('torch','mlx','lv_chordia','beat_this','scnet_infer','demucs_mlx'); assert not any(importlib.util.find_spec(name) for name in forbidden)",
-  ], "Light runtime heavy-package exclusion");
+    "-m", stemModule, "accelerator-self-test",
+  ], "bundled MLX stem accelerator");
+} else if (gpuBackend) {
+  const qualification = gpuBackend === "nvidia"
+    ? "assert torch.version.cuda and not torch.version.hip"
+    : "assert torch.version.hip";
+  run(sharedPython, ["-c", `import torch; ${qualification}`], `bundled ${gpuBackend} GPU runtime`);
 }
 
 const ffmpeg = required(join(resources, "audio-tools", "bin", `ffmpeg${suffix}`), "bundled FFmpeg");
@@ -122,7 +114,6 @@ console.log(JSON.stringify({
   resources,
   platform: process.platform,
   architecture: process.arch,
-  edition: fullEdition ? "full" : "light",
-  stemBackend: fullEdition ? appleSilicon ? "MLX" : "Torch" : null,
-  analysisAcceleratorQualified: fullEdition && (appleSilicon || Boolean(gpuBackend)),
+  stemBackend: appleSilicon ? "MLX" : "Torch",
+  analysisAcceleratorQualified: appleSilicon || Boolean(gpuBackend),
 }));

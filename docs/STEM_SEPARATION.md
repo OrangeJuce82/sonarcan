@@ -8,15 +8,15 @@ practice mixer:
 - **HQ** uses SCNet Large by starrytong with four-way overlap-add.
 
 Apple Silicon executes both profiles with MLX. NVIDIA Windows/Linux and AMD
-Linux execute the equivalent graphs with Torch through CUDA or ROCm. Light
-editions omit the workers. CPU-only separation is not exposed as a supported
-user experience.
+Linux execute the equivalent graphs with Torch through CUDA or ROCm. Builds
+without a qualified GPU backend keep the mixer disabled. CPU-only separation is
+not exposed as a supported user experience.
 
 ## User workflow
 
 1. An empty MIX panel presents Fast and HQ as two explicit buttons. There is no
    preselection and no separation profile in user preferences.
-2. The first Full-edition application launch downloads both verified checkpoints.
+2. The first launch with a qualified GPU backend downloads both verified checkpoints.
    Choosing a profile later prepares the platform graph, then separates vocals,
    drums, bass, and other.
 3. The first-run screen covers downloads and verification. The mixer progress bar covers model preparation, audio loading,

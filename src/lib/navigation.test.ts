@@ -9,18 +9,21 @@ const chords: TimedChord[] = [
 ];
 
 test("analysis navigation falls back to time until its data is available", () => {
-  assert.equal(effectiveNavigationMode("beat", [], chords, [2]), "time");
-  assert.equal(effectiveNavigationMode("chord", [1], [], [2]), "time");
-  assert.equal(effectiveNavigationMode("lyrics", [1], chords, []), "time");
-  assert.equal(navigationPosition("beat", 12, 1, 10, [], chords, [2]), 22);
+  assert.equal(effectiveNavigationMode("beat", [], chords, [3], [2]), "time");
+  assert.equal(effectiveNavigationMode("chord", [1], [], [3], [2]), "time");
+  assert.equal(effectiveNavigationMode("marker", [1], chords, [], [2]), "time");
+  assert.equal(effectiveNavigationMode("lyrics", [1], chords, [3], []), "time");
+  assert.equal(navigationPosition("beat", 12, 1, 10, [], chords, [3], [2]), 22);
 });
 
 test("only validated navigation modes can be selected or cycled", () => {
-  assert.deepEqual(availableNavigationModes([], [], []), ["time"]);
-  assert.deepEqual(availableNavigationModes([1], chords, []), ["time", "beat", "chord"]);
-  assert.deepEqual(availableNavigationModes([], [], [2]), ["time", "lyrics"]);
-  assert.equal(navigationModeAvailable("lyrics", [1], chords, []), false);
-  assert.equal(navigationModeAvailable("lyrics", [], [], [2]), true);
+  assert.deepEqual(availableNavigationModes([], [], [], []), ["time"]);
+  assert.deepEqual(availableNavigationModes([1], chords, [3], []), ["time", "beat", "chord", "marker"]);
+  assert.deepEqual(availableNavigationModes([], [], [], [2]), ["time", "lyrics"]);
+  assert.equal(navigationModeAvailable("marker", [1], chords, [], []), false);
+  assert.equal(navigationModeAvailable("marker", [], [], [3], []), true);
+  assert.equal(navigationModeAvailable("lyrics", [1], chords, [3], []), false);
+  assert.equal(navigationModeAvailable("lyrics", [], [], [], [2]), true);
 });
 
 test("beat navigation moves to the adjacent detected beat", () => {
@@ -39,16 +42,23 @@ test("previous track restarts the current track unless it is already at the begi
 });
 
 test("the magnet follows chord mode and otherwise uses beats", () => {
-  assert.equal(snappedNavigationPosition("chord", 3.7, [3.5], chords, [3.8]), 4);
-  assert.equal(snappedNavigationPosition("time", 3.7, [3.5], chords, [3.8]), 3.5);
-  assert.equal(snappedNavigationPosition("beat", 3.7, [3.5], chords, [3.8]), 3.5);
-  assert.equal(snappedNavigationPosition("lyrics", 3.7, [3.5], chords, [2, 3.8]), 3.8);
+  assert.equal(snappedNavigationPosition("chord", 3.7, [3.5], chords, [3.6], [3.8]), 4);
+  assert.equal(snappedNavigationPosition("marker", 3.7, [3.5], chords, [3.6], [3.8]), 3.6);
+  assert.equal(snappedNavigationPosition("time", 3.7, [3.5], chords, [3.6], [3.8]), 3.5);
+  assert.equal(snappedNavigationPosition("beat", 3.7, [3.5], chords, [3.6], [3.8]), 3.5);
+  assert.equal(snappedNavigationPosition("lyrics", 3.7, [3.5], chords, [3.6], [2, 3.8]), 3.8);
 });
 
 test("lyrics navigation moves between synchronized line starts", () => {
   const lyrics = [1, 3, 7];
-  assert.equal(navigationPosition("lyrics", 3.01, -1, 10, [], chords, lyrics), 1);
-  assert.equal(navigationPosition("lyrics", 3.4, -1, 10, [], chords, lyrics), 1);
-  assert.equal(navigationPosition("lyrics", 3.01, 1, 10, [], chords, lyrics), 7);
-  assert.equal(navigationPosition("lyrics", 3.4, 1, 10, [], chords, lyrics), 7);
+  assert.equal(navigationPosition("lyrics", 3.01, -1, 10, [], chords, [], lyrics), 1);
+  assert.equal(navigationPosition("lyrics", 3.4, -1, 10, [], chords, [], lyrics), 1);
+  assert.equal(navigationPosition("lyrics", 3.01, 1, 10, [], chords, [], lyrics), 7);
+  assert.equal(navigationPosition("lyrics", 3.4, 1, 10, [], chords, [], lyrics), 7);
+});
+
+test("marker navigation moves between marker starts", () => {
+  const markers = [0, 8, 16];
+  assert.equal(navigationPosition("marker", 8.01, -1, 10, [], chords, markers, []), 0);
+  assert.equal(navigationPosition("marker", 8.01, 1, 10, [], chords, markers, []), 16);
 });

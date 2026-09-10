@@ -5,11 +5,13 @@ import { nearestDetectedBeat } from "./presentation.ts";
 export function availableNavigationModes(
   beats: readonly number[],
   chords: readonly TimedChord[],
+  markers: readonly number[],
   lyrics: readonly number[],
 ): NavigationMode[] {
   const modes: NavigationMode[] = ["time"];
   if (beats.length) modes.push("beat");
   if (chords.length) modes.push("chord");
+  if (markers.length) modes.push("marker");
   if (lyrics.length) modes.push("lyrics");
   return modes;
 }
@@ -18,19 +20,22 @@ export function navigationModeAvailable(
   mode: NavigationMode,
   beats: readonly number[],
   chords: readonly TimedChord[],
+  markers: readonly number[],
   lyrics: readonly number[],
 ): boolean {
-  return availableNavigationModes(beats, chords, lyrics).includes(mode);
+  return availableNavigationModes(beats, chords, markers, lyrics).includes(mode);
 }
 
 export function effectiveNavigationMode(
   preferred: NavigationMode,
   beats: readonly number[],
   chords: readonly TimedChord[],
+  markers: readonly number[],
   lyrics: readonly number[],
 ): NavigationMode {
   if (preferred === "beat" && !beats.length) return "time";
   if (preferred === "chord" && !chords.length) return "time";
+  if (preferred === "marker" && !markers.length) return "time";
   if (preferred === "lyrics" && !lyrics.length) return "time";
   return preferred;
 }
@@ -67,11 +72,13 @@ export function navigationPosition(
   timeSeconds: number,
   beats: readonly number[],
   chords: readonly TimedChord[],
+  markers: readonly number[],
   lyrics: readonly number[],
 ): number {
-  const effective = effectiveNavigationMode(preferred, beats, chords, lyrics);
+  const effective = effectiveNavigationMode(preferred, beats, chords, markers, lyrics);
   if (effective === "beat") return adjacentBeatPosition(beats, positionSeconds, direction);
   if (effective === "chord") return adjacentChordTransportPosition(chords, positionSeconds, direction);
+  if (effective === "marker") return adjacentBeatPosition(markers, positionSeconds, direction);
   if (effective === "lyrics") return adjacentBeatPosition(lyrics, positionSeconds, direction);
   return positionSeconds + direction * timeSeconds;
 }
@@ -81,6 +88,7 @@ export function snappedNavigationPosition(
   positionSeconds: number,
   beats: readonly number[],
   chords: readonly TimedChord[],
+  markers: readonly number[],
   lyrics: readonly number[],
 ): number {
   if (preferred === "chord" && chords.length) {
@@ -98,6 +106,7 @@ export function snappedNavigationPosition(
     if (after === undefined) return before;
     return positionSeconds - before <= after - positionSeconds ? before : after;
   }
+  if (preferred === "marker" && markers.length) return nearestPosition(positionSeconds, markers);
   if (preferred === "lyrics" && lyrics.length) return nearestPosition(positionSeconds, lyrics);
   return nearestDetectedBeat(positionSeconds, beats);
 }

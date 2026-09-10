@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use serde::Deserialize;
 use tracing::info;
 
 use crate::{
@@ -26,6 +27,29 @@ const MAX_STDERR_BYTES: usize = 32 * 1024;
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
 const SEARCH_RESULT_COUNT: usize = 10;
 const PUBLISHED_RESULT_COUNT: usize = 5;
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchProvider {
+    Youtube,
+    Soundcloud,
+}
+
+impl SearchProvider {
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Youtube => "ytsearch",
+            Self::Soundcloud => "scsearch",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Youtube => "YouTube",
+            Self::Soundcloud => "SoundCloud",
+        }
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct YoutubeSearchService {
@@ -73,11 +97,16 @@ impl YoutubeSearchService {
         generation
     }
 
-    pub fn resolve(&self, query: &str, generation: u64) -> Result<Vec<ImportCandidate>, AppError> {
+    pub fn resolve(
+        &self,
+        query: &str,
+        generation: u64,
+        provider: SearchProvider,
+    ) -> Result<Vec<ImportCandidate>, AppError> {
         let query = query.trim();
         if query.is_empty() || query.len() > MAX_QUERY_BYTES {
             return Err(AppError::BackgroundTask(
-                "YouTube search must contain between 1 and 180 bytes".into(),
+                "Provider search must contain between 1 and 180 bytes".into(),
             ));
         }
         ensure_current(&self.inner, generation)?;
@@ -96,7 +125,10 @@ impl YoutubeSearchService {
                 "10",
                 "--",
             ])
-            .arg(format!("ytsearch{SEARCH_RESULT_COUNT}:{query}"))
+            .arg(format!(
+                "{}{SEARCH_RESULT_COUNT}:{query}",
+                provider.prefix()
+            ))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -150,11 +182,12 @@ impl YoutubeSearchService {
                 diagnostic
             }));
         }
-        let candidates = parse_candidates(&stdout.bytes, query);
+        let candidates = parse_provider_candidates(&stdout.bytes, query, provider);
         info!(
             elapsed_ms = started.elapsed().as_millis(),
             result_count = candidates.len(),
-            "YouTube search completed"
+            provider = provider.label(),
+            "provider search completed"
         );
         Ok(candidates)
     }
@@ -233,7 +266,16 @@ fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<BoundedOutput
     Ok(BoundedOutput { bytes, exceeded })
 }
 
+#[cfg(test)]
 fn parse_candidates(stdout: &[u8], query: &str) -> Vec<ImportCandidate> {
+    parse_provider_candidates(stdout, query, SearchProvider::Youtube)
+}
+
+fn parse_provider_candidates(
+    stdout: &[u8],
+    query: &str,
+    provider: SearchProvider,
+) -> Vec<ImportCandidate> {
     let mut candidates = String::from_utf8_lossy(stdout)
         .lines()
         .enumerate()
@@ -263,7 +305,7 @@ fn parse_candidates(stdout: &[u8], query: &str) -> Vec<ImportCandidate> {
                     .get("channel")
                     .or_else(|| value.get("uploader"))
                     .and_then(|value| value.as_str())
-                    .unwrap_or("YouTube"),
+                    .unwrap_or(provider.label()),
                 160,
             );
             let views = value.get("view_count").and_then(|value| value.as_u64());
@@ -272,16 +314,28 @@ fn parse_candidates(stdout: &[u8], query: &str) -> Vec<ImportCandidate> {
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
             let score = relevance_score(query, &title, &channel, views, verified, search_index);
+            let source_url = match provider {
+                SearchProvider::Youtube => format!("https://www.youtube.com/watch?v={id}"),
+                SearchProvider::Soundcloud => value
+                    .get("webpage_url")
+                    .or_else(|| value.get("url"))
+                    .and_then(|value| value.as_str())
+                    .filter(|url| importer::remote_provider_name(url) == "SoundCloud")?
+                    .to_owned(),
+            };
             Some((
                 score,
                 ImportCandidate {
-                    input: format!("https://www.youtube.com/watch?v={id}"),
+                    input: source_url.clone(),
                     title,
                     detail: channel,
                     kind: CandidateKind::Video,
                     match_score: Some(score),
-                    thumbnail_url: Some(format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")),
-                    video_id: Some(id.to_owned()),
+                    thumbnail_url: matches!(provider, SearchProvider::Youtube)
+                        .then(|| format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")),
+                    video_id: matches!(provider, SearchProvider::Youtube).then(|| id.to_owned()),
+                    provider: Some(provider.label().to_ascii_lowercase()),
+                    source_url: Some(source_url),
                 },
             ))
         })
@@ -506,6 +560,23 @@ not json
         );
         assert_eq!(candidates[0].video_id.as_deref(), Some("abc"));
         assert!(candidates[0].match_score.is_some());
+    }
+
+    #[test]
+    fn soundcloud_results_keep_their_provider_url_and_identity() {
+        let output = br#"{"id":"12345","title":"Song","uploader":"Artist","webpage_url":"https://soundcloud.com/artist/song"}"#;
+        let candidates =
+            parse_provider_candidates(output, "Artist Song", SearchProvider::Soundcloud);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].input, "https://soundcloud.com/artist/song");
+        assert_eq!(candidates[0].provider.as_deref(), Some("soundcloud"));
+        assert_eq!(
+            candidates[0].source_url.as_deref(),
+            Some("https://soundcloud.com/artist/song")
+        );
+        assert!(candidates[0].video_id.is_none());
+        assert!(candidates[0].thumbnail_url.is_none());
     }
 
     #[test]

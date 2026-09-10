@@ -55,25 +55,29 @@ struct DiagnosticsSnapshot {
 struct AnalysisCapabilities {
     accelerated: bool,
     backend: Option<&'static str>,
-    edition: &'static str,
     reason: Option<&'static str>,
 }
 
 #[derive(Default)]
 struct AnalysisCapabilityState(AtomicBool);
 
-fn application_edition() -> &'static str {
-    option_env!("SONARCAN_EDITION").unwrap_or("full")
+fn accelerated_analysis_available() -> bool {
+    qualified_analysis_build(
+        cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        cfg!(all(
+            any(target_os = "windows", target_os = "linux"),
+            target_arch = "x86_64"
+        )),
+        option_env!("SONARCAN_GPU_BACKEND"),
+    )
 }
 
-fn accelerated_analysis_available() -> bool {
-    if application_edition() != "full" {
-        return false;
-    }
-    cfg!(all(target_os = "macos", target_arch = "aarch64"))
-        || (cfg!(any(target_os = "windows", target_os = "linux"))
-            && cfg!(target_arch = "x86_64")
-            && matches!(option_env!("SONARCAN_GPU_BACKEND"), Some("nvidia" | "amd")))
+fn qualified_analysis_build(
+    apple_silicon: bool,
+    windows_or_linux_x64: bool,
+    gpu_backend: Option<&str>,
+) -> bool {
+    apple_silicon || (windows_or_linux_x64 && matches!(gpu_backend, Some("nvidia" | "amd")))
 }
 
 fn accelerated_analysis_backend() -> Option<&'static str> {
@@ -90,12 +94,10 @@ fn accelerated_analysis_backend() -> Option<&'static str> {
 
 fn require_accelerated_analysis(state: &AnalysisCapabilityState) -> Result<(), AppError> {
     state.0.load(Ordering::Acquire).then_some(()).ok_or_else(|| {
-        let reason = if application_edition() == "light" {
-            "Chord, beat, and separated-track analysis is not included in SonArcan Light."
-        } else {
+        AppError::BackgroundTask(
             "Chord, beat, and separated-track analysis is disabled because no qualified GPU backend is available on this platform."
-        };
-        AppError::BackgroundTask(reason.into())
+                .into(),
+        )
     })
 }
 
@@ -417,9 +419,10 @@ async fn resolve_youtube_search(
     service: State<'_, youtube_search::YoutubeSearchService>,
     query: String,
     generation: u64,
+    provider: youtube_search::SearchProvider,
 ) -> Result<Vec<importer::ImportCandidate>, AppError> {
     let service = service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || service.resolve(&query, generation))
+    tauri::async_runtime::spawn_blocking(move || service.resolve(&query, generation, provider))
         .await
         .map_err(|error| AppError::BackgroundTask(error.to_string()))?
 }
@@ -577,6 +580,19 @@ fn open_youtube_video(video_id: String) -> Result<(), AppError> {
         ));
     }
     open_url_in_browser(&format!("https://www.youtube.com/watch?v={video_id}"))
+}
+
+#[tauri::command]
+fn open_import_source(url: String) -> Result<(), AppError> {
+    if url.len() > 2_048
+        || !url.starts_with("https://")
+        || importer::remote_provider_name(&url) == "Web"
+    {
+        return Err(AppError::BackgroundTask(
+            "Import source URL is not an allowed public provider".into(),
+        ));
+    }
+    open_url_in_browser(&url)
 }
 
 fn open_url_in_browser(url: &str) -> Result<(), AppError> {
@@ -933,12 +949,7 @@ async fn analysis_capabilities(
     Ok(AnalysisCapabilities {
         accelerated,
         backend: accelerated.then(accelerated_analysis_backend).flatten(),
-        edition: application_edition(),
-        reason: (!accelerated).then_some(if application_edition() == "light" {
-            "editionLight"
-        } else {
-            "acceleratorUnavailable"
-        }),
+        reason: (!accelerated).then_some("acceleratorUnavailable"),
     })
 }
 
@@ -1029,6 +1040,7 @@ pub fn run() {
             open_external_link,
             open_lrclib_search,
             open_youtube_video,
+            open_import_source,
             audio_load,
             audio_preload,
             audio_play,
@@ -1110,13 +1122,33 @@ mod tests {
     }
 
     #[test]
-    fn build_edition_has_a_consistent_analysis_contract() {
-        assert!(matches!(application_edition(), "full" | "light"));
-        if application_edition() == "light" {
-            assert!(!accelerated_analysis_available());
-        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    fn analysis_availability_matches_the_qualified_build_backend() {
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
             assert!(accelerated_analysis_available());
+        } else if !cfg!(all(
+            any(target_os = "windows", target_os = "linux"),
+            target_arch = "x86_64"
+        )) || !matches!(option_env!("SONARCAN_GPU_BACKEND"), Some("nvidia" | "amd"))
+        {
+            assert!(!accelerated_analysis_available());
         }
+    }
+
+    #[test]
+    fn build_without_a_qualified_gpu_uses_simplified_mode() {
+        assert!(!qualified_analysis_build(false, true, None));
+        assert!(!qualified_analysis_build(false, true, Some("intel")));
+        assert!(!qualified_analysis_build(false, false, Some("nvidia")));
+
+        let capability = AnalysisCapabilityState::default();
+        assert!(require_accelerated_analysis(&capability).is_err());
+    }
+
+    #[test]
+    fn supported_accelerator_builds_can_probe_analysis() {
+        assert!(qualified_analysis_build(true, false, None));
+        assert!(qualified_analysis_build(false, true, Some("nvidia")));
+        assert!(qualified_analysis_build(false, true, Some("amd")));
     }
 
     #[test]

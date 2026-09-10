@@ -26,6 +26,22 @@ use crate::{
 };
 
 const YOUTUBE_OUTPUT_TEMPLATE: &str = "%(playlist_index&{} - |)s%(title).180B.%(ext)s";
+const MAX_YTDLP_INFO_BYTES: u64 = 1024 * 1024;
+
+#[derive(Debug, Deserialize)]
+struct YtDlpInfo {
+    #[serde(default)]
+    chapters: Vec<YtDlpChapter>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YtDlpChapter {
+    #[serde(default)]
+    title: String,
+    start_time: f64,
+    #[serde(default)]
+    end_time: Option<f64>,
+}
 
 #[derive(Clone)]
 pub(crate) struct YtDlpCommand {
@@ -97,6 +113,10 @@ pub struct ImportCandidate {
     pub thumbnail_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -518,6 +538,11 @@ fn download_remote(
         .args([
             "--playlist-end",
             "10",
+            "--match-filter",
+            "!is_live & live_status != is_upcoming",
+            "--write-info-json",
+            "--clean-info-json",
+            "--no-write-playlist-metafiles",
             "--progress-template",
             "download:%(progress._percent_str)s",
             "--print",
@@ -545,7 +570,7 @@ fn download_remote(
         .arg(target)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    info!(job_id = %id, input = %input, "starting yt-dlp import");
+    info!(job_id = %id, remote_source = true, "starting yt-dlp import");
     let mut child = command
         .spawn()
         .map_err(|error| AppError::BackgroundTask(format!("could not start yt-dlp: {error}")))?;
@@ -632,7 +657,26 @@ fn download_remote(
         let _ = fs::remove_dir_all(&staging);
         return Ok(());
     }
-    let imported = import_project_audio(cancelled, project_write, package, &files);
+    let metadata_result = files
+        .iter()
+        .filter_map(|path| match read_download_markers(&staging, path) {
+            Ok(markers) if !markers.is_empty() => Some(Ok(project::ImportedTrackMetadata {
+                source_path: path.clone(),
+                markers,
+            })),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let metadata = match metadata_result {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    };
+    let imported =
+        import_project_audio_with_metadata(cancelled, project_write, package, &files, &metadata);
     let _ = fs::remove_dir_all(staging);
     imported.map(|_| ())
 }
@@ -651,6 +695,16 @@ fn import_project_audio(
     package: &Path,
     source_paths: &[PathBuf],
 ) -> Result<(), AppError> {
+    import_project_audio_with_metadata(cancelled, project_write, package, source_paths, &[])
+}
+
+fn import_project_audio_with_metadata(
+    cancelled: &AtomicBool,
+    project_write: &Mutex<()>,
+    package: &Path,
+    source_paths: &[PathBuf],
+    metadata: &[project::ImportedTrackMetadata],
+) -> Result<(), AppError> {
     let guard = project_write
         .lock()
         .map_err(|_| AppError::BackgroundTask("project import is unavailable".into()))?;
@@ -658,7 +712,67 @@ fn import_project_audio(
         drop(guard);
         return Ok(());
     }
-    project::import_audio(package, source_paths).map(|_| ())
+    project::import_audio_with_metadata(package, source_paths, metadata).map(|_| ())
+}
+
+fn read_download_markers(
+    staging: &Path,
+    audio_path: &Path,
+) -> Result<Vec<project::TrackMarker>, AppError> {
+    let Some(file_stem) = audio_path.file_stem().and_then(|value| value.to_str()) else {
+        return Ok(Vec::new());
+    };
+    let info_path = audio_path.with_file_name(format!("{file_stem}.info.json"));
+    if !info_path.is_file() {
+        return Ok(Vec::new());
+    }
+    let canonical_staging = staging
+        .canonicalize()
+        .map_err(|error| AppError::io(staging, error))?;
+    let canonical_info = info_path
+        .canonicalize()
+        .map_err(|error| AppError::io(&info_path, error))?;
+    if !canonical_info.starts_with(&canonical_staging) {
+        return Err(AppError::BackgroundTask(
+            "yt-dlp metadata escaped its download directory".into(),
+        ));
+    }
+    let file_metadata =
+        fs::metadata(&canonical_info).map_err(|error| AppError::io(&canonical_info, error))?;
+    if file_metadata.len() > MAX_YTDLP_INFO_BYTES {
+        return Err(AppError::BackgroundTask(
+            "yt-dlp metadata is unexpectedly large".into(),
+        ));
+    }
+    let bytes = fs::read(&canonical_info).map_err(|error| AppError::io(&canonical_info, error))?;
+    let info: YtDlpInfo = serde_json::from_slice(&bytes)
+        .map_err(|error| AppError::BackgroundTask(format!("invalid yt-dlp metadata: {error}")))?;
+    Ok(markers_from_chapters(info.chapters))
+}
+
+fn markers_from_chapters(chapters: Vec<YtDlpChapter>) -> Vec<project::TrackMarker> {
+    chapters
+        .into_iter()
+        .filter_map(|chapter| {
+            let label = chapter.title.trim();
+            let end_time = chapter
+                .end_time
+                .filter(|end| end.is_finite() && *end > chapter.start_time);
+            (chapter.start_time.is_finite()
+                && chapter.start_time >= 0.0
+                && !label.is_empty()
+                && label.chars().count() <= 120
+                && !label.chars().any(char::is_control))
+            .then(|| project::TrackMarker {
+                id: Uuid::new_v4(),
+                label: label.to_owned(),
+                start_seconds: chapter.start_time,
+                end_seconds: end_time,
+                origin: project::MarkerOrigin::Source,
+            })
+        })
+        .take(512)
+        .collect()
 }
 
 fn is_cancelled(cancelled: &AtomicBool) -> bool {
@@ -800,6 +914,14 @@ fn fail(inner: &Arc<ImportInner>, id: Uuid, message: &str, details: Option<(&str
 }
 fn classify_ytdlp_error(log: &str) -> (String, String) {
     let lower = log.to_ascii_lowercase();
+    if lower.contains("does not pass filter")
+        && (lower.contains("is_live") || lower.contains("is_upcoming"))
+    {
+        return (
+            "Live and upcoming streams are not supported.".into(),
+            "Choose a finished, publicly available recording.".into(),
+        );
+    }
     if lower.contains("ffmpeg") && (lower.contains("not found") || lower.contains("not installed"))
     {
         return (
@@ -809,7 +931,10 @@ fn classify_ytdlp_error(log: &str) -> (String, String) {
         );
     }
     if lower.contains("sign in") || lower.contains("cookies") || lower.contains("authentication") {
-        return ("YouTube requires authentication for this content.".into(), "Open the video in your browser and verify that your account is allowed to access it. Browser-cookie support can be added later.".into());
+        return (
+            "This content requires authentication, which SonArcan does not support.".into(),
+            "Choose a public source that you are authorized to use.".into(),
+        );
     }
     if lower.contains("private video")
         || lower.contains("video unavailable")
@@ -817,7 +942,7 @@ fn classify_ytdlp_error(log: &str) -> (String, String) {
     {
         return (
             "This video is private, removed, or unavailable.".into(),
-            "Check the URL and availability in YouTube, then choose another source.".into(),
+            "Check the source URL and choose another public item.".into(),
         );
     }
     if lower.contains("not available in your country") || lower.contains("geo") {
@@ -828,13 +953,13 @@ fn classify_ytdlp_error(log: &str) -> (String, String) {
     }
     if lower.contains("javascript runtime") || lower.contains("ejs") || lower.contains("deno") {
         return (
-            "YouTube extraction needs an updated JavaScript runtime.".into(),
+            "This extraction needs an updated JavaScript runtime.".into(),
             "Update yt-dlp from SonArcan's tool manager and retry.".into(),
         );
     }
     if lower.contains("http error 403") || lower.contains("forbidden") {
         return (
-            "YouTube refused the download request.".into(),
+            "The source refused the download request.".into(),
             "Retry later, update yt-dlp, or verify the video in your browser.".into(),
         );
     }
@@ -861,16 +986,15 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
             if !clean.starts_with("http://") && !clean.starts_with("https://") {
                 continue;
             }
-            let playlist = clean.contains("list=") || clean.contains("/playlist");
+            let provider = remote_provider_name(clean);
+            let playlist = clean.contains("list=")
+                || clean.contains("/playlist")
+                || clean.contains("/sets/")
+                || clean.contains("/album/");
             let candidate = ImportCandidate {
                 input: clean.into(),
                 title: clean.into(),
-                detail: if playlist {
-                    "YouTube playlist"
-                } else {
-                    "YouTube URL"
-                }
-                .into(),
+                detail: format!("{provider} {}", if playlist { "playlist" } else { "URL" }),
                 kind: if playlist {
                     CandidateKind::Playlist
                 } else {
@@ -879,6 +1003,8 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                 match_score: None,
                 thumbnail_url: None,
                 video_id: None,
+                provider: Some(provider.to_ascii_lowercase()),
+                source_url: Some(clean.into()),
             };
             if seen.insert(analysis_candidate_key(&candidate)) {
                 candidates.push(candidate);
@@ -909,6 +1035,8 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                     match_score: None,
                     thumbnail_url: None,
                     video_id: None,
+                    provider: Some(if path.is_some() { "local" } else { "youtube" }.into()),
+                    source_url: None,
                 };
                 if seen.insert(analysis_candidate_key(&candidate)) {
                     candidates.push(candidate);
@@ -917,6 +1045,35 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
         }
     }
     candidates
+}
+
+pub(crate) fn remote_provider_name(value: &str) -> &'static str {
+    let authority = value
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(value)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .rsplit('@')
+        .next()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if authority == "youtu.be" || authority == "youtube.com" || authority.ends_with(".youtube.com")
+    {
+        "YouTube"
+    } else if authority == "soundcloud.com" || authority.ends_with(".soundcloud.com") {
+        "SoundCloud"
+    } else if authority == "bandcamp.com" || authority.ends_with(".bandcamp.com") {
+        "Bandcamp"
+    } else if authority == "mixcloud.com" || authority.ends_with(".mixcloud.com") {
+        "Mixcloud"
+    } else {
+        "Web"
+    }
 }
 
 fn analysis_candidate_key(candidate: &ImportCandidate) -> String {
@@ -1132,6 +1289,82 @@ mod tests {
             "%(playlist_index&{} - |)s%(title).180B.%(ext)s"
         );
         assert!(!YOUTUBE_OUTPUT_TEMPLATE.contains("%(id)"));
+    }
+
+    #[test]
+    fn public_audio_sites_are_identified_without_authentication() {
+        assert_eq!(
+            remote_provider_name("https://soundcloud.com/artist/track"),
+            "SoundCloud"
+        );
+        assert_eq!(
+            remote_provider_name("https://artist.bandcamp.com/album/record"),
+            "Bandcamp"
+        );
+        assert_eq!(
+            remote_provider_name("https://www.mixcloud.com/dj/show/"),
+            "Mixcloud"
+        );
+        assert_eq!(remote_provider_name("https://vimeo.com/123"), "Web");
+
+        let candidates = parse_text(
+            "https://soundcloud.com/artist/sets/demo https://artist.bandcamp.com/album/demo",
+        );
+        assert_eq!(candidates[0].detail, "SoundCloud playlist");
+        assert_eq!(candidates[1].detail, "Bandcamp playlist");
+    }
+
+    #[test]
+    fn live_filter_failures_have_a_clear_product_message() {
+        let (message, suggestion) =
+            classify_ytdlp_error("Video does not pass filter (!is_live & is_upcoming)");
+        assert_eq!(message, "Live and upcoming streams are not supported.");
+        assert!(suggestion.contains("finished"));
+    }
+
+    #[test]
+    fn source_chapters_become_bounded_markers() {
+        let markers = markers_from_chapters(vec![
+            YtDlpChapter {
+                title: " Verse ".into(),
+                start_time: 4.0,
+                end_time: Some(20.0),
+            },
+            YtDlpChapter {
+                title: "Chorus".into(),
+                start_time: 20.0,
+                end_time: None,
+            },
+            YtDlpChapter {
+                title: "Invalid".into(),
+                start_time: f64::NAN,
+                end_time: None,
+            },
+        ]);
+
+        assert_eq!(markers.len(), 2);
+        assert_eq!(markers[0].label, "Verse");
+        assert_eq!(markers[0].end_seconds, Some(20.0));
+        assert_eq!(markers[1].origin, project::MarkerOrigin::Source);
+    }
+
+    #[test]
+    fn downloaded_info_json_is_matched_to_its_audio_file() {
+        let staging = tempfile::tempdir().unwrap();
+        let audio_path = staging.path().join("Artist - Song.mp3");
+        let info_path = staging.path().join("Artist - Song.info.json");
+        fs::write(&audio_path, []).unwrap();
+        fs::write(
+            info_path,
+            br#"{"chapters":[{"title":"Chorus","start_time":12.5,"end_time":27.0}]}"#,
+        )
+        .unwrap();
+
+        let markers = read_download_markers(staging.path(), &audio_path).unwrap();
+
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].label, "Chorus");
+        assert_eq!(markers[0].start_seconds, 12.5);
     }
 
     #[cfg(windows)]

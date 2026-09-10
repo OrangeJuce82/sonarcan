@@ -70,9 +70,18 @@ half-beats from the indicative BPM.
 The detailed view also renders the currently visible chord regions in a compact,
 clickable lane. Chords remain visible in windows up to 60 seconds, use the same
 viewport and filtering as the chord panel, and preserve the model boundaries.
+Marker, chord, and lyric lanes, the detailed waveform, the overview, time scale,
+and playback slider share one bordered horizontal axis. Equal side gutters hold
+lane icons and actions without shifting any timestamp at any zoom level.
+The help/zoom row, transport/audio-volume row, and practice/metronome row reuse
+the same side inset so their visible controls align with that waveform axis.
+While an edge is dragged, holding Shift snaps it within a ten-pixel visual
+tolerance to the starts and ends in the other two timeline categories. Shift can
+be pressed before or during the drag. This edit-only cross-lane alignment is
+independent of the loop magnet preference.
 
 The optional magnet control snaps A and B to the active navigation data: chord
-boundaries in Chord mode, synchronized line starts in Lyrics mode, and detected
+boundaries in Chord mode, marker starts in Marker mode, synchronized line starts in Lyrics mode, and detected
 beats in Time or Beat mode. It falls back to beats while chord data is still
 unavailable. Disabling it restores exact free placement. Snapping is
 presentation-side interaction only: it never changes a model timeline, BPM,

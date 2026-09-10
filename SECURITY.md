@@ -67,8 +67,8 @@ Review deadline: **2026-11-30**.
 - Tauri's `urlpattern` graph carries five unmaintained `unic` crates.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
 - PyTorch no longer publishes current Intel macOS wheels, while LV-Chordia
-  requires Torch 2.13 or newer. Intel macOS therefore uses the Light edition.
-  NVIDIA Windows/Linux GPU releases pin Torch 2.13.0 CUDA 12.6; AMD Linux pins
+  requires Torch 2.13 or newer. Intel macOS release bundles are therefore not
+  currently published. NVIDIA Windows/Linux GPU releases pin Torch 2.13.0 CUDA 12.6; AMD Linux pins
   Torch 2.13.0 ROCm 7.2. AMD Windows and Intel GPU builds are not produced.
 
 These are maintenance advisories, not permission to ignore a vulnerability.

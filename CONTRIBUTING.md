@@ -61,7 +61,7 @@ Throttle visualization snapshots to the lowest useful rate and update local UI
 state locally.
 
 Load only the selected audio immediately. Preload imminent work deliberately and
-bound caches by both count and memory. Full-edition model artifacts are installed
+bound caches by both count and memory. Analysis model artifacts are installed
 by the responsive first-run welcome flow; model construction and expensive
 analysis remain lazy and cancellable where practical. Record a
 baseline and a before/after result for performance changes.
@@ -92,9 +92,9 @@ This runs Svelte/TypeScript diagnostics, frontend unit tests, the production
 bundle, Rust formatting, Clippy with warnings denied, and all Rust tests.
 Worker protocol and checkpoint-contract tests must remain runnable with a clean
 system Python and no inference packages. CI runs that lightweight contract suite
-once in its dedicated frontend job. Light release jobs use `quality:light` and
-assert that heavy analysis packages and frontend assets are absent; only Full
-jobs run MLX, Torch, chord-worker, and model qualification tests.
+once in its dedicated frontend job. Standard builds exercise the shared
+application gate; accelerator builds additionally qualify their MLX or Torch
+runtime and model contracts.
 
 Only when adding a new library or package:
 

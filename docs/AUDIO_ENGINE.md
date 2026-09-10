@@ -227,8 +227,8 @@ homogenization; they never rewrite the cached analysis.
 The detailed waveform introduces downbeats at `1.5×` zoom and draws every beat
 and chord block once its viewport contains at most 30 seconds. Shorter tracks
 show those details while fitted in full. An independent UI magnet can
-snap A/B placement to chord boundaries in Chord mode, synchronized line starts
-in Lyrics mode, or the nearest detected beat in Time and Beat modes. It falls
+snap A/B placement to chord boundaries in Chord mode, marker starts in Marker mode,
+synchronized line starts in Lyrics mode, or the nearest detected beat in Time and Beat modes. It falls
 back to beats while chord data is unavailable, does not synthesize subdivisions,
 and never alters playback timing or source analysis. Its enabled state is a
 global user preference, not per-track practice state. Preference controls apply

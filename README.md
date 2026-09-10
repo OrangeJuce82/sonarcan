@@ -13,42 +13,35 @@
 </div>
 
 > [!NOTE]
-> SonArcan Full targets Apple Silicon, NVIDIA GPUs on Windows/Linux, and AMD
-> GPUs on Linux. SonArcan Light targets all supported platforms without
-> bundling the heavy analysis models or runtimes.
+> SonArcan is distributed as one application. It enables local analysis only
+> when a qualified GPU backend passes its startup probe; otherwise it starts in
+> a safe simplified mode.
 
 ## Minimum and recommended configuration
 
 | Platform | Minimum for playback, lyrics, spectrum and meters | Required for Beat, Chords and Mix | Recommended |
 | --- | --- | --- | --- |
-| macOS Apple Silicon Full | macOS 14, M1, 8 GB RAM | A working, qualified MLX/MPS accelerator | M2 or newer, 16 GB RAM |
-| macOS Apple Silicon Light | macOS 14, M1, 8 GB RAM | Not included | 16 GB RAM for large projects |
-| macOS Intel Light | macOS 12, Intel x64, 8 GB RAM | Not included | macOS 13+, 16 GB RAM |
+| macOS Apple Silicon | macOS 14, M1, 8 GB RAM | A working, qualified MLX/MPS accelerator | M2 or newer, 16 GB RAM |
 | Windows NVIDIA GPU | Windows 10 1903 or newer, x64, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Windows 11, 8 GB GPU memory, 32 GB RAM |
-| Windows Light | Windows 10 1903 or newer, x64, 8 GB RAM | Not included | Windows 11, 16 GB RAM |
+| Windows | Windows 10 1903 or newer, x64, 8 GB RAM | Simplified mode without a qualified GPU build | Windows 11, 16 GB RAM |
 | Linux NVIDIA GPU | DEB-compatible x64 desktop, glibc 2.35+, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
 | Linux AMD GPU | DEB-compatible x64 desktop, glibc 2.35+, 16 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
-| Linux Light | DEB- or AppImage-compatible x64 desktop, glibc 2.35+, 8 GB RAM | Not included | 16 GB RAM |
+| Linux | DEB- or AppImage-compatible x64 desktop, glibc 2.35+, 8 GB RAM | Simplified mode without a qualified GPU build | 16 GB RAM |
 
-SonArcan Full checks the production accelerator and model graphs once when the
+SonArcan checks the production accelerator and model graphs once when the
 application starts. If no compatible and qualified GPU backend is available,
 it enters a safe degraded mode for the complete session: Beat, Chords, Mix,
 BPM, and the analysis-driven metronome are not shown and cannot be started.
 Playback, time navigation, lyrics, spectrum, and the stereo meter remain
 available. The explanatory message is shown only once per user profile.
 
-SonArcan Light is a deliberately smaller edition. It keeps playback, imports,
-projects, time navigation, loops, training, pitch/tempo controls, lyrics,
-spectrum, and the stereo meter, but does not include Beat, Chords, Mix, BPM, or
-the analysis metronome. Full and Light use the same `.sac` project format and
-never delete analysis data produced by another edition.
-
 Windows and Linux GPU bundles contain a pinned accelerator-specific PyTorch
 runtime: CUDA 12.6 for NVIDIA, and ROCm 7.2 for AMD on Linux. PyTorch exposes
 ROCm through its CUDA-compatible API, but the packages and installer remain
-separate. Windows AMD and Intel GPUs are not qualified in this beta; choose
-Light on those systems. SonArcan never silently falls back to the CPU for heavy
-analysis jobs.
+separate. Windows AMD and Intel GPUs are not qualified in this beta; use the
+standard build in simplified mode on those systems. SonArcan never silently
+falls back to the CPU for heavy analysis jobs. Standard Windows and Linux builds
+remain usable without a GPU in simplified mode and never attempt those jobs.
 
 GPU runtimes exceed GitHub's 2 GiB limit for a single release asset. Each DEB
 or portable archive is consequently published as numbered `part-000`,
@@ -65,7 +58,7 @@ cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${b
 sudo apt install "./SonArcan-${backend}-GPU.deb"
 ```
 
-Linux Light is available as a conventional single-file DEB and AppImage. On
+Standard Linux is available as a conventional single-file DEB and AppImage. On
 distributions without DEB support, make the AppImage executable with
 `chmod +x ./<downloaded-file>.AppImage` and launch it directly. Linux GPU
 editions are currently distributed only as DEB packages. On Windows, verify the
@@ -96,39 +89,47 @@ Expand-Archive -LiteralPath $archive -DestinationPath "SonArcan-NVIDIA-GPU-$vers
 & ".\SonArcan-NVIDIA-GPU-$version\SonArcan NVIDIA GPU.exe"
 ```
 
-Light releases and both macOS releases remain ordinary one-file installers.
+Standard releases and the macOS release remain ordinary one-file installers.
 
-## Choose an edition
+## Runtime capabilities
 
-| Feature | Full / GPU | Light or degraded mode |
+| Feature | Qualified GPU mode | Simplified mode |
 | --- | --- | --- |
 | Playback, pitch/tempo, loops and trainer | Yes | Yes |
 | Lyrics | Yes | Yes; moves into the Mix column |
 | Spectrum and stereo meters | Yes | Yes |
 | Beat timeline, BPM and analysis metronome | Yes | No |
 | Chord detection and navigation | Yes | No |
-| Piano, guitar and ukulele chord views | Yes | No; assets are excluded |
+| Piano, guitar and ukulele chord views | Yes | No |
 | Four-stem Mix and export | Yes | No |
 
-Download **SonArcan** for an Apple-silicon Mac, **SonArcan NVIDIA GPU** for a
-supported NVIDIA Windows/Linux computer, **SonArcan AMD GPU** for supported AMD
-Linux hardware, or **SonArcan Light** everywhere else. Detailed notes for the
+Download **SonArcan** for an Apple-silicon Mac or a standard Windows/Linux
+computer, **SonArcan NVIDIA GPU** for a supported NVIDIA Windows/Linux computer,
+or **SonArcan AMD GPU** for supported AMD Linux hardware. Detailed notes for the
 current beta are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 SonArcan is made for musicians who want the useful parts of an audio workstation
 without the weight of a full DAW. Import a setlist, understand the music, build
 loops, and practice while keeping projects portable and data on your computer.
-Full editions also analyze the music and isolate its parts locally.
+Qualified GPU builds also analyze the music and isolate its parts locally.
 
 ## ✨ Highlights
 
-- Import WAV, MP3, FLAC, local files, or YouTube sources into portable `.sac` projects.
+- Import WAV, MP3, FLAC, local files, or public yt-dlp sources such as YouTube,
+  SoundCloud, Bandcamp, and Mixcloud into portable `.sac` projects.
+- Search by title on YouTube or SoundCloud, with provider logos and safe links
+  back to every recognized public source.
+- Edit markers, chords, and synchronized lyrics directly beside the waveform:
+  resize block edges, double-click text, or use the explicit right-click menu.
+  Chords use the same searchable option list as the grid. New blocks start at
+  the playhead and extend to the next block or track end. Source chapters are
+  imported as markers when the provider publishes them.
 - Play, seek, change gain, and create seamless A/B loops through a dedicated Rust audio engine.
 - Slow down or speed up from 50–200% independently of pitch, with ±12 semitones and fine cent correction.
-- In Full editions, detect BPM, beats, downbeats, and timed chords locally, with detected timelines and source-aware disposable caches.
-- In Full editions, separate vocals, drums, bass, and other locally with Fast
+- With a qualified GPU, detect BPM, beats, downbeats, and timed chords locally, with detected timelines and source-aware disposable caches.
+- With a qualified GPU, separate vocals, drums, bass, and other locally with Fast
   HTDemucs or HQ SCNet Large through MLX or Torch, then mix or export them.
-- Practice with a progressive loop trainer, waveform, spectrum, and stereo meter; Full editions add the synchronized analysis metronome.
+- Practice with a progressive loop trainer, waveform, spectrum, and stereo meter; qualified GPU mode adds the synchronized analysis metronome.
 - Keep per-track practice settings, recent projects, diagnostics, and a multilingual interface.
 
 For planned work and known product directions, see the [roadmap](docs/ROADMAP.md).
@@ -152,7 +153,7 @@ A heartfelt thank-you to every maintainer, researcher, tester, and contributor b
 
 ### Requirements
 
-- macOS 14+ on Apple Silicon, macOS 12+ on Intel for Light, Windows x64, or a Linux x64 desktop supported by Tauri 2
+- macOS 14+ on Apple Silicon, Windows x64, or a Linux x64 desktop supported by Tauri 2
 - Node.js 22+ and npm
 - Stable Rust 1.78+ with Cargo
 - `uv` exactly `0.9.26`
@@ -183,13 +184,13 @@ Every profile starts with a fresh checkout and the frontend dependencies:
 npm ci
 ```
 
-Choose exactly one of the following profiles.
+Choose the profile matching the target hardware.
 
-### Apple Silicon Full: MLX + MPS
+### Apple Silicon: MLX + MPS
 
 MLX handles four-stem separation; PyTorch MPS handles Beat and Chords. Stem
 checkpoints are not part of the source tree or development preparation: the
-Fast and HQ checkpoints are downloaded and verified during the first Full-edition launch.
+Fast and HQ checkpoints are downloaded and verified during the first qualified launch.
 
 ```bash
 npm run mlx:sync
@@ -201,7 +202,7 @@ npm run quality
 npm run tauri dev -- --config src-tauri/tauri.macos-arm.conf.json
 ```
 
-### Windows or Linux Full: Torch GPU
+### Windows or Linux: Torch GPU
 
 Run `npm run stems:sync`, not `mlx:sync`. The runtime contains the selected
 Torch backend and stem inference code, but no stem checkpoint. Fast HTDemucs and
@@ -211,7 +212,6 @@ model setup, then verified against their pinned sizes and SHA-256 values.
 For NVIDIA on Linux or in a Unix-like Windows shell:
 
 ```bash
-export SONARCAN_EDITION=full
 export SONARCAN_GPU_BACKEND=nvidia
 npm run stems:sync
 npm run chords:downbeat-model
@@ -224,54 +224,45 @@ npm run tauri dev -- --config src-tauri/tauri.nvidia-gpu.conf.json
 ```
 
 For AMD ROCm on Linux, replace `nvidia` with `amd` and use
-`src-tauri/tauri.amd-gpu.conf.json`. Windows AMD and Intel GPU Full profiles are
+`src-tauri/tauri.amd-gpu.conf.json`. Windows AMD and Intel GPU profiles are
 not qualified. Native Windows PowerShell sets the NVIDIA environment with:
 
 ```powershell
-$env:SONARCAN_EDITION = 'full'
 $env:SONARCAN_GPU_BACKEND = 'nvidia'
 ```
 
-Then run the same `npm` commands without the two `export` lines.
+Then run the same `npm` commands without the `export` line.
 
-### Light
+### Simplified development without a qualified GPU
 
-Light does not prepare MLX, Torch, Beat This!, LV-Chordia, stem inference, or any
-analysis checkpoint. It keeps playback, projects, imports, lyrics, spectrum,
-meters, and time-based practice.
+Leave `SONARCAN_GPU_BACKEND` unset. Development preparation skips accelerator
+setup, and the application keeps playback, projects, imports, lyrics, spectrum,
+meters, and time-based practice while disabling GPU analysis.
 
 ```bash
-export SONARCAN_EDITION=light
 npm run ytdlp:search
-npm run python:light-runtime
-npm run verify:light-runtime
 npm run ffmpeg:runtime
 npm run verify:ffmpeg-release
 npm run quality
-npm run tauri dev -- --config src-tauri/tauri.portable.conf.json
+npm run tauri dev
 ```
-
-Use `src-tauri/tauri.macos-arm-light.conf.json` or
-`src-tauri/tauri.macos-intel-light.conf.json` instead on macOS. In PowerShell,
-set the edition with `$env:SONARCAN_EDITION = 'light'` and omit the `export`
-line.
 
 `npm run dev` starts only the frontend. Playback, project management, native
 menus, analysis, and stems require `npm run tauri dev` and the Rust backend.
 
 ## 📦 Desktop bundles
 
-The contents of a desktop bundle depend on its edition. End users never need to
+The contents of a desktop bundle depend on its target backend. End users never need to
 install Python, `uv`, FFmpeg, or model dependencies themselves.
 
 | Build profile | Targets | Analysis implementation | Bundled resources |
 | --- | --- | --- | --- |
-| **MLX Full** | Apple Silicon | `sonarcan-mlx-worker` for four-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
-| **Torch GPU Full** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for four-stem separation and Beat/Chords | Backend-specific PyTorch runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
-| **Light** | Apple Silicon, Intel Mac, Windows x64 and Linux x64 | No ML worker and no heavy analysis | Minimal Python runtime for yt-dlp plus FFmpeg; no Torch, MLX or analysis models |
+| **Apple MLX/MPS** | Apple Silicon | `sonarcan-mlx-worker` for four-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
+| **Torch GPU** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for four-stem separation and Beat/Chords | Backend-specific PyTorch runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
+| **Standard** | Windows x64 and Linux x64 | Simplified mode; GPU analysis is disabled | Shared CPU runtime, FFmpeg and yt-dlp |
 
 The tag workflow is the authoritative cross-platform build recipe: it chooses
-the correct worker, accelerator runtime, edition environment, resources, and
+the correct worker, accelerator runtime, resources, and
 Tauri configuration for each target. It verifies the packaged resources before
 leaving the release as a draft for manual smoke testing.
 

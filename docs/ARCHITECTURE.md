@@ -69,7 +69,7 @@ rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
-Heavy analysis is capability-gated once per application launch. On the first Full-edition launch,
+Heavy analysis is capability-gated once per application launch. On the first qualified launch,
 SonArcan installs the pinned SCNet-large, HTDemucs, and Beat This! checkpoints sequentially
 into the application-data cache, verifies their sizes and SHA-256 digests, and reports bounded
 progress while the welcome screen remains responsive. Interrupted downloads use adjacent
@@ -88,23 +88,20 @@ Time or Lyrics when synchronized lyric lines are available, while playback,
 lyrics, spectrum, and the stereo meter remain available. Loop snapping follows
 those synchronized lines in Lyrics mode. The explanation is persisted as a
 once-per-user-profile notice.
-The compile-time `SONARCAN_EDITION` contract defaults to `full` for development
-and accepts only `full` or `light`. Full Windows/Linux release builds also pin
-`SONARCAN_GPU_BACKEND` to `nvidia` or `amd`; source builds without that explicit
-qualification cannot accidentally enable portable GPU analysis. Light reports its edition through the same
-capability IPC but never runs an accelerator probe. Its bundle maps a minimal
-Python standard-library runtime to the normal runtime location for `yt-dlp` and
-omits every analysis model and package. Full and Light share the project schema;
-Light neither consumes nor deletes cached analysis created by Full.
-The Light Vite build also aliases the Piano and fretted-instrument components to
-empty compile-time implementations, so their chord corpus and presentation CSS
-cannot enter the shipped frontend. Bundle verification rejects that corpus.
+The startup probe runs before model preparation. A missing or rejected GPU
+therefore enters simplified mode without downloading analysis checkpoints.
+Windows/Linux accelerator release builds pin `SONARCAN_GPU_BACKEND` to `nvidia`
+or `amd`; standard and source builds without that explicit qualification cannot
+accidentally enable GPU analysis. The same application therefore enters
+simplified mode without running an accelerator probe, downloading analysis
+checkpoints, or exposing analysis commands. It preserves project analysis caches
+for later use on qualified hardware.
 Apple Silicon uses MLX for stems and MPS for chord/rhythm analysis. NVIDIA
 Windows/Linux releases use CUDA 12.6, while AMD Linux releases use ROCm 7.2
 through PyTorch's CUDA-compatible device API. All backends execute both model
 probes on the end-user accelerator before Rust opens the analysis IPC gate.
 
-In full mode, the analysis workspace first places the chord grid beside a
+In qualified GPU mode, the analysis workspace first places the chord grid beside a
 multi-view harmony panel using a 40/60 split. Beneath it, the four-stem mixer sits
 beside a right-hand column containing two equal-height, user-selectable visualization slots. Spectrum, output meter, and bounded energy history reuse bounded Rust snapshots without transferring raw audio. The chord panel wraps segments into a vertically
 scrollable grid. Playback can follow the active segment automatically. Standard (`submission`) is the default;
@@ -116,25 +113,27 @@ duration-weighted chord statistics. The statistics are a pure presentation
 derivation of the displayed timeline and never change cached analysis.
 In degraded mode, the lyrics panel occupies the mixer's column, the spectrum
 and stereo meter retain the right-hand column, and the harmony row is omitted.
-In full mode, the audio header exposes one user navigation mode: Time, Beat, Chord, or Lyrics. Left
+The audio header exposes one user navigation mode: Time, Beat, Chord, Marker, or Lyrics. Left
 and Right and the transport jump buttons share that mode. Waveform clicks always
 seek to the exact pointed position, independently of the navigation mode and loop
 magnetism.
 Time uses a configurable one-to-sixty-second step and defaults to ten seconds;
-Beat, Chord, and Lyrics activate when their bounded navigation points become
+Beat, Chord, Marker, and Lyrics activate when their bounded navigation points become
 available. The selector visibly remains on Time while the preferred mode is being
 orchestrated, then switches automatically after valid points arrive. Unavailable
 options are disabled and `N` cycles only the currently available modes. Lyrics
-uses synchronized line starts including the saved display offset. Four non-interactive
+uses synchronized line starts including the saved display offset; Marker uses the
+ordered starts of the current track's project markers and remains available in
+degraded mode. Four non-interactive
 states centered in the Audio header expose Beat This!, chord, lyrics, and separated-mix
 orchestration. Left/Right and the transport jump controls move to the adjacent point.
 Shift+Right selects the next playlist track. Shift+Left reuses the previous-track
 transport behavior: it restarts the current track at or after one second and
 selects the previous playlist track only while the cursor is before one second.
 The preference is global user state and is never stored in a project or track.
-Clicking a timed chord or lyric seeks to its timestamp without changing the
+Clicking a timed chord, marker, or lyric seeks to its timestamp without changing the
 selected navigation mode. Loop magnetism uses chord boundaries in Chord mode,
-synchronized line starts in Lyrics mode, and Beat This! beats in Time or Beat
+synchronized line starts in Lyrics mode, marker starts in Marker mode, and Beat This! beats in Time or Beat
 mode, falling back to beats while chord data is unavailable. `I` cycles the
 piano, guitar, ukulele, and lyrics views. Global shortcuts remain inactive while
 editing text.
@@ -178,13 +177,36 @@ synthesizes a complete position when needed; an explicit slash bass is always
 placed alone below the full harmony so it remains the sounding bass. Each
 instrument keeps a bounded position navigator.
 `N` is retained in data and rendered as `-`.
-User chord corrections remain a separate, bounded per-track overlay keyed by
-LV-Chordia vocabulary and native segment times. They are persisted in project
-practice state, never written into the disposable model cache, and never alter
-segment boundaries or the underlying LV-Chordia output.
+User chord corrections remain separate from the disposable model cache. Simple
+label corrections use the bounded per-track overlay keyed by LV-Chordia
+vocabulary and native segment times. The first structural edit materializes a
+bounded user timeline for the active detail mode, with stable UUIDs and
+non-overlapping regions. Moving, adding, or deleting those regions therefore
+never rewrites the underlying LV-Chordia output, and resetting edits restores
+the detected timeline.
 Each track also owns a bounded plain-text practice note in the same persisted
 practice state. The note editor sits below the playlist; the playlist consumes
 the remaining height of the left column and scrolls independently.
+When an older project is opened, legacy numeric practice values are bounded to
+the current playback, training, loop, and stem-mix contracts before reaching
+the UI; already valid values and user-authored timeline data remain unchanged.
+
+Track practice state also stores at most 512 named timeline markers. A marker
+has a stable UUID, a start, an optional explicit end, and an origin (`source`,
+`detected`, or `user`). Missing ends are derived from the next marker or the
+track duration in the presentation layer. Marker labels and timestamps are
+validated in Rust before the manifest is saved. Markers, chords, and
+synchronized lyrics share one waveform interaction: click selects and seeks,
+double-click edits the block text, edge handles change its timing, Delete removes
+the selected block, and right-click opens an explicit menu containing the remove
+action. The trailing plus creates a block at the playhead ending at the next
+block or track end. Double-clicking an edge snaps it to the adjacent block or
+track boundary. Waveform chord editing reuses the grid's complete validated
+option list and its filtering, pointer, keyboard, wheel, and Shift-to-replace-all
+semantics. During an edge drag, Shift applies a separate ten-pixel cross-lane
+magnet to starts and ends from the other two categories; it does not read or
+change the loop magnet preference. Timeline edits remain non-overlapping and
+never change canonical audio.
 
 Lyrics are an optional per-track document stored under `Lyrics/<track-id>.json`.
 The versioned, bounded DTO supports plain text, line timing, word timing, source
@@ -390,7 +412,7 @@ and publishes each group's candidates as soon as that query finishes. A failed
 query remains isolated in its group and does not hide completed results or stop
 later searches.
 
-Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Remote media is extracted by `yt-dlp` directly into the selected final audio format, avoiding a second conversion pass. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.13 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
+Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Public remote media supported by `yt-dlp`, including YouTube, SoundCloud, Bandcamp, and Mixcloud URLs, is extracted directly into the selected final audio format, avoiding a second conversion pass. Authenticated, live, and upcoming content is intentionally excluded. Bounded clean info JSON is retained only inside the temporary download directory long enough to turn provider chapters into persisted source markers, then deleted with the staging directory. Text search offers the two native, reliable yt-dlp engines in scope: YouTube and SoundCloud; Bandcamp and Mixcloud remain direct-link providers. Every recognized provider candidate carries a bounded source URL and provider identity so the frontend can render its local logo and ask Rust to open only an allowlisted HTTPS provider URL. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.13 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
 
 On the August 30, 2026 Apple-silicon benchmark, the former 35 MiB standalone
 macOS executable took 8.85 seconds for `--version` and 9.62 seconds for a

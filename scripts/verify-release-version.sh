@@ -85,15 +85,10 @@ if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
   echo "Bundled runtime verification must not write bytecode after signing." >&2
   exit 1
 fi
-if ! grep -Fq 'x86_64-apple-darwin' "$release_workflow" \
-  || ! grep -Fq 'macos-15-intel' "$release_workflow" \
-  || ! grep -Fq 'tauri.macos-intel-light.conf.json' "$release_workflow"; then
-  echo "The release workflow must publish the supported Intel macOS Light bundle on an Intel runner." >&2
-  exit 1
-fi
-if ! grep -Fq 'SONARCAN_EDITION: light' "$release_workflow" \
-  || ! grep -Fq 'npm run python:light-runtime' "$release_workflow"; then
-  echo "Portable release jobs must build the Light edition and its minimal runtime." >&2
+if ! grep -Fq 'release-linux:' "$release_workflow" \
+  || ! grep -Fq 'release-windows:' "$release_workflow" \
+  || [[ "$(grep -Fc 'npm run python:runtime' "$release_workflow")" -lt 3 ]]; then
+  echo "Desktop releases must use the single shared runtime." >&2
   exit 1
 fi
 if ! grep -Fq '"torch==2.13.0"' "$portable_worker"; then

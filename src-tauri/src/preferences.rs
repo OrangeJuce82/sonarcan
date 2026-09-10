@@ -41,7 +41,6 @@ pub struct UserPreferences {
     pub meter_peak_hold: MeterPeakHold,
     pub energy_window_seconds: u32,
     pub degraded_analysis_notice_seen: bool,
-    pub light_edition_notice_seen: bool,
     pub default_trainer_start_rate: f64,
     pub default_trainer_repetitions: u32,
     pub default_trainer_increment: f64,
@@ -105,6 +104,7 @@ pub enum NavigationMode {
     Time,
     Beat,
     Chord,
+    Marker,
     Lyrics,
 }
 
@@ -200,7 +200,6 @@ impl Default for UserPreferences {
             meter_peak_hold: MeterPeakHold::OneSecond,
             energy_window_seconds: 15,
             degraded_analysis_notice_seen: false,
-            light_edition_notice_seen: false,
             default_trainer_start_rate: 0.5,
             default_trainer_repetitions: 1,
             default_trainer_increment: 0.05,
@@ -428,19 +427,6 @@ mod tests {
     }
 
     #[test]
-    fn older_preferences_show_the_light_edition_notice_once() {
-        let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
-        stored
-            .as_object_mut()
-            .unwrap()
-            .remove("lightEditionNoticeSeen");
-
-        let preferences: UserPreferences = serde_json::from_value(stored).unwrap();
-
-        assert!(!preferences.light_edition_notice_seen);
-    }
-
-    #[test]
     fn older_preferences_auto_select_the_best_youtube_match() {
         let mut stored = serde_json::to_value(UserPreferences::default()).unwrap();
         stored
@@ -486,15 +472,17 @@ mod tests {
     }
 
     #[test]
-    fn lyrics_navigation_round_trips_through_preferences() {
-        let mut value = UserPreferences {
-            navigation_mode: NavigationMode::Lyrics,
-            ..UserPreferences::default()
-        };
-        validate(&mut value);
-        let stored = serde_json::to_value(&value).unwrap();
-        let reopened: UserPreferences = serde_json::from_value(stored).unwrap();
-        assert_eq!(reopened.navigation_mode, NavigationMode::Lyrics);
+    fn non_time_navigation_round_trips_through_preferences() {
+        for navigation_mode in [NavigationMode::Marker, NavigationMode::Lyrics] {
+            let mut value = UserPreferences {
+                navigation_mode,
+                ..UserPreferences::default()
+            };
+            validate(&mut value);
+            let stored = serde_json::to_value(&value).unwrap();
+            let reopened: UserPreferences = serde_json::from_value(stored).unwrap();
+            assert_eq!(reopened.navigation_mode, navigation_mode);
+        }
     }
 
     #[test]

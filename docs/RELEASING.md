@@ -2,15 +2,13 @@
 
 ## Supported releases
 
-The tag workflow produces a Full MLX bundle for Apple Silicon, NVIDIA CUDA 12.6
-bundles for Windows/Linux, an AMD ROCm 7.2 bundle for Linux, plus Light bundles
-for Apple Silicon, Intel macOS, Windows x64, and Linux x64. Full/GPU contains the
-analysis runtime and LV-Chordia models. The Beat This!, HTDemucs, and SCNet
-checkpoints are downloaded and verified during the first Full-edition launch rather than bundled. Light contains only a target-native minimal Python
-3.13 standard library for the pinned `yt-dlp` artifact and excludes Torch, MLX,
-LV-Chordia, Beat This!, HTDemucs, SCNet, NumPy, SciPy, and their model files. Never copy a
-runtime between targets or combine target architectures into a universal macOS
-binary.
+The tag workflow produces one SonArcan application with target-specific compute
+runtimes: MLX/MPS for Apple Silicon, NVIDIA CUDA 12.6 for Windows/Linux, AMD
+ROCm 7.2 for Linux, and standard Windows/Linux builds that run in simplified
+mode without GPU analysis. The Beat This!, HTDemucs, and SCNet checkpoints are
+downloaded and verified only when a qualified accelerator build starts; they are
+not bundled. Never copy a runtime between targets or combine target
+architectures into a universal macOS binary.
 The pinned `madmom` revision omits its setuptools, NumPy, and Cython build
 requirements, so release assembly bootstraps those exact inputs before building
 it without isolation.
@@ -23,15 +21,15 @@ accelerator probes used at application startup. Hosted Windows/Linux runners do
 not have production GPUs, so their release gate verifies the pinned CUDA/ROCm
 runtime identity and importable model contracts. The complete selected graph is
 first exercised when the user starts separation.
-After packaging, the release gate inspects the macOS applications, extracts all
-Linux package formats, and silently installs the Windows Light NSIS package in the
+After packaging, the release gate inspects the macOS application, extracts all
+Linux package formats, and silently installs the standard Windows NSIS package in the
 disposable runner. The Windows GPU portable tree is verified before its Zip64
 archive is split. It then executes the embedded chord/downbeat, stem, FFmpeg,
 FFprobe, and yt-dlp health checks from those packaged locations. A missing,
 foreign-architecture, or non-relocatable runtime therefore fails the release
 while it is still a draft.
 
-Linux Light publishes verified DEB and AppImage bundles. Linux GPU editions
+Standard Linux publishes verified DEB and AppImage bundles. Linux GPU builds
 publish verified DEB bundles split into numbered volumes smaller than 2 GiB.
 Windows GPU publishes a similarly split portable Zip64
 archive because NSIS and GitHub Release assets both have 2 GiB limits. Each
@@ -112,15 +110,14 @@ npm run ytdlp:search
 npm run verify:ytdlp-search-release
 npm run ffmpeg:runtime
 npm run verify:ffmpeg-release
-npm run quality:full
+npm run quality
 ```
 
 Run `npm run security` as well only when the release changes a dependency or
 lockfile, in accordance with the repository security policy.
 
-On Apple Silicon, run `mlx:sync` before assembling the shared runtime. Build with the target overlay
-`src-tauri/tauri.macos-arm.conf.json` or
-`src-tauri/tauri.portable.conf.json`. macOS can still use
+On Apple Silicon, run `mlx:sync` before assembling the shared runtime. Build with
+the target overlay `src-tauri/tauri.macos-arm.conf.json`. macOS can still use
 `npm run register:macos-app` for local Launch Services qualification.
 
 Then run a real separation smoke test on representative music, allow and verify
@@ -144,14 +141,14 @@ embedded-runtime signing script use the same ad-hoc identity.
    ```
 
 5. The `Release desktop` workflow checks version consistency, creates the
-   **draft** GitHub Release, then runs the macOS, Light, NVIDIA GPU, and AMD GPU
+   **draft** GitHub Release, then runs the macOS, standard Windows/Linux, NVIDIA GPU, and AMD GPU
    jobs concurrently. Every runtime and media tool is verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
    declaration, bundled executables, and absence of Beat This!, HTDemucs, and
    SCNet checkpoints.
 7. Download and smoke-test every draft package. Reconstruct every multipart GPU
    DEB and Zip64 archive and verify its platform-specific part hashes first.
-   Install both GPU DEBs on compatible systems and exercise the Light AppImage
+   Install both GPU DEBs on compatible systems and exercise the standard AppImage
    directly on a distribution without DEB support.
    On macOS, verify with
    `codesign --verify --deep --strict --verbose=2 /Applications/SonArcan.app`,

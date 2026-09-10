@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Language } from "./i18n";
 import type { JamsChordSegment } from "./chordExport";
-import type { AnalysisCapabilities, AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, ModelInstallResult, PracticeState, ProjectSummary, RemoteLyricsRecord, SpectrumFrame, StartupProject, StemSeparationProfile, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
+import type { AnalysisCapabilities, AppLogEntry, AudioStatus, ChordAnalysis, ChordMode, DiagnosticsSnapshot, EndBehavior, ImportCandidate, ImportJob, LyricsDocument, LyricsSearchResult, MetronomeSound, ModelInstallResult, PracticeState, ProjectSummary, RemoteLyricsRecord, SearchProvider, SpectrumFrame, StartupProject, StemSeparationProfile, StemStatus, SystemMetrics, UserPreferences, WaveformData } from "./types";
 
 const isTauri = (): boolean => "__TAURI_INTERNALS__" in window;
 
@@ -157,7 +157,7 @@ export const getPreferences = (): Promise<UserPreferences> => invoke("get_prefer
 export const savePreferences = (value: UserPreferences): Promise<UserPreferences> => invoke("save_preferences", { value });
 export const analyzeImportText = (text: string): Promise<ImportCandidate[]> => invoke("analyze_import_text", { text });
 export const beginYoutubeSearches = (): Promise<number> => invoke("begin_youtube_searches");
-export const resolveYoutubeSearch = (query: string, generation: number): Promise<ImportCandidate[]> => invoke("resolve_youtube_search", { query, generation });
+export const resolveYoutubeSearch = (query: string, generation: number, provider: SearchProvider): Promise<ImportCandidate[]> => invoke("resolve_youtube_search", { query, generation, provider });
 export const readImportTextFiles = (paths: string[]): Promise<string> => invoke("read_import_text_files", { paths });
 export const enqueueImports = (packagePath: string, inputs: string[]): Promise<ImportJob[]> => invoke("enqueue_imports", { request: { packagePath, inputs } });
 export const importJobs = (): Promise<ImportJob[]> => invoke("import_jobs");
@@ -169,6 +169,7 @@ export const revealProject = (packagePath: string): Promise<void> => invoke("rev
 export const openExternalLink = (target: "github" | "donate"): Promise<void> => invoke("open_external_link", { target });
 export const openLrclibSearch = (query: string): Promise<void> => invoke("open_lrclib_search", { query });
 export const openYoutubeVideo = (videoId: string): Promise<void> => invoke("open_youtube_video", { videoId });
+export const openImportSource = (url: string): Promise<void> => invoke("open_import_source", { url });
 
 export async function diagnostics(): Promise<DiagnosticsSnapshot> {
   if (!isTauri()) {

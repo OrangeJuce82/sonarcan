@@ -26,6 +26,7 @@
   export let onSearch: (query: string) => Promise<void>;
   export let onChooseSearchResult: (result: LyricsSearchResult) => Promise<void>;
   export let onOpenProvider: (query: string) => void;
+  export let closeEditorGeneration = 0;
 
   let autoFollow = true;
   let editorVisible = false;
@@ -43,11 +44,17 @@
   let editorElement: HTMLTextAreaElement | undefined;
   let lastFollowedIndex = -1;
   let activeIndex = -1;
+  let handledCloseEditorGeneration = closeEditorGeneration;
   let tr: (key: Parameters<typeof lyricsTranslate>[1]) => string;
   $: tr = (key) => lyricsTranslate(language, key);
   $: activeIndex = document?.syncLevel === "none"
     ? estimatedLyricsLineIndex(document, currentMs, durationMs)
     : activeLyricsLineIndex(document, currentMs);
+  $: if (closeEditorGeneration !== handledCloseEditorGeneration) {
+    handledCloseEditorGeneration = closeEditorGeneration;
+    editorVisible = false;
+    editorError = "";
+  }
   $: if (!document) resetSelection();
   $: if (!editorVisible
     && document?.syncLevel !== "none"

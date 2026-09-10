@@ -53,7 +53,6 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     env:
-      SONARCAN_EDITION: full
       # Apple Silicon requires signed executable code. The ad-hoc identity keeps
       # the bundle internally consistent without claiming Apple verification.
       APPLE_SIGNING_IDENTITY: "-"
@@ -100,8 +99,8 @@ jobs:
       - run: npm run verify:ffmpeg-release
       - name: Qualify MLX separation performance
         run: npm run qualify:stem-performance
-      - name: Run Full quality gate
-        run: npm run quality:full
+      - name: Run application quality gate
+        run: npm run quality
       - name: Ad-hoc sign embedded release binaries
         run: npm run sign:release-resources
       - name: Build ad-hoc signed app and create draft release
@@ -161,78 +160,12 @@ jobs:
             sleep "$((attempt * 10))"
           done
 
-  release-macos-light:
-    name: Release ${{ matrix.label }}
-    needs: prepare-release
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: macOS Apple Silicon Light
-            runner: macos-15
-            target: aarch64-apple-darwin
-            config: src-tauri/tauri.macos-arm-light.conf.json
-          - label: macOS Intel Light
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            config: src-tauri/tauri.macos-intel-light.conf.json
-    runs-on: ${{ matrix.runner }}
-    env:
-      SONARCAN_EDITION: light
-      APPLE_SIGNING_IDENTITY: "-"
-      SONARCAN_PYTHON_RUNTIME_DIR: ${{ github.workspace }}/src-tauri/resources/light-python-runtime/runtime
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-          components: rustfmt, clippy
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
-        with:
-          version: "0.9.26"
-          enable-cache: true
-      - run: uv python install 3.13.5
-      - run: npm ci
-      - run: npm run verify:release-version
-      - run: npm run ytdlp:search
-      - run: npm run python:light-runtime
-      - run: npm run verify:light-runtime
-      - run: npm run ffmpeg:runtime
-      - run: npm run verify:ffmpeg-release
-      - name: Run Light quality gate
-        run: npm run quality:light
-      - name: Ad-hoc sign Light release binaries
-        run: npm run sign:release-resources
-      - name: Build Light app and DMG
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: SonArcan ${{ github.ref_name }}
-          generateReleaseNotes: false
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target ${{ matrix.target }} --bundles app,dmg --config ${{ matrix.config }}
-      - name: Verify packaged Light application
-        run: |
-          app_bundle="src-tauri/target/${{ matrix.target }}/release/bundle/macos/SonArcan Light.app"
-          codesign --verify --deep --strict --verbose=2 "$app_bundle"
-          npm run verify:bundled-release -- "$app_bundle"
-          test ! -e "$app_bundle/Contents/Resources/models"
 
   release-linux:
-    name: Release Linux x64 Light
+    name: Release Linux x64
     needs: prepare-release
     timeout-minutes: 120
     runs-on: ubuntu-22.04
-    env:
-      SONARCAN_EDITION: light
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -261,12 +194,14 @@ jobs:
       - run: npm run verify:release-version
       - run: npm run ytdlp:search
       - run: npm run verify:ytdlp-search-release
-      - run: npm run python:light-runtime
-      - run: npm run verify:light-runtime
+      - run: npm run chords:downbeat-model
+      - run: npm run python:runtime
+      - run: npm run verify:stem-release
+      - run: npm run verify:chord-release
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - name: Run Light quality gate
-        run: npm run quality:light
+      - name: Run application quality gate
+        run: npm run quality:shared
       - name: Build Linux DEB and upload it to the draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -277,7 +212,7 @@ jobs:
           generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target x86_64-unknown-linux-gnu --bundles deb --config src-tauri/tauri.portable.conf.json
+          args: --target x86_64-unknown-linux-gnu --bundles deb
       - name: Build Linux AppImage and upload it to the draft release
         continue-on-error: true
         uses: tauri-apps/tauri-action@v1
@@ -289,7 +224,7 @@ jobs:
           generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target x86_64-unknown-linux-gnu --bundles appimage --config src-tauri/tauri.portable.conf.json
+          args: --target x86_64-unknown-linux-gnu --bundles appimage
       - name: Verify packaged Linux DEB
         run: |
           verification_root="$(mktemp -d)"
@@ -312,12 +247,10 @@ jobs:
           rm -rf "$verification_root"
 
   release-windows:
-    name: Release Windows x64 Light
+    name: Release Windows x64
     needs: prepare-release
     timeout-minutes: 120
     runs-on: windows-2025
-    env:
-      SONARCAN_EDITION: light
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -336,12 +269,14 @@ jobs:
       - run: npm run verify:release-version
       - run: npm run ytdlp:search
       - run: npm run verify:ytdlp-search-release
-      - run: npm run python:light-runtime
-      - run: npm run verify:light-runtime
+      - run: npm run chords:downbeat-model
+      - run: npm run python:runtime
+      - run: npm run verify:stem-release
+      - run: npm run verify:chord-release
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - name: Run Light quality gate
-        run: npm run quality:light
+      - name: Run application quality gate
+        run: npm run quality:shared
       - name: Build bundle and upload it to the draft release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -352,7 +287,7 @@ jobs:
           generateReleaseNotes: false
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target x86_64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.portable.conf.json
+          args: --target x86_64-pc-windows-msvc --bundles nsis
       - name: Install and verify packaged Windows application
         shell: pwsh
         run: |
@@ -379,7 +314,6 @@ jobs:
             config: src-tauri/tauri.amd-gpu.conf.json
     runs-on: ubuntu-22.04
     env:
-      SONARCAN_EDITION: full
       SONARCAN_GPU_BACKEND: ${{ matrix.backend }}
     steps:
       - uses: actions/checkout@v7
@@ -420,8 +354,8 @@ jobs:
       - run: npm run verify:ytdlp-search-release
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - name: Run Full quality gate
-        run: npm run quality:full
+      - name: Run application quality gate
+        run: npm run quality
       - name: Free build caches before the large GPU package
         run: |
           uv_cache_dir="$(uv cache dir)"
@@ -467,7 +401,6 @@ jobs:
     timeout-minutes: 180
     runs-on: windows-2025
     env:
-      SONARCAN_EDITION: full
       SONARCAN_GPU_BACKEND: nvidia
     steps:
       - uses: actions/checkout@v7
@@ -497,8 +430,8 @@ jobs:
       - run: npm run verify:ytdlp-search-release
       - run: npm run ffmpeg:runtime
       - run: npm run verify:ffmpeg-release
-      - name: Run Full quality gate
-        run: npm run quality:full
+      - name: Run application quality gate
+        run: npm run quality
       - name: Free build caches before the large GPU package
         run: |
           $uvCacheDir = uv cache dir

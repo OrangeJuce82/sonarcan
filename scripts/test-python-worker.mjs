@@ -19,7 +19,6 @@ const runtimeExecutable = process.platform === "win32" ? "python.exe" : "bin/pyt
 const runtimePython = [
   process.env.SONARCAN_PYTHON_RUNTIME_DIR,
   join(root, "src-tauri/resources/python-runtime/runtime"),
-  join(root, "src-tauri/resources/light-python-runtime/runtime"),
 ]
   .filter(Boolean)
   .map((directory) => join(directory, runtimeExecutable))

@@ -40,19 +40,13 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-22.04
-            edition: light
           - name: Windows x64
             os: windows-2025
-            edition: light
           - name: macOS Apple Silicon
             os: macos-15
-            edition: full
-          - name: macOS Intel Light
+          - name: macOS Intel
             os: macos-15-intel
-            edition: light
     runs-on: ${{ matrix.os }}
-    env:
-      SONARCAN_EDITION: ${{ matrix.edition }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -65,11 +59,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Install uv for the Full worker tests
-        if: matrix.edition == 'full'
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
-        with:
-          version: "0.9.26"
       - name: Install Tauri Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -81,10 +70,6 @@ jobs:
             librsvg2-dev \
             patchelf
       - run: npm ci
-      - name: Run Full quality gate
-        if: matrix.edition == 'full'
-        run: npm run quality:full
-      - name: Run Light quality gate
-        if: matrix.edition == 'light'
-        run: npm run quality:light
+      - name: Run shared application quality gate
+        run: npm run quality:shared
       - run: npm run build:ci

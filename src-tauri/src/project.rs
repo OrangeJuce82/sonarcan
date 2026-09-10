@@ -19,6 +19,8 @@ pub const PROJECT_FORMAT_VERSION: u32 = 1;
 const MANIFEST_NAME: &str = "project.json";
 const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_TRACK_NOTES_CHARS: usize = 10_000;
+const MAX_TRACK_MARKERS: usize = 512;
+const MAX_MARKER_LABEL_CHARS: usize = 120;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -95,6 +97,10 @@ pub struct PracticeState {
     pub trainer_target_rate: f64,
     #[serde(default)]
     pub chord_edits: Vec<ChordEdit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chord_timelines: Vec<ChordTimeline>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<TrackMarker>,
     pub stems_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_stem_profile: Option<StemSeparationProfile>,
@@ -108,6 +114,47 @@ pub struct PracticeState {
         deserialize_with = "deserialize_stem_names"
     )]
     pub stem_names: [String; STEM_COUNT],
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MarkerOrigin {
+    Source,
+    Detected,
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackMarker {
+    pub id: Uuid,
+    pub label: String,
+    pub start_seconds: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_seconds: Option<f64>,
+    pub origin: MarkerOrigin,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChordRegion {
+    pub id: Uuid,
+    pub label: String,
+    pub start_seconds: f64,
+    pub end_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChordTimeline {
+    pub mode: ChordEditMode,
+    pub regions: Vec<ChordRegion>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportedTrackMetadata {
+    pub source_path: PathBuf,
+    pub markers: Vec<TrackMarker>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -223,6 +270,8 @@ impl Default for PracticeState {
             trainer_increment: default_trainer_increment(),
             trainer_target_rate: default_trainer_target_rate(),
             chord_edits: Vec::new(),
+            chord_timelines: Vec::new(),
+            markers: Vec::new(),
             stems_enabled: false,
             last_stem_profile: None,
             stem_mix: default_stem_mix(),
@@ -397,6 +446,14 @@ pub fn import_audio(
     package_path: &Path,
     source_paths: &[PathBuf],
 ) -> Result<ProjectSummary, AppError> {
+    import_audio_with_metadata(package_path, source_paths, &[])
+}
+
+pub fn import_audio_with_metadata(
+    package_path: &Path,
+    source_paths: &[PathBuf],
+    imported_metadata: &[ImportedTrackMetadata],
+) -> Result<ProjectSummary, AppError> {
     let mut manifest = load(package_path)?;
     fingerprint_cache_directory(package_path)?;
     let mut existing_fingerprints = Vec::with_capacity(manifest.tracks.len());
@@ -434,6 +491,31 @@ pub fn import_audio(
         }
         let metadata = fs::metadata(&canonical).map_err(|error| AppError::io(&canonical, error))?;
         let audio_metadata = audio::probe(&canonical)?;
+        let mut markers = imported_metadata
+            .iter()
+            .find_map(|metadata| {
+                metadata
+                    .source_path
+                    .canonicalize()
+                    .ok()
+                    .filter(|path| path == &canonical)
+                    .map(|_| metadata.markers.clone())
+            })
+            .unwrap_or_default();
+        if let Some(duration) = audio_metadata.duration_seconds {
+            markers.retain(|marker| marker.start_seconds < duration);
+            for marker in &mut markers {
+                marker.end_seconds = marker
+                    .end_seconds
+                    .map(|end| end.min(duration))
+                    .filter(|end| *end > marker.start_seconds);
+            }
+        }
+        let marker_state = PracticeState {
+            markers: markers.clone(),
+            ..PracticeState::default()
+        };
+        validate_practice_state(&marker_state)?;
         let title = canonical
             .file_stem()
             .and_then(|value| value.to_str())
@@ -479,6 +561,7 @@ pub fn import_audio(
             audio_metadata,
             title,
             fingerprint,
+            markers,
         });
     }
 
@@ -508,7 +591,10 @@ pub fn import_audio(
             duration_seconds: prepared.audio_metadata.duration_seconds,
             sample_rate: prepared.audio_metadata.sample_rate,
             channels: prepared.audio_metadata.channels,
-            practice: PracticeState::default(),
+            practice: PracticeState {
+                markers: prepared.markers,
+                ..PracticeState::default()
+            },
         });
     }
     manifest.updated_at = Utc::now();
@@ -523,6 +609,7 @@ struct PreparedImport {
     audio_metadata: audio::AudioMetadata,
     title: String,
     fingerprint: audio_fingerprint::AudioFingerprint,
+    markers: Vec<TrackMarker>,
 }
 
 fn fingerprint_cache_path(package_path: &Path, track_id: Uuid) -> Result<PathBuf, AppError> {
@@ -733,6 +820,22 @@ pub fn update_practice_state(
         .iter_mut()
         .find(|track| track.id == track_id)
         .ok_or(AppError::TrackNotFound(track_id))?;
+    if let Some(duration) = track.duration_seconds {
+        let timelines_in_bounds = state.markers.iter().all(|marker| {
+            marker.start_seconds < duration
+                && marker.end_seconds.map_or(true, |end| end <= duration)
+        }) && state.chord_timelines.iter().all(|timeline| {
+            timeline
+                .regions
+                .iter()
+                .all(|region| region.start_seconds < duration && region.end_seconds <= duration)
+        });
+        if !timelines_in_bounds {
+            return Err(AppError::InvalidPracticeState(
+                "timeline regions must stay within the track duration".into(),
+            ));
+        }
+    }
     track.practice = state;
     manifest.updated_at = Utc::now();
     save(package_path, &manifest)?;
@@ -818,7 +921,7 @@ fn load(package_path: &Path) -> Result<ProjectManifest, AppError> {
     if bytes.len() as u64 > MAX_MANIFEST_BYTES {
         return Err(AppError::ProjectManifestTooLarge(path));
     }
-    let manifest: ProjectManifest =
+    let mut manifest: ProjectManifest =
         serde_json::from_slice(&bytes).map_err(|source| AppError::InvalidProjectMetadata {
             path: path.clone(),
             source,
@@ -828,6 +931,9 @@ fn load(package_path: &Path) -> Result<ProjectManifest, AppError> {
             found: manifest.format_version,
             supported: PROJECT_FORMAT_VERSION,
         });
+    }
+    for track in &mut manifest.tracks {
+        normalize_legacy_practice_state(&mut track.practice);
     }
     Ok(manifest)
 }
@@ -1011,8 +1117,67 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
                     edit.end_seconds.to_bits(),
                 ))
         });
+    let mut marker_ids = HashSet::with_capacity(state.markers.len());
+    let markers_valid = state.markers.len() <= MAX_TRACK_MARKERS
+        && state.markers.iter().all(|marker| {
+            let label = marker.label.trim();
+            marker_ids.insert(marker.id)
+                && !label.is_empty()
+                && label.chars().count() <= MAX_MARKER_LABEL_CHARS
+                && !label.chars().any(char::is_control)
+                && marker.start_seconds.is_finite()
+                && marker.start_seconds >= 0.0
+                && marker
+                    .end_seconds
+                    .map_or(true, |end| end.is_finite() && end > marker.start_seconds)
+        })
+        && state.markers.windows(2).all(|pair| {
+            pair[0].start_seconds < pair[1].start_seconds
+                && pair[0]
+                    .end_seconds
+                    .map_or(true, |end| end <= pair[1].start_seconds)
+        });
+    let mut chord_timeline_modes = HashSet::with_capacity(state.chord_timelines.len());
+    let mut chord_region_ids = HashSet::new();
+    let chord_timelines_valid = state.chord_timelines.len() <= 3
+        && state.chord_timelines.iter().all(|timeline| {
+            let mut previous_end = 0.0;
+            chord_timeline_modes.insert(timeline.mode)
+                && timeline.regions.len() <= 4_096
+                && timeline.regions.iter().all(|region| {
+                    let label = region.label.trim();
+                    let valid = chord_region_ids.insert(region.id)
+                        && region.start_seconds.is_finite()
+                        && region.end_seconds.is_finite()
+                        && region.start_seconds >= previous_end
+                        && region.end_seconds > region.start_seconds
+                        && (label == "N"
+                            || (!label.is_empty()
+                                && label.len() <= 96
+                                && matches!(label.as_bytes().first(), Some(b'A'..=b'G'))
+                                && label.chars().all(|character| {
+                                    character.is_ascii_alphanumeric()
+                                        || matches!(
+                                            character,
+                                            '#' | 'b'
+                                                | '/'
+                                                | '('
+                                                | ')'
+                                                | ','
+                                                | '*'
+                                                | '+'
+                                                | '-'
+                                                | ':'
+                                        )
+                                })));
+                    previous_end = region.end_seconds;
+                    valid
+                })
+        });
     if !finite
         || !chord_edits_valid
+        || !chord_timelines_valid
+        || !markers_valid
         || state.track_notes.chars().count() > MAX_TRACK_NOTES_CHARS
         || state
             .track_notes
@@ -1051,6 +1216,35 @@ fn validate_practice_state(state: &PracticeState) -> Result<(), AppError> {
         }
     }
     Ok(())
+}
+
+fn normalize_legacy_practice_state(state: &mut PracticeState) {
+    state.position_seconds = state.position_seconds.max(0.0);
+    state.playback_rate = state.playback_rate.clamp(0.5, 2.0);
+    state.pitch_semitones = state.pitch_semitones.clamp(-12.0, 12.0);
+    state.volume = state.volume.clamp(0.0, 2.0);
+    state.metronome_volume = state.metronome_volume.clamp(0.0, 1.0);
+    state.trainer_repetitions = state.trainer_repetitions.clamp(1, 99);
+    state.trainer_start_rate = state.trainer_start_rate.clamp(0.5, 1.99);
+    state.trainer_increment = state.trainer_increment.clamp(0.01, 0.25);
+    state.trainer_target_rate = state.trainer_target_rate.clamp(0.5, 2.0);
+    if state.trainer_target_rate <= state.trainer_start_rate {
+        state.trainer_target_rate = (state.trainer_start_rate + 0.01).min(2.0);
+    }
+    let loop_bounds_valid = match (state.loop_a_seconds, state.loop_b_seconds) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a >= 0.0 && b > a,
+        _ => false,
+    };
+    if !loop_bounds_valid {
+        state.loop_enabled = false;
+        state.loop_a_seconds = None;
+        state.loop_b_seconds = None;
+    }
+    for stem in &mut state.stem_mix {
+        stem.gain = stem.gain.clamp(0.0, 2.0);
+        stem.pan = stem.pan.clamp(-1.0, 1.0);
+    }
 }
 
 fn optional_f64_is_finite(value: Option<f64>) -> bool {
@@ -1462,6 +1656,22 @@ mod tests {
                 end_seconds: 0.0005,
                 label: "Dbm7".into(),
             }],
+            chord_timelines: vec![ChordTimeline {
+                mode: ChordEditMode::Essential,
+                regions: vec![ChordRegion {
+                    id: Uuid::new_v4(),
+                    label: "C".into(),
+                    start_seconds: 0.0,
+                    end_seconds: 0.0005,
+                }],
+            }],
+            markers: vec![TrackMarker {
+                id: Uuid::new_v4(),
+                label: "Verse".into(),
+                start_seconds: 0.0,
+                end_seconds: Some(0.0005),
+                origin: MarkerOrigin::User,
+            }],
         };
 
         update_practice_state(&project.package_path, track_id, state.clone()).unwrap();
@@ -1479,6 +1689,11 @@ mod tests {
             "Practice the bridge slowly.\nWatch the final chord."
         );
         assert_eq!(reopened.tracks[0].practice.beat_this_dbn, Some(false));
+        assert_eq!(reopened.tracks[0].practice.markers[0].label, "Verse");
+        assert_eq!(
+            reopened.tracks[0].practice.chord_timelines[0].regions[0].label,
+            "C"
+        );
         assert_eq!(
             reopened.tracks[0].practice.beat_subdivision_mode,
             BeatSubdivisionMode::Eighth
@@ -1502,6 +1717,41 @@ mod tests {
         invalid_chord_edit.chord_edits[0].label = "<script>".into();
         assert!(matches!(
             update_practice_state(&project.package_path, track_id, invalid_chord_edit),
+            Err(AppError::InvalidPracticeState(_))
+        ));
+
+        let mut overlapping_chords = state.clone();
+        overlapping_chords.chord_timelines[0]
+            .regions
+            .push(ChordRegion {
+                id: Uuid::new_v4(),
+                label: "G7".into(),
+                start_seconds: 0.0004,
+                end_seconds: 0.0008,
+            });
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, overlapping_chords),
+            Err(AppError::InvalidPracticeState(_))
+        ));
+
+        let mut out_of_bounds_marker = state.clone();
+        out_of_bounds_marker.markers[0].start_seconds = 10.0;
+        out_of_bounds_marker.markers[0].end_seconds = None;
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, out_of_bounds_marker),
+            Err(AppError::InvalidPracticeState(_))
+        ));
+
+        let mut overlapping_markers = state.clone();
+        overlapping_markers.markers.push(TrackMarker {
+            id: Uuid::new_v4(),
+            label: "Chorus".into(),
+            start_seconds: 0.0004,
+            end_seconds: Some(0.0008),
+            origin: MarkerOrigin::User,
+        });
+        assert!(matches!(
+            update_practice_state(&project.package_path, track_id, overlapping_markers),
             Err(AppError::InvalidPracticeState(_))
         ));
 
@@ -1570,6 +1820,59 @@ mod tests {
             [0.1, 0.2, 0.3, 0.4]
         );
         assert_eq!(migrated.stem_names, ["Voice", "Kit", "Low", "Band"]);
+    }
+
+    #[test]
+    fn normalizes_legacy_practice_values_when_a_project_is_opened() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "Legacy Practice").unwrap();
+        let wave_path = temp.path().join("tone.wav");
+        fs::write(&wave_path, minimal_pcm_wave()).unwrap();
+        import_audio(&project.package_path, &[wave_path]).unwrap();
+        let mut manifest = load(&project.package_path).unwrap();
+        manifest.tracks[0].practice = PracticeState {
+            position_seconds: -4.0,
+            playback_rate: 3.0,
+            pitch_semitones: -24.0,
+            volume: 4.0,
+            loop_enabled: true,
+            loop_a_seconds: Some(12.0),
+            loop_b_seconds: Some(8.0),
+            metronome_volume: -1.0,
+            trainer_start_rate: 2.0,
+            trainer_repetitions: 0,
+            trainer_increment: 0.5,
+            trainer_target_rate: 1.0,
+            ..PracticeState::default()
+        };
+        manifest.tracks[0].practice.stem_mix[0].gain = 3.0;
+        manifest.tracks[0].practice.stem_mix[0].pan = -2.0;
+        let mut legacy_manifest = serde_json::to_value(&manifest).unwrap();
+        legacy_manifest["tracks"][0]["practice"]["volume"] = serde_json::json!(4.0);
+        legacy_manifest["tracks"][0]["practice"]["metronomeVolume"] = serde_json::json!(-1.0);
+        fs::write(
+            project.package_path.join(MANIFEST_NAME),
+            serde_json::to_vec_pretty(&legacy_manifest).unwrap(),
+        )
+        .unwrap();
+
+        let reopened = open_project(&project.package_path).unwrap();
+        let state = &reopened.tracks[0].practice;
+
+        assert_eq!(state.position_seconds, 0.0);
+        assert_eq!(state.playback_rate, 2.0);
+        assert_eq!(state.pitch_semitones, -12.0);
+        assert_eq!(state.volume, 2.0);
+        assert!(!state.loop_enabled);
+        assert_eq!((state.loop_a_seconds, state.loop_b_seconds), (None, None));
+        assert_eq!(state.metronome_volume, 0.0);
+        assert_eq!(state.trainer_start_rate, 1.99);
+        assert_eq!(state.trainer_repetitions, 1);
+        assert_eq!(state.trainer_increment, 0.25);
+        assert_eq!(state.trainer_target_rate, 2.0);
+        assert_eq!(state.stem_mix[0].gain, 2.0);
+        assert_eq!(state.stem_mix[0].pan, -1.0);
+        assert!(validate_practice_state(state).is_ok());
     }
 
     #[test]

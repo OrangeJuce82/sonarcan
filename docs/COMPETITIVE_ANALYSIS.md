@@ -31,9 +31,9 @@ Its strongest differentiation is not a single model. It is the combination of:
 - a free MIT-licensed product.
 
 The principal competitive problem is product maturity rather than feature
-ambition. SonArcan is a cross-platform beta: Full analysis is qualified for
-Apple Silicon, NVIDIA GPUs on Windows/Linux, and AMD GPUs on Linux, while Light
-covers the remaining supported desktop targets. macOS packages are still not
+ambition. SonArcan is a cross-platform beta: analysis is qualified for Apple
+Silicon, NVIDIA GPUs on Windows/Linux, and AMD GPUs on Linux, while the same
+application uses simplified mode on other supported targets. macOS packages are still not
 notarized. The product now supports bounded per-region chord corrections,
 synchronized lyrics, and several open exports, but still lacks named markers
 and sections, multiple saved practice regions, count-in, hands-free control, and
@@ -302,7 +302,7 @@ product risk, not implementation novelty.
 ### P3 — broaden reach after the Mac product is dependable
 
 - [x] **Package Windows and Linux builds.**
-  - Light packages provide playback and practice without heavy analysis.
+  - Standard packages provide playback and practice in simplified mode without a qualified GPU.
   - NVIDIA CUDA packages cover Windows/Linux and AMD ROCm covers Linux.
   - Startup probes keep unqualified GPUs out of the analysis path without CPU
     fallback.

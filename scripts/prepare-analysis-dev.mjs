@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const edition = process.env.SONARCAN_EDITION ?? "full";
 const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
 const supportedAppleSilicon = process.platform === "darwin" && process.arch === "arm64";
 const supportedDiscreteGpu = ["win32", "linux"].includes(process.platform)
@@ -18,11 +17,6 @@ function run(command, arguments_) {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
-}
-
-if (edition === "light") {
-  console.log("Skipping analysis setup for the Light edition.");
-  process.exit(0);
 }
 
 if (!supportedAppleSilicon && !supportedDiscreteGpu) {
