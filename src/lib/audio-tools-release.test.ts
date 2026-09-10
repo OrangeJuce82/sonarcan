@@ -9,6 +9,7 @@ test("portable FFmpeg archives belong to the pinned dated autobuild", () => {
     audioToolsRelease.checksumsSha256,
     "005ee3313312031bf9b178eb1e2625f6401fb8ff924b42626fe3d2a23e590382",
   );
+  assert.equal(audioToolsRelease.checksumsAssetId, 555281436);
   assert.deepEqual(audioToolsRelease.assets, {
     "linux-x64": "ffmpeg-N-126492-gefb0a7e5e7-linux64-lgpl.tar.xz",
     "win32-x64": "ffmpeg-N-126492-gefb0a7e5e7-win64-lgpl.zip",

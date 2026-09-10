@@ -49,7 +49,7 @@ the checksums, then concatenate them in name order. On Debian or Ubuntu:
 
 ```bash
 cd ~/Downloads
-version=v0.1.1-beta.4
+version=v0.1.1-beta.5
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -64,7 +64,7 @@ as binary data, then extract the reconstructed `.zip` and launch
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.1-beta.4'
+$version = 'v0.1.1-beta.5'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2

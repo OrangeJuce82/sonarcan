@@ -8,7 +8,13 @@ import { audioToolsRelease } from "./audio-tools-release.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = join(root, "src-tauri/resources/audio-tools");
-const { assetIds, assets, checksumsSha256, tag: releaseTag } = audioToolsRelease;
+const { assetIds, assets, checksumsAssetId, checksumsSha256, tag: releaseTag } = audioToolsRelease;
+const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+const githubAssetHeaders = {
+  Accept: "application/octet-stream",
+  "User-Agent": "SonArcan-release-build",
+  ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}),
+};
 
 function run(command, commandArguments, options = {}) {
   const result = spawnSync(command, commandArguments, { stdio: "inherit", ...options });
@@ -49,9 +55,12 @@ const assetId = assetIds[platform];
 if (!asset || !assetId) throw new Error(`no pinned audio-tools archive is defined for ${platform}`);
 const temporary = mkdtempSync(join(tmpdir(), "sonarcan-audio-tools-"));
 try {
-  const base = `https://github.com/BtbN/FFmpeg-Builds/releases/download/${releaseTag}`;
   const checksums = join(temporary, "checksums.sha256");
-  await download(`${base}/checksums.sha256`, checksums);
+  await download(
+    `https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/assets/${checksumsAssetId}`,
+    checksums,
+    githubAssetHeaders,
+  );
   if (sha256(checksums) !== checksumsSha256) throw new Error("FFmpeg checksum manifest is invalid");
   const line = readFileSync(checksums, "utf8").split(/\r?\n/).find((value) => value.endsWith(`  ${asset}`));
   if (!line) throw new Error(`FFmpeg checksum is missing for ${asset}`);
@@ -60,7 +69,7 @@ try {
   await download(
     `https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/assets/${assetId}`,
     archive,
-    { Accept: "application/octet-stream" },
+    githubAssetHeaders,
   );
   if (sha256(archive) !== expectedArchiveHash) throw new Error("FFmpeg archive checksum is invalid");
   const extracted = join(temporary, "extracted");

@@ -1,21 +1,39 @@
 import { createHash } from "node:crypto";
 import { audioToolsRelease } from "./audio-tools-release.mjs";
 
-const base = `https://github.com/BtbN/FFmpeg-Builds/releases/download/${audioToolsRelease.tag}`;
-const response = await fetch(`${base}/checksums.sha256`, { redirect: "follow" });
+const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+const githubApiHeaders = {
+  "User-Agent": "SonArcan-release-build",
+  ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}),
+};
+const releaseResponse = await fetch(
+  `https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/${audioToolsRelease.tag}`,
+  { headers: githubApiHeaders },
+);
+if (!releaseResponse.ok) throw new Error(`FFmpeg release metadata is unavailable (${releaseResponse.status})`);
+const release = await releaseResponse.json();
+const checksumsMetadata = release.assets.find(
+  (candidate) => candidate.id === audioToolsRelease.checksumsAssetId,
+);
+if (
+  !checksumsMetadata
+  || checksumsMetadata.name !== "checksums.sha256"
+  || checksumsMetadata.state !== "uploaded"
+  || checksumsMetadata.digest !== `sha256:${audioToolsRelease.checksumsSha256}`
+) {
+  throw new Error("FFmpeg checksum manifest metadata is invalid");
+}
+const response = await fetch(checksumsMetadata.url, {
+  headers: { ...githubApiHeaders, Accept: "application/octet-stream" },
+  redirect: "follow",
+});
 if (!response.ok) throw new Error(`FFmpeg checksum manifest is unavailable (${response.status})`);
 const bytes = Buffer.from(await response.arrayBuffer());
 const actualHash = createHash("sha256").update(bytes).digest("hex");
 if (actualHash !== audioToolsRelease.checksumsSha256) {
   throw new Error("FFmpeg checksum manifest no longer matches the pinned SHA-256");
 }
-
 const manifest = bytes.toString("utf8");
-const releaseResponse = await fetch(
-  `https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/${audioToolsRelease.tag}`,
-);
-if (!releaseResponse.ok) throw new Error(`FFmpeg release metadata is unavailable (${releaseResponse.status})`);
-const release = await releaseResponse.json();
 
 for (const [platform, asset] of Object.entries(audioToolsRelease.assets)) {
   const checksumLine = manifest.split(/\r?\n/).find((line) => line.endsWith(`  ${asset}`));
@@ -35,7 +53,11 @@ for (const [platform, asset] of Object.entries(audioToolsRelease.assets)) {
     throw new Error(`FFmpeg release metadata is invalid for ${asset}`);
   }
   const assetResponse = await fetch(metadata.url, {
-    headers: { Accept: "application/octet-stream", Range: "bytes=0-0" },
+    headers: {
+      ...githubApiHeaders,
+      Accept: "application/octet-stream",
+      Range: "bytes=0-0",
+    },
     redirect: "follow",
   });
   if (assetResponse.status !== 206) {

@@ -27,6 +27,8 @@ jobs:
       - run: npm ci
       - run: npm run verify:release-version
       - name: Verify pinned Windows/Linux FFmpeg sources
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run verify:audio-tools-source
       - name: Recreate draft release before parallel uploads
         env:
@@ -216,6 +218,8 @@ jobs:
       - run: npm run ytdlp:search
       - run: npm run verify:ytdlp-search-release
       - run: npm run ffmpeg:runtime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run verify:ffmpeg-release
       - name: Run application quality gate
         run: npm run quality
@@ -292,6 +296,8 @@ jobs:
       - run: npm run ytdlp:search
       - run: npm run verify:ytdlp-search-release
       - run: npm run ffmpeg:runtime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run verify:ffmpeg-release
       - name: Run application quality gate
         run: npm run quality
