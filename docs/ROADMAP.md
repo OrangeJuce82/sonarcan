@@ -115,5 +115,5 @@ project recovery, and cross-platform GPU editions.
 - [x] import cancellation and automatic completed-job pruning
 - [ ] import retry controls
 - [x] macOS Apple Silicon packaging with MLX
-- [x] single-edition Linux x64 standard, NVIDIA CUDA, and AMD ROCm packaging
-- [x] single-edition Windows x64 standard and NVIDIA CUDA packaging
+- [x] Linux x64 NVIDIA CUDA and AMD ROCm packaging with automatic simplified mode
+- [x] Windows x64 NVIDIA CUDA packaging with automatic simplified mode

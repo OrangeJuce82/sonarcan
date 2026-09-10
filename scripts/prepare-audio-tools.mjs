@@ -8,7 +8,7 @@ import { audioToolsRelease } from "./audio-tools-release.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = join(root, "src-tauri/resources/audio-tools");
-const { assets, checksumsSha256, tag: releaseTag } = audioToolsRelease;
+const { assetIds, assets, checksumsSha256, tag: releaseTag } = audioToolsRelease;
 
 function run(command, commandArguments, options = {}) {
   const result = spawnSync(command, commandArguments, { stdio: "inherit", ...options });
@@ -19,8 +19,8 @@ function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-async function download(url, destination) {
-  const response = await fetch(url, { redirect: "follow" });
+async function download(url, destination, headers = {}) {
+  const response = await fetch(url, { headers, redirect: "follow" });
   if (!response.ok) throw new Error(`download failed (${response.status}): ${url}`);
   writeFileSync(destination, Buffer.from(await response.arrayBuffer()));
 }
@@ -45,7 +45,8 @@ if (process.platform === "darwin") {
 
 const platform = `${process.platform}-${process.arch}`;
 const asset = assets[platform];
-if (!asset) throw new Error(`no pinned audio-tools archive is defined for ${platform}`);
+const assetId = assetIds[platform];
+if (!asset || !assetId) throw new Error(`no pinned audio-tools archive is defined for ${platform}`);
 const temporary = mkdtempSync(join(tmpdir(), "sonarcan-audio-tools-"));
 try {
   const base = `https://github.com/BtbN/FFmpeg-Builds/releases/download/${releaseTag}`;
@@ -56,7 +57,11 @@ try {
   if (!line) throw new Error(`FFmpeg checksum is missing for ${asset}`);
   const expectedArchiveHash = line.split(/\s+/)[0];
   const archive = join(temporary, asset);
-  await download(`${base}/${asset}`, archive);
+  await download(
+    `https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/assets/${assetId}`,
+    archive,
+    { Accept: "application/octet-stream" },
+  );
   if (sha256(archive) !== expectedArchiveHash) throw new Error("FFmpeg archive checksum is invalid");
   const extracted = join(temporary, "extracted");
   mkdirSync(extracted);

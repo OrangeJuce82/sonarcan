@@ -22,11 +22,9 @@
 | Platform | Minimum for playback, lyrics, spectrum and meters | Required for Beat, Chords and Mix | Recommended |
 | --- | --- | --- | --- |
 | macOS Apple Silicon | macOS 14, M1, 8 GB RAM | A working, qualified MLX/MPS accelerator | M2 or newer, 16 GB RAM |
-| Windows NVIDIA GPU | Windows 10 1903 or newer, x64, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Windows 11, 8 GB GPU memory, 32 GB RAM |
-| Windows | Windows 10 1903 or newer, x64, 8 GB RAM | Simplified mode without a qualified GPU build | Windows 11, 16 GB RAM |
-| Linux NVIDIA GPU | DEB-compatible x64 desktop, glibc 2.35+, 16 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
-| Linux AMD GPU | DEB-compatible x64 desktop, glibc 2.35+, 16 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
-| Linux | DEB- or AppImage-compatible x64 desktop, glibc 2.35+, 8 GB RAM | Simplified mode without a qualified GPU build | 16 GB RAM |
+| Windows NVIDIA package | Windows 10 1903 or newer, x64, 8 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | Windows 11, 8 GB GPU memory, 32 GB RAM |
+| Linux NVIDIA package | DEB-compatible x64 desktop, glibc 2.35+, 8 GB RAM | NVIDIA GPU and current driver compatible with CUDA 12.6; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
+| Linux AMD package | DEB-compatible x64 desktop, glibc 2.35+, 8 GB RAM | AMD GPU and driver supported by ROCm 7.2; startup model probe must pass | 8 GB GPU memory, 32 GB RAM |
 
 SonArcan checks the production accelerator and model graphs once when the
 application starts. If no compatible and qualified GPU backend is available,
@@ -38,10 +36,10 @@ available. The explanatory message is shown only once per user profile.
 Windows and Linux GPU bundles contain a pinned accelerator-specific PyTorch
 runtime: CUDA 12.6 for NVIDIA, and ROCm 7.2 for AMD on Linux. PyTorch exposes
 ROCm through its CUDA-compatible API, but the packages and installer remain
-separate. Windows AMD and Intel GPUs are not qualified in this beta; use the
-standard build in simplified mode on those systems. SonArcan never silently
-falls back to the CPU for heavy analysis jobs. Standard Windows and Linux builds
-remain usable without a GPU in simplified mode and never attempt those jobs.
+separate. Windows AMD and Intel GPUs are not qualified in this beta; the Windows
+NVIDIA package starts in simplified mode on those systems. SonArcan never
+silently falls back to the CPU for heavy analysis jobs. Every package remains
+usable without a qualified GPU in simplified mode and never attempts those jobs.
 
 GPU runtimes exceed GitHub's 2 GiB limit for a single release asset. Each DEB
 or portable archive is consequently published as numbered `part-000`,
@@ -51,24 +49,22 @@ the checksums, then concatenate them in name order. On Debian or Ubuntu:
 
 ```bash
 cd ~/Downloads
-version=v0.1.0-beta.26
+version=v0.1.1-beta.4
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
 sudo apt install "./SonArcan-${backend}-GPU.deb"
 ```
 
-Standard Linux is available as a conventional single-file DEB and AppImage. On
-distributions without DEB support, make the AppImage executable with
-`chmod +x ./<downloaded-file>.AppImage` and launch it directly. Linux GPU
-editions are currently distributed only as DEB packages. On Windows, verify the
-hashes with `Get-FileHash`, concatenate the numbered files as binary data, then
-extract the reconstructed `.zip` and launch `SonArcan NVIDIA GPU.exe`:
+Linux NVIDIA and AMD packages are distributed as multipart DEB files. On
+Windows, verify the hashes with `Get-FileHash`, concatenate the numbered files
+as binary data, then extract the reconstructed `.zip` and launch
+`SonArcan NVIDIA GPU.exe`:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.0-beta.26'
+$version = 'v0.1.1-beta.4'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -89,7 +85,7 @@ Expand-Archive -LiteralPath $archive -DestinationPath "SonArcan-NVIDIA-GPU-$vers
 & ".\SonArcan-NVIDIA-GPU-$version\SonArcan NVIDIA GPU.exe"
 ```
 
-Standard releases and the macOS release remain ordinary one-file installers.
+The macOS release remains an ordinary one-file installer.
 
 ## Runtime capabilities
 
@@ -103,10 +99,11 @@ Standard releases and the macOS release remain ordinary one-file installers.
 | Piano, guitar and ukulele chord views | Yes | No |
 | Four-stem Mix and export | Yes | No |
 
-Download **SonArcan** for an Apple-silicon Mac or a standard Windows/Linux
-computer, **SonArcan NVIDIA GPU** for a supported NVIDIA Windows/Linux computer,
-or **SonArcan AMD GPU** for supported AMD Linux hardware. Detailed notes for the
-current beta are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
+Download **SonArcan** for an Apple-silicon Mac, **SonArcan NVIDIA GPU** for
+Windows or NVIDIA Linux, or **SonArcan AMD GPU** for AMD Linux. The selected
+package automatically starts in simplified mode when its accelerator probe does
+not succeed. Detailed notes for the current beta are in
+[RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 SonArcan is made for musicians who want the useful parts of an audio workstation
 without the weight of a full DAW. Import a setlist, understand the music, build
@@ -259,7 +256,6 @@ install Python, `uv`, FFmpeg, or model dependencies themselves.
 | --- | --- | --- | --- |
 | **Apple MLX/MPS** | Apple Silicon | `sonarcan-mlx-worker` for four-stem separation and PyTorch MPS for Beat/Chords | MLX/MPS runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
 | **Torch GPU** | Windows/Linux NVIDIA; Linux AMD | `sonarcan-torch-worker` using CUDA 12.6 or ROCm 7.2 for four-stem separation and Beat/Chords | Backend-specific PyTorch runtime, stem inference code, LV-Chordia, FFmpeg and yt-dlp; Beat This! and stem checkpoints install on first launch |
-| **Standard** | Windows x64 and Linux x64 | Simplified mode; GPU analysis is disabled | Shared CPU runtime, FFmpeg and yt-dlp |
 
 The tag workflow is the authoritative cross-platform build recipe: it chooses
 the correct worker, accelerator runtime, resources, and

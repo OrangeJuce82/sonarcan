@@ -3666,7 +3666,7 @@ dependencies = [
 
 [[package]]
 name = "sonarcan"
-version = "0.1.1-beta.3"
+version = "0.1.1-beta.4"
 dependencies = [
  "arc-swap",
  "chrono",

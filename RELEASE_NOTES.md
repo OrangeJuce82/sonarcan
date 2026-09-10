@@ -1,9 +1,9 @@
-# SonArcan 0.1.1-beta.3
+# SonArcan 0.1.1-beta.4
 
-This beta removes the separate Light edition and its duplicate build pipeline.
-SonArcan is now one application with target-specific packages: qualified GPU
-builds expose local Beat, Chords, and Mix analysis, while standard Windows and
-Linux packages retain the safe simplified mode without requiring a GPU.
+SonArcan now uses one application contract and four target-specific packages,
+without a duplicate build pipeline. Qualified GPU sessions expose local Beat,
+Chords, and Mix analysis; the same package
+starts in safe simplified mode when its accelerator probe does not succeed.
 
 The waveform gains aligned marker, chord, and synchronized-lyrics lanes. Their
 blocks can be created, renamed, resized, aligned across lanes with Shift, or
@@ -40,16 +40,15 @@ memory-constrained Macs.
 
 | Release name | Computer | Beat, Chords, Mix | Included compute runtime |
 | --- | --- | --- | --- |
-| SonArcan | Apple-silicon Mac (M1 or newer) | Yes | Apple MLX and MPS |
-| SonArcan | Windows x64 or Linux x64 without a qualified GPU backend | No; simplified mode | Shared CPU runtime |
+| SonArcan | Apple-silicon Mac (M1 or newer) | Yes, after the startup probe succeeds | Apple MLX and MPS |
 | SonArcan NVIDIA GPU | Windows x64 or Linux x64 with a compatible NVIDIA GPU | Yes, after the startup probe succeeds | PyTorch CUDA 12.6 |
 | SonArcan AMD GPU | Linux x64 with a ROCm 7.2-compatible AMD GPU | Yes, after the startup probe succeeds | PyTorch ROCm 7.2 |
 
 There is no AMD GPU edition for Windows in this beta. AMD's Windows support is
 currently limited to selected recent GPUs and requires a separate Python 3.12
-runtime, which has not yet completed SonArcan's release qualification. Use the
-standard SonArcan build in simplified mode on an AMD-only Windows computer.
-Intel GPUs are not qualified yet.
+runtime, which has not yet completed SonArcan's release qualification. The
+Windows NVIDIA package starts in simplified mode on AMD-only or Intel Windows
+computers. Intel GPUs are not qualified yet.
 
 GPU releases never run Beat, Chords, or Mix silently on the CPU. At every
 application launch, SonArcan exercises the actual production model graphs on the detected
@@ -65,8 +64,8 @@ CUDA and ROCm runtimes are too large for GitHub's 2 GiB limit per release file.
 Each GPU package is therefore split into numbered `part-000`, `part-001`, …
 files, accompanied by a platform/backend-specific `SHA256SUMS` file. Download
 every part for one backend, plus its matching `SHA256SUMS` file, into the same
-directory. Standard Linux is published as DEB and AppImage; macOS and standard
-Windows remain conventional single-file downloads.
+directory. Linux GPU releases are multipart DEBs, Windows NVIDIA is a multipart
+Zip64 archive, and macOS remains a conventional single-file download.
 
 ### Linux NVIDIA or AMD
 
@@ -75,7 +74,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.1-beta.3
+version=v0.1.1-beta.4
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
@@ -85,9 +84,7 @@ sudo apt install "./SonArcan-${backend}-GPU.deb"
 Do not install the reconstructed package if `sha256sum` reports a missing file
 or a checksum failure.
 
-On distributions without DEB support, use the standard AppImage: make it executable
-with `chmod +x ./<downloaded-file>.AppImage`, then launch it directly. GPU
-editions are currently distributed only as DEB packages.
+Linux releases are currently distributed only as DEB packages.
 
 ### Windows NVIDIA
 
@@ -96,7 +93,7 @@ Open PowerShell in the download directory and run:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Set-Location "$HOME\Downloads"
-$version = 'v0.1.1-beta.3'
+$version = 'v0.1.1-beta.4'
 $checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
 foreach ($line in Get-Content -LiteralPath $checksumFile) {
   $expected, $file = $line -split '\s+', 2
@@ -128,10 +125,10 @@ PowerShell stops before reconstruction if a part is missing or altered.
 - Import provider selection is highlighted, source logos remain beside
   relevance information, and long failed-import titles wrap instead of being
   truncated.
-- Standard Windows and Linux builds carry the shared runtime needed for imports
-  but never enable heavy analysis without a qualified accelerator build.
-- Release and CI jobs use one application contract and no longer maintain Light
-  aliases, manifests, runtime builders, or verification branches.
+- Every Windows and Linux hardware package carries the shared runtime needed for
+  imports but never enables heavy analysis unless its startup probe succeeds.
+- Release and CI jobs use one application contract without duplicate aliases,
+  manifests, runtime builders, or verification branches.
 - Existing analysis caches and `.sac` project data remain preserved when the
   application runs in simplified mode.
 

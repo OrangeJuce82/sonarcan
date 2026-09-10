@@ -80,6 +80,10 @@ fn qualified_analysis_build(
     apple_silicon || (windows_or_linux_x64 && matches!(gpu_backend, Some("nvidia" | "amd")))
 }
 
+fn analysis_enabled_after_probe(build_qualified: bool, probe_succeeded: bool) -> bool {
+    build_qualified && probe_succeeded
+}
+
 fn accelerated_analysis_backend() -> Option<&'static str> {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         Some("MLX / MPS")
@@ -936,7 +940,8 @@ async fn analysis_capabilities(
 ) -> Result<AnalysisCapabilities, AppError> {
     // A platform is enabled only after both release qualification and a
     // bounded on-device inference test at application startup.
-    let accelerated = if accelerated_analysis_available() {
+    let build_qualified = accelerated_analysis_available();
+    let probe_succeeded = if build_qualified {
         tauri::async_runtime::spawn_blocking(move || {
             chord_analysis::accelerator_self_test(&app) && stems::accelerator_self_test(&app)
         })
@@ -945,6 +950,7 @@ async fn analysis_capabilities(
     } else {
         false
     };
+    let accelerated = analysis_enabled_after_probe(build_qualified, probe_succeeded);
     state.0.store(accelerated, Ordering::Release);
     Ok(AnalysisCapabilities {
         accelerated,
@@ -954,7 +960,11 @@ async fn analysis_capabilities(
 }
 
 #[tauri::command]
-async fn prepare_models(app: AppHandle) -> Result<model_install::ModelInstallResult, AppError> {
+async fn prepare_models(
+    app: AppHandle,
+    capability: State<'_, AnalysisCapabilityState>,
+) -> Result<model_install::ModelInstallResult, AppError> {
+    require_accelerated_analysis(&capability)?;
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || model_install::prepare(&worker_app))
         .await
@@ -1149,6 +1159,13 @@ mod tests {
         assert!(qualified_analysis_build(true, false, None));
         assert!(qualified_analysis_build(false, true, Some("nvidia")));
         assert!(qualified_analysis_build(false, true, Some("amd")));
+    }
+
+    #[test]
+    fn qualified_gpu_build_stays_simplified_when_the_startup_probe_fails() {
+        assert!(!analysis_enabled_after_probe(true, false));
+        assert!(!analysis_enabled_after_probe(false, true));
+        assert!(analysis_enabled_after_probe(true, true));
     }
 
     #[test]

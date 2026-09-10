@@ -64,10 +64,6 @@ if ! grep -Fq '3.13.5' "$release_workflow"; then
   echo "The release workflow must install the shared Python runtime version." >&2
   exit 1
 fi
-if grep -Fq -- '--bundles deb,appimage' "$release_workflow"; then
-  echo "The Linux release must not let the unreliable AppImage bundler block the verified DEB." >&2
-  exit 1
-fi
 if ! grep -Fq 'npm run chords:downbeat-model' "$release_workflow"; then
   echo "The macOS release workflow must download and verify the pinned Beat This! model." >&2
   exit 1
@@ -85,10 +81,13 @@ if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
   echo "Bundled runtime verification must not write bytecode after signing." >&2
   exit 1
 fi
-if ! grep -Fq 'release-linux:' "$release_workflow" \
-  || ! grep -Fq 'release-windows:' "$release_workflow" \
+if [[ "$(grep -Ec '^  release-' "$release_workflow")" -ne 3 ]]; then
+  echo "The release workflow must contain exactly the macOS, Linux GPU, and Windows GPU jobs." >&2
+  exit 1
+fi
+if ! grep -Fq 'npm run verify:audio-tools-source' "$release_workflow" \
   || [[ "$(grep -Fc 'npm run python:runtime' "$release_workflow")" -lt 3 ]]; then
-  echo "Desktop releases must use the single shared runtime." >&2
+  echo "Every hardware release must use verified shared runtime sources." >&2
   exit 1
 fi
 if ! grep -Fq '"torch==2.13.0"' "$portable_worker"; then

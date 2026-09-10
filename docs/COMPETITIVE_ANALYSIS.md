@@ -302,8 +302,10 @@ product risk, not implementation novelty.
 ### P3 — broaden reach after the Mac product is dependable
 
 - [x] **Package Windows and Linux builds.**
-  - Standard packages provide playback and practice in simplified mode without a qualified GPU.
-  - NVIDIA CUDA packages cover Windows/Linux and AMD ROCm covers Linux.
+  - Every hardware package provides playback and practice in simplified mode
+    when its accelerator probe does not succeed.
+  - NVIDIA CUDA packages cover Windows/Linux and AMD ROCm covers Linux, without
+    duplicate packages for simplified mode.
   - Startup probes keep unqualified GPUs out of the analysis path without CPU
     fallback.
 

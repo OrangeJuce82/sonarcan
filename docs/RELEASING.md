@@ -2,10 +2,11 @@
 
 ## Supported releases
 
-The tag workflow produces one SonArcan application with target-specific compute
-runtimes: MLX/MPS for Apple Silicon, NVIDIA CUDA 12.6 for Windows/Linux, AMD
-ROCm 7.2 for Linux, and standard Windows/Linux builds that run in simplified
-mode without GPU analysis. The Beat This!, HTDemucs, and SCNet checkpoints are
+The tag workflow produces one SonArcan application in exactly four
+target-specific packages: MLX/MPS for Apple Silicon, NVIDIA CUDA 12.6 for
+Windows and Linux, and AMD ROCm 7.2 for Linux. Each package starts in simplified
+mode when its production accelerator probe does not succeed. The Beat This!,
+HTDemucs, and SCNet checkpoints are
 downloaded and verified only when a qualified accelerator build starts; they are
 not bundled. Never copy a runtime between targets or combine target
 architectures into a universal macOS binary.
@@ -21,16 +22,15 @@ accelerator probes used at application startup. Hosted Windows/Linux runners do
 not have production GPUs, so their release gate verifies the pinned CUDA/ROCm
 runtime identity and importable model contracts. The complete selected graph is
 first exercised when the user starts separation.
-After packaging, the release gate inspects the macOS application, extracts all
-Linux package formats, and silently installs the standard Windows NSIS package in the
-disposable runner. The Windows GPU portable tree is verified before its Zip64
-archive is split. It then executes the embedded chord/downbeat, stem, FFmpeg,
+After packaging, the release gate inspects the macOS application and extracts
+both Linux GPU DEBs. The Windows NVIDIA portable tree is verified before its
+Zip64 archive is split. It then executes the embedded chord/downbeat, stem, FFmpeg,
 FFprobe, and yt-dlp health checks from those packaged locations. A missing,
 foreign-architecture, or non-relocatable runtime therefore fails the release
 while it is still a draft.
 
-Standard Linux publishes verified DEB and AppImage bundles. Linux GPU builds
-publish verified DEB bundles split into numbered volumes smaller than 2 GiB.
+Linux hardware builds publish verified DEB bundles split into numbered volumes
+smaller than 2 GiB.
 Windows GPU publishes a similarly split portable Zip64
 archive because NSIS and GitHub Release assets both have 2 GiB limits. Each
 multipart package has a format-specific checksum file with SHA-256 hashes for
@@ -65,8 +65,9 @@ asset.
   `scripts/build-ffmpeg-runtime.sh` and the generated runtime manifest;
 - NVIDIA releases resolve Torch 2.13.0 from PyTorch's pinned CUDA 12.6 index;
 - AMD Linux releases resolve Torch 2.13.0 from PyTorch's pinned ROCm 7.2 index;
-- BtbN Linux and Windows FFmpeg archives are selected from one immutable release
-  tag and verified through a checksum manifest whose SHA-256 is pinned in source;
+- BtbN Linux and Windows FFmpeg archives are selected from one dated rolling
+  release tag and verified through a checksum manifest whose SHA-256 is pinned
+  in source; the tag, manifest, and archives are checked before a draft is created;
 - target-native Python environments, LV-Chordia models, FFmpeg, and FFprobe
   are bundled. Beat This! and stem checkpoints are first-run network downloads; no
   package manager runs on an end-user machine.
@@ -103,6 +104,7 @@ Assemble the shared Python runtime and common media resources:
 
 ```bash
 npm ci
+npm run verify:audio-tools-source
 npm run python:runtime
 npm run verify:stem-release
 npm run verify:chord-release
@@ -140,16 +142,17 @@ embedded-runtime signing script use the same ad-hoc identity.
    git push origin v0.2.0-beta.1
    ```
 
-5. The `Release desktop` workflow checks version consistency, creates the
-   **draft** GitHub Release, then runs the macOS, standard Windows/Linux, NVIDIA GPU, and AMD GPU
-   jobs concurrently. Every runtime and media tool is verified before packaging.
+5. The `Release desktop` workflow checks version consistency and external
+   runtime availability, creates the **draft** GitHub Release, then runs exactly
+   four jobs concurrently: macOS Apple Silicon, Windows NVIDIA, Linux NVIDIA,
+   and Linux AMD. Every runtime and media tool is verified before packaging.
 6. The workflow verifies the application icons, macOS `.sac` document-package
    declaration, bundled executables, and absence of Beat This!, HTDemucs, and
    SCNet checkpoints.
-7. Download and smoke-test every draft package. Reconstruct every multipart GPU
-   DEB and Zip64 archive and verify its platform-specific part hashes first.
-   Install both GPU DEBs on compatible systems and exercise the standard AppImage
-   directly on a distribution without DEB support.
+7. Download and smoke-test every draft package. Reconstruct both multipart Linux
+   GPU DEBs and the Windows NVIDIA Zip64 archive and verify each platform-specific
+   part hash first. Install both GPU DEBs on compatible systems and test the
+   Windows archive both with and without a compatible NVIDIA GPU.
    On macOS, verify with
    `codesign --verify --deep --strict --verbose=2 /Applications/SonArcan.app`,
    confirm that Gatekeeper initially blocks the unidentified build, authorize it

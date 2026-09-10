@@ -1,7 +1,7 @@
 {
   "name": "sonarcan",
   "private": true,
-  "version": "0.1.1-beta.3",
+  "version": "0.1.1-beta.4",
   "type": "module",
   "scripts": {
     "clean": "node scripts/clean.mjs",
@@ -26,6 +26,7 @@
     "stems:sync": "uv sync --project tools/sonarcan-torch-worker --locked --reinstall-package sonarcan-scnet-infer",
     "stems:runtime": "npm run python:runtime",
     "ffmpeg:runtime": "node scripts/prepare-audio-tools.mjs",
+    "verify:audio-tools-source": "node scripts/verify-audio-tools-source.mjs",
     "verify:mlx-release": "node scripts/verify-stem-runtime.mjs",
     "verify:stem-release": "node scripts/verify-stem-runtime.mjs",
     "qualify:stem-performance": "node scripts/qualify-stem-performance.mjs",

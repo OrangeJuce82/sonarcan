@@ -1,8 +1,12 @@
 export const audioToolsRelease = Object.freeze({
-  tag: "autobuild-2026-08-29-13-12",
-  checksumsSha256: "3d9d4aaf0d4b1a9cb28f36847680e5c585a71fe29f40e5f948d211e8735be056",
+  tag: "autobuild-2026-09-10-15-31",
+  checksumsSha256: "005ee3313312031bf9b178eb1e2625f6401fb8ff924b42626fe3d2a23e590382",
   assets: Object.freeze({
-    "linux-x64": "ffmpeg-N-126313-g1ae4048218-linux64-lgpl.tar.xz",
-    "win32-x64": "ffmpeg-N-126313-g1ae4048218-win64-lgpl.zip",
+    "linux-x64": "ffmpeg-N-126492-gefb0a7e5e7-linux64-lgpl.tar.xz",
+    "win32-x64": "ffmpeg-N-126492-gefb0a7e5e7-win64-lgpl.zip",
+  }),
+  assetIds: Object.freeze({
+    "linux-x64": 555280642,
+    "win32-x64": 555279662,
   }),
 });

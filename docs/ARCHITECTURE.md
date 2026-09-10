@@ -91,8 +91,8 @@ once-per-user-profile notice.
 The startup probe runs before model preparation. A missing or rejected GPU
 therefore enters simplified mode without downloading analysis checkpoints.
 Windows/Linux accelerator release builds pin `SONARCAN_GPU_BACKEND` to `nvidia`
-or `amd`; standard and source builds without that explicit qualification cannot
-accidentally enable GPU analysis. The same application therefore enters
+or `amd`; source builds without that explicit qualification cannot accidentally
+enable GPU analysis. The same application therefore enters
 simplified mode without running an accelerator probe, downloading analysis
 checkpoints, or exposing analysis commands. It preserves project analysis caches
 for later use on qualified hardware.
