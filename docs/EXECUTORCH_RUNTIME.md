@@ -173,5 +173,6 @@ XNNPACK C source macro that fails under the MSVC preprocessor; compiling the
 same reviewed source with the Clang engine and MSVC-compatible command-line
 interface preserves XNNPACK acceleration while accepting ExecuTorch's Windows
 `/Gy` and `/Gw` flags. Its non-MSVC defaults also inject the POSIX `-fPIC`
-option, which is disabled for the Windows PE build where it is neither
-supported nor required.
+option into some Clang targets. Position-independent code is disabled for the
+Windows PE build, where it is neither supported nor required, and the known
+ignored-option diagnostic is suppressed without relaxing other warnings.

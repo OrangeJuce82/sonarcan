@@ -79,6 +79,8 @@ const windowsCompilerArguments = process.platform === "win32"
       "-DCMAKE_C_COMPILER=clang-cl",
       "-DCMAKE_CXX_COMPILER=clang-cl",
       "-DCMAKE_POSITION_INDEPENDENT_CODE=OFF",
+      "-DCMAKE_C_FLAGS=/clang:-Wno-unknown-argument",
+      "-DCMAKE_CXX_FLAGS=/clang:-Wno-unknown-argument",
     ]
   : [];
 run("cmake", [
