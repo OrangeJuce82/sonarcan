@@ -1,7 +1,7 @@
 <script lang="ts">
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { open, save } from "@tauri-apps/plugin-dialog";
+  import { confirm, open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { handleWindowCloseRequest, projectOpenDialogOptions } from "./lib/applicationLifecycle";
   import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openImportSource, openLrclibSearch, openProject, prepareModels, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemAvailableProfiles, stemDisable, stemLoadCached, stemReset, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
@@ -1635,13 +1635,12 @@
     }
   }
 
-  async function ensureProjectDestinationAccess(destination: string): Promise<boolean> {
+  async function existingProjectDestination(destination: string): Promise<boolean | null> {
     try {
-      await verifyProjectDestinationAccess(destination);
-      return true;
+      return await verifyProjectDestinationAccess(destination);
     } catch (error) {
       notify("error", t("operationFailed"), errorText(error));
-      return false;
+      return null;
     }
   }
 
@@ -1902,10 +1901,15 @@
       filters: [{ name: t("openProject"), extensions: ["sac"] }],
     });
     if (!destination) return false;
-    if (!await ensureProjectDestinationAccess(destination)) return false;
+    const destinationExists = await existingProjectDestination(destination);
+    if (destinationExists === null) return false;
+    if (destinationExists && !await confirm(t("confirmReplaceProject"), {
+      title: t("saveProjectFile"),
+      kind: "warning",
+    })) return false;
     const sourcePackagePath = project.packagePath;
     const selectedTrackId = currentTrack?.id;
-    project = await saveProjectAs(project.packagePath, destination);
+    project = await saveProjectAs(project.packagePath, destination, destinationExists);
     currentTrack = selectedTrackId
       ? project.tracks.find((track) => track.id === selectedTrackId) ?? null
       : null;

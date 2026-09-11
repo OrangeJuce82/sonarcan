@@ -421,14 +421,16 @@ pub fn verify_project_access(package_path: &Path) -> Result<(), AppError> {
     verify_directory_write_access(package_path)
 }
 
-pub fn verify_destination_access(destination: &Path) -> Result<(), AppError> {
+pub fn verify_destination_access(destination: &Path) -> Result<bool, AppError> {
+    let destination = normalized_project_destination(destination);
     let parent = destination
         .parent()
-        .ok_or_else(|| AppError::InvalidProjectDestination(destination.to_path_buf()))?;
+        .ok_or_else(|| AppError::InvalidProjectDestination(destination.clone()))?;
     let canonical_parent = parent
         .canonicalize()
         .map_err(|error| AppError::io(parent, error))?;
-    verify_directory_write_access(&canonical_parent)
+    verify_directory_write_access(&canonical_parent)?;
+    Ok(destination.exists())
 }
 
 fn verify_directory_write_access(directory: &Path) -> Result<(), AppError> {
@@ -845,34 +847,44 @@ pub fn update_practice_state(
 pub fn save_as_to(
     source_package: &Path,
     selected_destination: &Path,
+    replace_existing: bool,
 ) -> Result<ProjectSummary, AppError> {
-    let destination = if selected_destination
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("sac"))
-    {
-        selected_destination.to_path_buf()
-    } else {
-        selected_destination.with_extension("sac")
-    };
-    if destination.exists() {
-        return Err(AppError::ProjectAlreadyExists(destination));
-    }
+    let selected_destination = normalized_project_destination(selected_destination);
     let source_package = source_package
         .canonicalize()
         .map_err(|error| AppError::io(source_package, error))?;
-    let parent = destination
+    let parent = selected_destination
         .parent()
-        .ok_or_else(|| AppError::InvalidProjectDestination(destination.clone()))?;
+        .ok_or_else(|| AppError::InvalidProjectDestination(selected_destination.clone()))?;
     let canonical_parent = parent
         .canonicalize()
         .map_err(|error| AppError::io(parent, error))?;
-    let file_name = destination
+    let file_name = selected_destination
         .file_name()
-        .ok_or_else(|| AppError::InvalidProjectDestination(destination.clone()))?;
+        .ok_or_else(|| AppError::InvalidProjectDestination(selected_destination.clone()))?;
     let destination = canonical_parent.join(file_name);
+    if destination.exists() && paths_refer_to_same_file(&source_package, &destination) {
+        if !replace_existing {
+            return Err(AppError::ProjectAlreadyExists(destination));
+        }
+        let manifest = load(&source_package)?;
+        return Ok(summary(source_package, manifest));
+    }
     if destination.starts_with(&source_package) {
         return Err(AppError::InvalidProjectDestination(destination));
+    }
+    if destination.exists() {
+        if !replace_existing {
+            return Err(AppError::ProjectAlreadyExists(destination));
+        }
+        let metadata = fs::symlink_metadata(&destination)
+            .map_err(|error| AppError::io(&destination, error))?;
+        if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+            return Err(AppError::InvalidProjectDestination(destination));
+        }
+        // IPC paths are untrusted. Only replace a package that is already a
+        // readable SonArcan project, even after the UI confirms replacement.
+        load(&destination)?;
     }
     let name = destination
         .file_stem()
@@ -892,9 +904,14 @@ pub fn save_as_to(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    fs::create_dir(&destination).map_err(|error| AppError::io(&destination, error))?;
+    let staging = canonical_parent.join(format!(
+        ".{}.sonarcan-save-{}",
+        file_name.to_string_lossy(),
+        Uuid::new_v4()
+    ));
+    fs::create_dir(&staging).map_err(|error| AppError::io(&staging, error))?;
     let result = (|| {
-        copy_directory_contents(&source_package, &destination)?;
+        copy_directory_contents(&source_package, &staging)?;
         manifest.name = name.to_owned();
         manifest.id = Uuid::new_v4();
         manifest.created_at = Utc::now();
@@ -902,13 +919,69 @@ pub fn save_as_to(
         for (track, relative) in manifest.tracks.iter_mut().zip(relative_media_paths) {
             track.source_path = destination.join(relative);
         }
-        save(&destination, &manifest)?;
+        save(&staging, &manifest)?;
+        publish_project_copy(&staging, &destination)?;
         Ok(summary(destination.clone(), manifest))
     })();
-    if result.is_err() && destination.exists() {
-        let _ = fs::remove_dir_all(&destination);
+    if result.is_err() && staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
     }
     result
+}
+
+fn normalized_project_destination(selected_destination: &Path) -> PathBuf {
+    if selected_destination
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("sac"))
+    {
+        selected_destination.to_path_buf()
+    } else {
+        selected_destination.with_extension("sac")
+    }
+}
+
+fn paths_refer_to_same_file(first: &Path, second: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        if let (Ok(first), Ok(second)) = (fs::metadata(first), fs::metadata(second)) {
+            return first.dev() == second.dev() && first.ino() == second.ino();
+        }
+    }
+
+    match (first.canonicalize(), second.canonicalize()) {
+        (Ok(first), Ok(second)) => first == second,
+        _ => false,
+    }
+}
+
+fn publish_project_copy(staging: &Path, destination: &Path) -> Result<(), AppError> {
+    if !destination.exists() {
+        return fs::rename(staging, destination).map_err(|error| AppError::io(destination, error));
+    }
+
+    let parent = destination
+        .parent()
+        .ok_or_else(|| AppError::InvalidProjectDestination(destination.to_path_buf()))?;
+    let file_name = destination
+        .file_name()
+        .ok_or_else(|| AppError::InvalidProjectDestination(destination.to_path_buf()))?;
+    let backup = parent.join(format!(
+        ".{}.sonarcan-backup-{}",
+        file_name.to_string_lossy(),
+        Uuid::new_v4()
+    ));
+    fs::rename(destination, &backup).map_err(|error| AppError::io(destination, error))?;
+    if let Err(publish_error) = fs::rename(staging, destination) {
+        if let Err(restore_error) = fs::rename(&backup, destination) {
+            return Err(AppError::io(&backup, restore_error));
+        }
+        return Err(AppError::io(destination, publish_error));
+    }
+    let _ = fs::remove_dir_all(backup);
+    Ok(())
 }
 
 fn load(package_path: &Path) -> Result<ProjectManifest, AppError> {
@@ -1412,12 +1485,59 @@ mod tests {
         let copy = save_as_to(
             &project.package_path,
             &temp.path().join("Practice Copy.sac"),
+            false,
         )
         .unwrap();
         assert_eq!(copy.name, "Practice Copy");
         assert_ne!(copy.package_path, project.package_path);
         assert!(copy.tracks[0].source_path.is_file());
         assert!(copy.tracks[0].source_path.starts_with(&copy.package_path));
+    }
+
+    #[test]
+    fn save_as_replaces_an_existing_project_after_confirmation() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = create_project(temp.path(), "Source").unwrap();
+        let source_wave = temp.path().join("source.wav");
+        fs::write(&source_wave, minimal_pcm_wave()).unwrap();
+        let source = import_audio(&source.package_path, &[source_wave]).unwrap();
+
+        let destination = create_project(temp.path(), "Destination").unwrap();
+        let obsolete_wave = temp.path().join("obsolete.wav");
+        fs::write(&obsolete_wave, minimal_pcm_wave()).unwrap();
+        let destination = import_audio(&destination.package_path, &[obsolete_wave]).unwrap();
+        let obsolete_media = destination.tracks[0].source_path.clone();
+
+        assert!(matches!(
+            save_as_to(&source.package_path, &destination.package_path, false),
+            Err(AppError::ProjectAlreadyExists(_))
+        ));
+        let replaced = save_as_to(&source.package_path, &destination.package_path, true).unwrap();
+
+        assert_eq!(replaced.name, "Destination");
+        assert_ne!(replaced.tracks[0].id, destination.tracks[0].id);
+        assert!(replaced.tracks[0].source_path.is_file());
+        assert!(!obsolete_media.exists());
+        assert_eq!(
+            open_project(&destination.package_path)
+                .unwrap()
+                .tracks
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn save_as_does_not_replace_an_arbitrary_sac_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "Source").unwrap();
+        let destination = temp.path().join("Documents.sac");
+        fs::create_dir(&destination).unwrap();
+        let personal_file = destination.join("notes.txt");
+        fs::write(&personal_file, "keep me").unwrap();
+
+        assert!(save_as_to(&project.package_path, &destination, true).is_err());
+        assert_eq!(fs::read_to_string(personal_file).unwrap(), "keep me");
     }
 
     #[test]
@@ -1468,10 +1588,18 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let destination = temp.path().join("Saved.sac");
 
-        verify_destination_access(&destination).unwrap();
+        assert!(!verify_destination_access(&destination).unwrap());
 
         let entries = fs::read_dir(temp.path()).unwrap().count();
         assert_eq!(entries, 0);
+    }
+
+    #[test]
+    fn destination_access_detects_an_existing_package_when_extension_is_omitted() {
+        let temp = tempfile::tempdir().unwrap();
+        create_project(temp.path(), "Saved").unwrap();
+
+        assert!(verify_destination_access(&temp.path().join("Saved")).unwrap());
     }
 
     #[test]
@@ -1481,7 +1609,7 @@ mod tests {
         let destination = project.package_path.join("nested.sac");
 
         assert!(matches!(
-            save_as_to(&project.package_path, &destination),
+            save_as_to(&project.package_path, &destination, false),
             Err(AppError::InvalidProjectDestination(_))
         ));
         assert!(!destination.exists());

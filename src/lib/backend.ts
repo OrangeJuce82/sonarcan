@@ -35,7 +35,7 @@ export async function openProject(packagePath: string): Promise<ProjectSummary> 
 }
 
 export const verifyProjectAccess = (packagePath: string): Promise<void> => invoke("verify_project_access", { packagePath });
-export const verifyProjectDestinationAccess = (destination: string): Promise<void> => invoke("verify_project_destination_access", { destination });
+export const verifyProjectDestinationAccess = (destination: string): Promise<boolean> => invoke("verify_project_destination_access", { destination });
 
 export async function importAudio(projectPath: string, sourcePaths: string[]): Promise<ProjectSummary> {
   if (!isTauri()) {
@@ -92,9 +92,9 @@ export async function updatePracticeState(packagePath: string, trackId: string, 
   return invoke<ProjectSummary>("update_practice_state", { packagePath, trackId, state });
 }
 
-export async function saveProjectAs(sourcePackage: string, destination: string): Promise<ProjectSummary> {
+export async function saveProjectAs(sourcePackage: string, destination: string, replaceExisting: boolean): Promise<ProjectSummary> {
   if (!isTauri()) throw new Error("Save As requires the Tauri desktop runtime.");
-  return invoke<ProjectSummary>("save_project_as", { sourcePackage, destination });
+  return invoke<ProjectSummary>("save_project_as", { sourcePackage, destination, replaceExisting });
 }
 
 export async function getWaveform(packagePath: string, trackId: string): Promise<WaveformData> {

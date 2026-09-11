@@ -220,7 +220,7 @@ fn verify_project_access(package_path: PathBuf) -> Result<(), AppError> {
 }
 
 #[tauri::command]
-fn verify_project_destination_access(destination: PathBuf) -> Result<(), AppError> {
+fn verify_project_destination_access(destination: PathBuf) -> Result<bool, AppError> {
     project::verify_destination_access(&destination)
 }
 
@@ -345,9 +345,10 @@ fn save_project_as(
     app: AppHandle,
     source_package: PathBuf,
     destination: PathBuf,
+    replace_existing: bool,
 ) -> Result<ProjectSummary, AppError> {
     info!(source = %source_package.display(), destination = %destination.display(), "saving project as");
-    let summary = project::save_as_to(&source_package, &destination)?;
+    let summary = project::save_as_to(&source_package, &destination, replace_existing)?;
     remember_project(&app, &summary.package_path)?;
     Ok(summary)
 }
