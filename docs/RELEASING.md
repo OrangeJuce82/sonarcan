@@ -65,7 +65,7 @@ Reconstruct a Debian package with the commands included in
    changed.
 3. Push `dev` and wait for every CI job to pass.
 4. Merge the exact qualified commit into `main`.
-5. Tag that commit, for example `v0.1.2`, and push the tag.
+5. Tag that commit, for example `v0.1.3`, and push the tag.
 6. Wait for every release job and inspect the draft assets and checksums.
 7. Smoke-test both supported hardware targets and rejected-hardware startup
    before manually publishing.

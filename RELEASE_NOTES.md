@@ -1,4 +1,4 @@
-# SonArcan 0.1.2
+# SonArcan 0.1.3
 
 SonArcan uses one complete application contract and two target-specific
 packages. The workspace opens only when the complete Beat, Chords, and Mix
@@ -63,7 +63,7 @@ Open a terminal in the download directory, then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.2
+version=v0.1.3
 sha256sum --check SHA256SUMS-Linux-NVIDIA-GPU-DEB.txt
 sudo apt install "./SonArcan-Linux-x86_64-NVIDIA-GPU-${version}.deb"
 ```
