@@ -1515,7 +1515,7 @@ mod tests {
         let replaced = save_as_to(&source.package_path, &destination.package_path, true).unwrap();
 
         assert_eq!(replaced.name, "Destination");
-        assert_ne!(replaced.tracks[0].id, destination.tracks[0].id);
+        assert_eq!(replaced.tracks[0].id, source.tracks[0].id);
         assert!(replaced.tracks[0].source_path.is_file());
         assert!(!obsolete_media.exists());
         assert_eq!(
@@ -1525,6 +1525,25 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn save_as_to_the_current_package_requires_confirmation_and_keeps_it_intact() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "Current").unwrap();
+
+        assert!(matches!(
+            save_as_to(&project.package_path, &project.package_path, false),
+            Err(AppError::ProjectAlreadyExists(_))
+        ));
+        let saved = save_as_to(&project.package_path, &project.package_path, true).unwrap();
+
+        assert_eq!(saved.name, project.name);
+        assert_eq!(
+            saved.package_path,
+            project.package_path.canonicalize().unwrap()
+        );
+        assert!(saved.package_path.is_dir());
     }
 
     #[test]
