@@ -4,9 +4,10 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 python_runtime_dir="${SONARCAN_PYTHON_RUNTIME_DIR:-$repository_root/src-tauri/resources/python-runtime/runtime}"
 audio_tools_dir="$repository_root/src-tauri/resources/audio-tools/bin"
+executorch_runtime_dir="$repository_root/src-tauri/resources/executorch-runtime"
 identity="${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY is required}"
 signed_count=0
-resource_roots=("$python_runtime_dir" "$audio_tools_dir")
+resource_roots=("$python_runtime_dir" "$audio_tools_dir" "$executorch_runtime_dir")
 
 while IFS= read -r -d '' candidate; do
   if file -b "$candidate" | grep -q "Mach-O"; then

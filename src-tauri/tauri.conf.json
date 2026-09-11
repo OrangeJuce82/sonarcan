@@ -33,6 +33,7 @@
     "active": true,
     "resources": {
       "resources/python-runtime": "python-runtime",
+      "resources/executorch-runtime": "executorch-runtime",
       "resources/ytdlp-search": "ytdlp-search",
       "resources/audio-tools": "audio-tools"
     },

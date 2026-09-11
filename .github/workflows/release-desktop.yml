@@ -51,9 +51,65 @@ jobs:
           fi
           gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
 
+  build-executorch-runtime:
+    name: Build ExecuTorch runtime (${{ matrix.label }})
+    needs: prepare-release
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            os: macos-15
+            artifact: executorch-runtime-macos-arm64
+          - label: Linux x64
+            os: ubuntu-22.04
+            artifact: executorch-runtime-linux-x64
+          - label: Windows x64
+            os: windows-2025
+            artifact: executorch-runtime-windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: pytorch/executorch
+          ref: v1.4.1
+          submodules: recursive
+          path: vendor/executorch
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install "PyYAML==6.0.3" "torch==2.14.0"
+      - run: npm ci
+      - name: Build selective native worker
+        shell: bash
+        env:
+          SONARCAN_EXECUTORCH_SOURCE: ${{ github.workspace }}/vendor/executorch
+          SONARCAN_EXECUTORCH_PYTHON: ${{ env.pythonLocation }}/python
+          SONARCAN_EXECUTORCH_BUILD_DIR: ${{ runner.temp }}/sonarcan-executorch-build
+        run: npm run executorch:runtime
+      - name: Verify native worker contract
+        shell: bash
+        run: |
+          worker="src-tauri/resources/executorch-runtime/sonarcan-executorch-worker"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then worker="$worker.exe"; else chmod 755 "$worker"; fi
+          test "$("$worker" --version)" = "sonarcan-executorch-worker 1.4.1 SACTEN01"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.artifact }}
+          path: src-tauri/resources/executorch-runtime/sonarcan-executorch-worker*
+          if-no-files-found: error
+          retention-days: 1
+
   release-macos:
     name: Release macOS Apple Silicon
-    needs: prepare-release
+    needs: [prepare-release, build-executorch-runtime]
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -81,6 +137,11 @@ jobs:
       - name: Install pinned Python runtime
         run: uv python install 3.13.5
       - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: executorch-runtime-macos-arm64
+          path: src-tauri/resources/executorch-runtime
+      - run: chmod 755 src-tauri/resources/executorch-runtime/sonarcan-executorch-worker
       - run: npm run verify:release-version
       - name: Prepare pinned Beat This! model
         run: npm run chords:downbeat-model
@@ -165,7 +226,7 @@ jobs:
           done
   release-linux-gpu:
     name: Release Linux x64 ${{ matrix.label }} DEB
-    needs: prepare-release
+    needs: [prepare-release, build-executorch-runtime]
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -209,6 +270,11 @@ jobs:
             patchelf
       - run: uv python install 3.13.5
       - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: executorch-runtime-linux-x64
+          path: src-tauri/resources/executorch-runtime
+      - run: chmod 755 src-tauri/resources/executorch-runtime/sonarcan-executorch-worker
       - run: npm run verify:release-version
       - run: npm run chords:downbeat-model
       - run: npm run python:runtime
@@ -264,7 +330,7 @@ jobs:
 
   release-windows-gpu:
     name: Release Windows x64 NVIDIA GPU
-    needs: prepare-release
+    needs: [prepare-release, build-executorch-runtime]
     timeout-minutes: 180
     runs-on: windows-2025
     env:
@@ -287,6 +353,10 @@ jobs:
             tools/sonarcan-chord-worker/uv.lock
       - run: uv python install 3.13.5
       - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: executorch-runtime-windows-x64
+          path: src-tauri/resources/executorch-runtime
       - run: npm run verify:release-version
       - run: npm run chords:downbeat-model
       - run: npm run python:runtime
@@ -320,6 +390,7 @@ jobs:
           New-Item -ItemType Directory -Path $portableRoot | Out-Null
           Copy-Item "src-tauri/target/x86_64-pc-windows-msvc/release/sonarcan.exe" (Join-Path $portableRoot "SonArcan NVIDIA GPU.exe")
           Copy-Item "src-tauri/resources/python-runtime" $portableRoot -Recurse
+          Copy-Item "src-tauri/resources/executorch-runtime" $portableRoot -Recurse
           Copy-Item "src-tauri/resources/models" $portableRoot -Recurse
           Copy-Item "src-tauri/resources/ytdlp-search" $portableRoot -Recurse
           Copy-Item "src-tauri/resources/audio-tools" $portableRoot -Recurse

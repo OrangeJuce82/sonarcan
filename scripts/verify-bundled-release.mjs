@@ -72,6 +72,14 @@ const windows = process.platform === "win32";
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
 const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
 const suffix = windows ? ".exe" : "";
+const executorchWorker = required(
+  join(resources, "executorch-runtime", `sonarcan-executorch-worker${suffix}`),
+  "bundled ExecuTorch worker",
+);
+const executorchVersion = run(executorchWorker, ["--version"], "bundled ExecuTorch worker", true);
+if (executorchVersion !== "sonarcan-executorch-worker 1.4.1 SACTEN01") {
+  throw new Error("bundled ExecuTorch worker returned an invalid version contract");
+}
 const sharedPython = required(
   windows
     ? join(resources, "python-runtime", "runtime", "python.exe")

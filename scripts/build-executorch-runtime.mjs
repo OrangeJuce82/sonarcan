@@ -25,7 +25,12 @@ const executableName = process.platform === "win32"
 const bundledPython = process.platform === "win32"
   ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
   : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
-const python = resolve(process.env.SONARCAN_EXECUTORCH_PYTHON ?? bundledPython);
+const pythonSetting = process.env.SONARCAN_EXECUTORCH_PYTHON ?? bundledPython;
+const python = resolve(
+  process.platform === "win32" && !pythonSetting.toLowerCase().endsWith(".exe")
+    ? `${pythonSetting}.exe`
+    : pythonSetting,
+);
 const pythonPath = [
   source,
   process.env.SONARCAN_EXECUTORCH_PYTHONPATH,
@@ -96,8 +101,11 @@ run("cmake", [
 ]);
 run("cmake", ["--build", buildDirectory, "--target", "sonarcan-executorch-worker", "-j", "8"]);
 
-const builtExecutable = join(buildDirectory, executableName);
-if (!existsSync(builtExecutable)) throw new Error(`Missing built worker: ${builtExecutable}`);
+const builtExecutable = [
+  join(buildDirectory, executableName),
+  join(buildDirectory, "Release", executableName),
+].find((candidate) => existsSync(candidate));
+if (!builtExecutable) throw new Error(`Missing built worker in ${buildDirectory}`);
 mkdirSync(resourceDirectory, { recursive: true });
 copyFileSync(builtExecutable, join(resourceDirectory, executableName));
 if (process.platform !== "win32") run("chmod", ["755", join(resourceDirectory, executableName)]);

@@ -246,6 +246,10 @@ int self_test(int argc, char** argv) {
 
 int main(int argc, char** argv) {
   try {
+    if (argc == 2 && std::strcmp(argv[1], "--version") == 0) {
+      std::cout << "sonarcan-executorch-worker 1.4.1 SACTEN01\n";
+      return 0;
+    }
     if (argc >= 2 && std::strcmp(argv[1], "infer") == 0) return infer(argc, argv);
     if (argc >= 2 && std::strcmp(argv[1], "self-test") == 0) return self_test(argc, argv);
     std::cerr << "usage: sonarcan-executorch-worker (infer|self-test) ...\n";
