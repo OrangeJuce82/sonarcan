@@ -40,7 +40,7 @@
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, zoomWaveformViewportAroundCenter, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, shouldRestartCurrentTrack, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
-  import { projectStartupAction, type ProjectStartupAction } from "./lib/projectStartup";
+  import { projectStartupAction, shouldProcessProjectOpenRequest, type ProjectStartupAction } from "./lib/projectStartup";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
   import { formatStemEta, startStemEta, stemRemainingSeconds, updateStemEta, type StemEtaState } from "./lib/stemEta";
   import { preferredStemProfile } from "./lib/stemProfiles";
@@ -1175,9 +1175,10 @@
     let parameterShortcutActionUsed = false;
     void listen<string>("native-menu", (event) => handleNativeMenu(event.payload)).then((stop) => unlisten = stop);
     void listen<void>("application-exit-requested", () => closePromptVisible = true).then((stop) => unlistenExit = stop);
-    void listen<void>("project-open-requested", () => void openRequestedProject()).then((stop) => {
+    void listen<void>("project-open-requested", () => {
+      if (shouldProcessProjectOpenRequest(applicationReady)) void openRequestedProject();
+    }).then((stop) => {
       unlistenProjectOpen = stop;
-      void openRequestedProject();
     });
     const modelInstallListenerReady = listen<ModelInstallProgress>("model-install-progress", (event) => modelInstallProgress = event.payload).then((stop) => unlistenModelInstall = stop);
     const handleKeydown = (event: KeyboardEvent): void => {
@@ -1473,6 +1474,7 @@
       }
       await restoreLastProject();
       applicationReady = true;
+      await openRequestedProject();
     } catch (error) {
       modelInstallError = errorText(error);
     } finally {
@@ -1573,6 +1575,7 @@
   }
 
   async function openRequestedProject(): Promise<void> {
+    if (!shouldProcessProjectOpenRequest(applicationReady)) return;
     const packagePath = await takeOpenProjectRequest();
     if (!packagePath) return;
     await run(async () => {

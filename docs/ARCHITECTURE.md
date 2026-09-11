@@ -273,8 +273,10 @@ Essential is the default for new and legacy preference profiles.
 On macOS, opening an associated `.sac` package can deliver the native document
 event before Tauri has run application setup. That path is retained in a small
 process-level queue that does not access managed Tauri state. Startup consumes
-it after setup, while an already-running application also receives an event to
-activate the requested project immediately.
+it only after the accelerator capability probe and model preparation decision,
+while an already-running application also receives an event to activate the
+requested project immediately. A document-open event received during startup
+therefore cannot activate a project against the initial simplified-mode UI state.
 
 Save promotes the current temporary package through Save As to a user-selected
 `.sac` destination; Save As always creates a copy. A destination cannot already
