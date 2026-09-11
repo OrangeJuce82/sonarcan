@@ -91,7 +91,12 @@ if (programDirectory) {
 }
 const operators = pinnedOperators.join(",");
 const windowsCompilerArguments = process.platform === "win32"
-  ? ["-G", "Ninja", "-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"]
+  ? [
+      "-G", "Ninja",
+      "-DCMAKE_C_COMPILER=clang",
+      "-DCMAKE_CXX_COMPILER=clang++",
+      "-DCMAKE_POSITION_INDEPENDENT_CODE=OFF",
+    ]
   : [];
 run("cmake", [
   ...windowsCompilerArguments,

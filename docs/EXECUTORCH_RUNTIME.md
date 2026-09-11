@@ -171,4 +171,6 @@ explicit build order avoids a Ninja dependency gap without patching vendored
 sources. ExecuTorch 1.4.1 also pins an
 XNNPACK C source macro that fails under the MSVC preprocessor; compiling the
 same reviewed source with Clang preserves XNNPACK acceleration and avoids a
-platform-specific source patch.
+platform-specific source patch. Its non-MSVC defaults also inject the POSIX
+`-fPIC` option, which is disabled for the Windows PE build where it is neither
+supported nor required.
