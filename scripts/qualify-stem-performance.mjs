@@ -8,10 +8,8 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const appleSilicon = process.env.SONARCAN_STEM_BACKEND !== "torch"
   && process.platform === "darwin" && process.arch === "arm64";
-const python = process.platform === "win32"
-  ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
-  : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
-const suffix = process.platform === "win32" ? ".exe" : "";
+const python = join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
+const suffix = "";
 const ffmpeg = join(root, `src-tauri/resources/audio-tools/bin/ffmpeg${suffix}`);
 const stems = ["vocals", "drums", "bass", "other"];
 

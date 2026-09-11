@@ -17,7 +17,7 @@ if (process.platform === "darwin") {
     throw new Error(`audio-tools requires macOS ${manifest.minimumMacosVersion ?? "unknown"}; expected ${expectedMinimumMacosVersion}`);
   }
 }
-const suffix = process.platform === "win32" ? ".exe" : "";
+const suffix = "";
 for (const name of ["ffmpeg", "ffprobe"]) {
   const executable = join(directory, "bin", `${name}${suffix}`);
   const result = spawnSync(executable, ["-hide_banner", "-version"], { stdio: "inherit" });

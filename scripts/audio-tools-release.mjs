@@ -4,10 +4,8 @@ export const audioToolsRelease = Object.freeze({
   checksumsAssetId: 555281436,
   assets: Object.freeze({
     "linux-x64": "ffmpeg-N-126492-gefb0a7e5e7-linux64-lgpl.tar.xz",
-    "win32-x64": "ffmpeg-N-126492-gefb0a7e5e7-win64-lgpl.zip",
   }),
   assetIds: Object.freeze({
     "linux-x64": 555280642,
-    "win32-x64": 555279662,
   }),
 });

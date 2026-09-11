@@ -8,7 +8,7 @@ const resourceDirectory = path.join(repositoryRoot, "src-tauri/resources/ytdlp-s
 const manifest = JSON.parse(await readFile(path.join(resourceDirectory, "manifest.json"), "utf8"));
 const artifact = manifest.artifacts[`${process.platform}-${process.arch}`];
 if (!artifact) throw new Error(`No pinned yt-dlp artifact for ${process.platform}-${process.arch}`);
-const destinationName = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+const destinationName = "yt-dlp";
 const destination = path.join(resourceDirectory, destinationName);
 const verifyOnly = process.argv.includes("--verify");
 const maximumBytes = 100 * 1024 * 1024;
@@ -35,7 +35,7 @@ if (verifyOnly) {
   const temporary = `${destination}.tmp`;
   await rm(temporary, { force: true });
   await writeFile(temporary, bytes, { mode: 0o644 });
-  if (process.platform !== "win32") await chmod(temporary, 0o755);
+  await chmod(temporary, 0o755);
   await rename(temporary, destination);
   console.log(`Prepared standalone yt-dlp ${manifest.version} for ${process.platform}-${process.arch}`);
 }

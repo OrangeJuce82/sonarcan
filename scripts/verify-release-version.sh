@@ -81,12 +81,12 @@ if ! grep -Fq 'PYTHONDONTWRITEBYTECODE: "1"' "$release_workflow"; then
   echo "Bundled runtime verification must not write bytecode after signing." >&2
   exit 1
 fi
-if [[ "$(grep -Ec '^  release-' "$release_workflow")" -ne 3 ]]; then
-  echo "The release workflow must contain exactly the macOS, Linux GPU, and Windows GPU jobs." >&2
+if [[ "$(grep -Ec '^  release-' "$release_workflow")" -ne 2 ]]; then
+  echo "The release workflow must contain exactly the macOS and Linux GPU jobs." >&2
   exit 1
 fi
 if ! grep -Fq 'npm run verify:audio-tools-source' "$release_workflow" \
-  || [[ "$(grep -Fc 'npm run python:runtime' "$release_workflow")" -lt 3 ]]; then
+  || [[ "$(grep -Fc 'npm run python:runtime' "$release_workflow")" -lt 2 ]]; then
   echo "Every hardware release must use verified shared runtime sources." >&2
   exit 1
 fi
@@ -98,7 +98,7 @@ if ! grep -Fq 'version = "2.13.0+cpu"' "$shared_runtime" \
   || ! grep -Fq 'version = "2.11.0+cpu"' "$shared_runtime" \
   || ! grep -Fq 'source = { registry = "https://download.pytorch.org/whl/cpu" }' "$shared_runtime" \
   || grep -Fq 'name = "nvidia-' "$shared_runtime"; then
-  echo "The shared runtime must resolve CPU-only Torch audio packages without NVIDIA packages on Linux and Windows." >&2
+  echo "The shared runtime must resolve CPU-only Torch audio packages without NVIDIA packages." >&2
   exit 1
 fi
 if ! grep -Fq 'version = "2.13.0+cu126"' "$cuda_runtime" \
@@ -113,12 +113,15 @@ if ! grep -Fq 'version = "2.13.0+rocm7.2"' "$rocm_runtime" \
   echo "The AMD Linux release runtime must be locked to the ROCm 7.2 PyTorch graph." >&2
   exit 1
 fi
-if ! grep -Fq 'release-windows-gpu:' "$release_workflow" \
-  || ! grep -Fq 'release-linux-gpu:' "$release_workflow" \
-  || ! grep -Fq 'SONARCAN_GPU_BACKEND: nvidia' "$release_workflow" \
+if ! grep -Fq 'release-linux-gpu:' "$release_workflow" \
+  || ! grep -Fq 'backend: nvidia' "$release_workflow" \
   || ! grep -Fq 'backend: amd' "$release_workflow" \
   || [[ "$(grep -Fc -- '--bundles deb' "$release_workflow")" -lt 1 ]]; then
-  echo "The release workflow must publish Windows NVIDIA and Linux NVIDIA/AMD GPU editions." >&2
+  echo "The release workflow must publish Debian NVIDIA and AMD GPU editions." >&2
+  exit 1
+fi
+if grep -Eiq 'windows|win32|windows-2025|x86_64-pc-windows' "$release_workflow"; then
+  echo "The release workflow must not contain a Windows build or artifact." >&2
   exit 1
 fi
 if grep -Eiq '(^|[^[:alnum:]_])rpm([^[:alnum:]_]|$)' "$release_workflow"; then
@@ -129,15 +132,12 @@ if ! grep -Fq -- '--notes-file RELEASE_NOTES.md' "$release_workflow"; then
   echo "The release workflow must publish the curated edition notes." >&2
   exit 1
 fi
-if ! grep -Fq 'sha256sum --check' "$repository_root/RELEASE_NOTES.md" \
-  || ! grep -Fq '[IO.File]::Create' "$repository_root/RELEASE_NOTES.md" \
-  || ! grep -Fq 'Expand-Archive' "$repository_root/RELEASE_NOTES.md"; then
-  echo "Release notes must include Linux and Windows multipart reconstruction commands." >&2
+if ! grep -Fq 'sha256sum --check' "$repository_root/RELEASE_NOTES.md"; then
+  echo "Release notes must include Debian multipart reconstruction commands." >&2
   exit 1
 fi
-if ! grep -Fq 'rm -f "$portable_path"' "$release_workflow" \
-  || ! grep -Fq 'Remove-Item -LiteralPath $archive -Force' "$release_workflow"; then
-  echo "Multipart GPU jobs must discard their oversized source archives before upload." >&2
+if ! grep -Fq 'rm -f "$portable_path"' "$release_workflow"; then
+  echo "Multipart Debian GPU jobs must discard their oversized source packages before upload." >&2
   exit 1
 fi
 echo "Release version $package_version is consistent."

@@ -94,14 +94,14 @@ those synchronized lines in Lyrics mode. The explanation is persisted as a
 once-per-user-profile notice.
 The startup probe runs before model preparation. A missing or rejected GPU
 therefore enters simplified mode without downloading analysis checkpoints.
-Windows/Linux accelerator release builds pin `SONARCAN_GPU_BACKEND` to `nvidia`
+Debian accelerator release builds pin `SONARCAN_GPU_BACKEND` to `nvidia`
 or `amd`; source builds without that explicit qualification cannot accidentally
 enable GPU analysis. The same application therefore enters
 simplified mode without running an accelerator probe, downloading analysis
 checkpoints, or exposing analysis commands. It preserves project analysis caches
 for later use on qualified hardware.
 Apple Silicon uses MLX for stems and MPS for chord/rhythm analysis. NVIDIA
-Windows/Linux releases use CUDA 12.6, while AMD Linux releases use ROCm 7.2
+Debian releases use CUDA 12.6, while AMD Debian releases use ROCm 7.2
 through PyTorch's CUDA-compatible device API. All backends execute both model
 probes on the end-user accelerator before Rust opens the analysis IPC gate.
 
@@ -246,6 +246,10 @@ User-facing interface, help text, accessibility labels, dialogs, and native menu
 ## Project format
 
 The package format starts at version `1`. Every manifest read validates the version before exposing the project to the application. Writes use a temporary sibling file followed by an atomic rename.
+Save As asks for explicit confirmation before replacing an existing `.sac`.
+It builds a complete sibling package before publication, moves the old package
+aside, and restores it if publication fails. Arbitrary directories and symbolic
+links are never accepted as overwrite targets.
 
 Imported media is copied into the project `Audio/` directory and the original source path is retained for duplicate detection and future relinking. Relative manifest paths and rebasing after a package move will be implemented before the format is considered stable.
 
@@ -357,7 +361,7 @@ stays outside the audio callback.
 
 Four-stem inference is an implementation detail behind one Rust stem service.
 After the startup capability probe succeeds, Apple Silicon selects the MLX
-worker. NVIDIA Windows/Linux select the CUDA worker and AMD Linux selects the
+worker. NVIDIA Debian selects the CUDA worker and AMD Debian selects the
 ROCm worker. CPU-only heavy analysis is not an accepted user experience, so a
 failed accelerator probe closes the service gate. Both workers receive only canonical project media/model paths
 through direct argument arrays and return the same bounded NDJSON protocol.

@@ -7,8 +7,8 @@ practice mixer:
   random shift;
 - **HQ** uses SCNet Large by starrytong with four-way overlap-add.
 
-Apple Silicon executes both profiles with MLX. NVIDIA Windows/Linux and AMD
-Linux execute the equivalent graphs with Torch through CUDA or ROCm. Builds
+Apple Silicon executes both profiles with MLX. NVIDIA and AMD Debian packages
+execute the equivalent graphs with Torch through CUDA or ROCm. Builds
 without a qualified GPU backend keep the mixer disabled. CPU-only separation is
 not exposed as a supported user experience.
 
@@ -40,8 +40,7 @@ application-data directory contains `models/stem-separation/`, with
 `htdemucs-v4/` and `scnet-large-starrytong-v1.0.9/` below it. This resolves to:
 
 - macOS: `~/Library/Application Support/music.sonarcan.desktop/`;
-- Windows: `%APPDATA%\music.sonarcan.desktop\`;
-- Linux: `~/.local/share/music.sonarcan.desktop/`.
+- Debian: `~/.local/share/music.sonarcan.desktop/`.
 
 Downloads use an adjacent temporary file, exact byte length and full SHA-256,
 then atomic rename. Cached checkpoints are checked before every load. Symlinks,
@@ -78,7 +77,7 @@ publisher rather than redistributing them.
 ## Runtime and project caches
 
 All release workers share one target-native Python 3.13.5 runtime. Apple
-Silicon uses MLX; NVIDIA releases resolve pinned CUDA builds; AMD Linux resolves
+Silicon uses MLX; NVIDIA releases resolve pinned CUDA builds; AMD Debian resolves
 pinned ROCm builds. uv runs only on development/build machines.
 
 Project results are independent per profile:

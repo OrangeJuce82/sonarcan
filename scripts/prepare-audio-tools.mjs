@@ -75,7 +75,7 @@ try {
   const extracted = join(temporary, "extracted");
   mkdirSync(extracted);
   run("tar", ["-xf", archive, "-C", extracted]);
-  const suffix = process.platform === "win32" ? ".exe" : "";
+  const suffix = "";
   const ffmpeg = findFile(extracted, `ffmpeg${suffix}`);
   const ffprobe = findFile(extracted, `ffprobe${suffix}`);
   if (!ffmpeg || !ffprobe) throw new Error("FFmpeg archive is missing ffmpeg or ffprobe");

@@ -68,10 +68,9 @@ if (forbiddenModelCheckpoint) {
   throw new Error(`first-run model checkpoints must not be bundled: ${forbiddenModelCheckpoint}`);
 }
 
-const windows = process.platform === "win32";
 const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
 const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
-const suffix = windows ? ".exe" : "";
+const suffix = "";
 const executorchWorker = required(
   join(resources, "executorch-runtime", `sonarcan-executorch-worker${suffix}`),
   "bundled ExecuTorch worker",
@@ -81,9 +80,7 @@ if (executorchVersion !== "sonarcan-executorch-worker 1.4.1 SACTEN01") {
   throw new Error("bundled ExecuTorch worker returned an invalid version contract");
 }
 const sharedPython = required(
-  windows
-    ? join(resources, "python-runtime", "runtime", "python.exe")
-    : join(resources, "python-runtime", "runtime", "bin", "python3.13"),
+  join(resources, "python-runtime", "runtime", "bin", "python3.13"),
   "bundled shared Python 3.13",
 );
 const chordOutput = run(sharedPython, [

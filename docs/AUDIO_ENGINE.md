@@ -48,8 +48,8 @@ The real-time callback never locks or reads this cache. It only sees the selecte
 
 Stem mode is disabled by default and never delays ordinary track loading. After
 the startup accelerator probe succeeds, an Apple-silicon Mac starts
-`sonarcan-mlx-worker` with the pinned MLX environment. NVIDIA
-Windows/Linux releases start the pinned CUDA 12.6 Torch worker; AMD Linux
+`sonarcan-mlx-worker` with the pinned MLX environment. NVIDIA Debian releases
+start the pinned CUDA 12.6 Torch worker; AMD Debian
 releases start the pinned ROCm 7.2 worker. A GPU release whose on-device graph
 probe fails does not start separation and never falls back to CPU. Both worker
 implementations use one four-stem protocol and profile-specific caches.

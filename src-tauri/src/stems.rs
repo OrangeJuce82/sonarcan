@@ -1024,20 +1024,12 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
 
 #[cfg(debug_assertions)]
 fn development_python(worker_root: &Path) -> PathBuf {
-    if cfg!(windows) {
-        worker_root.join(".venv/Scripts/python.exe")
-    } else {
-        worker_root.join(".venv/bin/python")
-    }
+    worker_root.join(".venv/bin/python")
 }
 
 #[cfg(not(debug_assertions))]
 fn bundled_python(runtime: &Path) -> PathBuf {
-    if cfg!(windows) {
-        runtime.join("python.exe")
-    } else {
-        runtime.join("bin/python3.13")
-    }
+    runtime.join("bin/python3.13")
 }
 
 fn worker_arguments() -> Result<Vec<String>, AppError> {

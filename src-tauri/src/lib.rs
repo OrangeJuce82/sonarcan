@@ -64,20 +64,17 @@ struct AnalysisCapabilityState(AtomicBool);
 fn accelerated_analysis_available() -> bool {
     qualified_analysis_build(
         cfg!(all(target_os = "macos", target_arch = "aarch64")),
-        cfg!(all(
-            any(target_os = "windows", target_os = "linux"),
-            target_arch = "x86_64"
-        )),
+        cfg!(all(target_os = "linux", target_arch = "x86_64")),
         option_env!("SONARCAN_GPU_BACKEND"),
     )
 }
 
 fn qualified_analysis_build(
     apple_silicon: bool,
-    windows_or_linux_x64: bool,
+    linux_x64: bool,
     gpu_backend: Option<&str>,
 ) -> bool {
-    apple_silicon || (windows_or_linux_x64 && matches!(gpu_backend, Some("nvidia" | "amd")))
+    apple_silicon || (linux_x64 && matches!(gpu_backend, Some("nvidia" | "amd")))
 }
 
 fn analysis_enabled_after_probe(build_qualified: bool, probe_succeeded: bool) -> bool {
@@ -515,12 +512,6 @@ fn reveal_project(package_path: PathBuf) -> Result<(), AppError> {
         command.arg("-R").arg(&package_path);
         command
     };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = std::process::Command::new("explorer");
-        command.arg(format!("/select,{}", package_path.display()));
-        command
-    };
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut command = {
         let mut command = std::process::Command::new("xdg-open");
@@ -604,12 +595,6 @@ fn open_url_in_browser(url: &str) -> Result<(), AppError> {
     let mut command = {
         let mut command = std::process::Command::new("open");
         command.arg(url);
-        command
-    };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = std::process::Command::new("rundll32");
-        command.args(["url.dll,FileProtocolHandler", url]);
         command
     };
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -1135,10 +1120,8 @@ mod tests {
     fn analysis_availability_matches_the_qualified_build_backend() {
         if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
             assert!(accelerated_analysis_available());
-        } else if !cfg!(all(
-            any(target_os = "windows", target_os = "linux"),
-            target_arch = "x86_64"
-        )) || !matches!(option_env!("SONARCAN_GPU_BACKEND"), Some("nvidia" | "amd"))
+        } else if !cfg!(all(target_os = "linux", target_arch = "x86_64"))
+            || !matches!(option_env!("SONARCAN_GPU_BACKEND"), Some("nvidia" | "amd"))
         {
             assert!(!accelerated_analysis_available());
         }

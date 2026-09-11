@@ -18,15 +18,13 @@ const buildDirectory = resolve(
   process.env.SONARCAN_EXECUTORCH_BUILD_DIR
     ?? join(root, "tools/sonarcan-executorch-probe/build"),
 );
-const bundledPython = process.platform === "win32"
-  ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
-  : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
+const bundledPython = join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
 const python = resolve(process.env.SONARCAN_EXECUTORCH_PYTHON ?? bundledPython);
 const pythonPath = [
   source,
   process.env.SONARCAN_EXECUTORCH_PYTHONPATH,
   process.env.PYTHONPATH,
-].filter(Boolean).join(process.platform === "win32" ? ";" : ":");
+].filter(Boolean).join(":");
 
 if (!existsSync(join(source, "CMakeLists.txt"))) {
   throw new Error("Set SONARCAN_EXECUTORCH_SOURCE to an ExecuTorch 1.4.1 source checkout");
@@ -73,18 +71,7 @@ const operators = run(
   },
 );
 
-const windowsCompilerArguments = process.platform === "win32"
-  ? [
-      "-G", "Ninja",
-      "-DCMAKE_C_COMPILER=clang-cl",
-      "-DCMAKE_CXX_COMPILER=clang-cl",
-      "-DCMAKE_POSITION_INDEPENDENT_CODE=OFF",
-      "-DCMAKE_C_FLAGS=/clang:-Wno-unknown-argument",
-      "-DCMAKE_CXX_FLAGS=/clang:-Wno-unknown-argument",
-    ]
-  : [];
 run("cmake", [
-  ...windowsCompilerArguments,
   "-S", join(root, "tools/sonarcan-executorch-probe"),
   "-B", buildDirectory,
   "-DCMAKE_BUILD_TYPE=Release",
@@ -92,16 +79,6 @@ run("cmake", [
   `-DSONARCAN_EXECUTORCH_SOURCE=${source}`,
   `-DEXECUTORCH_SELECT_OPS_LIST=${operators}`,
 ]);
-// ExecuTorch 1.4.1 omits the .exe suffix from these ExternalProject
-// byproducts. Ninja therefore cannot infer how to create the imported host
-// tools when they are first needed by schema generation on Windows.
-if (process.platform === "win32") {
-  run("cmake", [
-    "--build", buildDirectory,
-    "--target", "flatbuffers_ep", "flatcc_ep",
-    "-j", "8",
-  ]);
-}
 run("cmake", ["--build", buildDirectory, "--target", "sonarcan-executorch-probe", "-j", "8"]);
 
 console.log(`Built selective probe for ${programs.length} PTE files in ${buildDirectory}`);

@@ -16,20 +16,10 @@ pub fn configure_bundled(resource_dir: &Path) {
 pub fn find() -> Option<PathBuf> {
     let mut candidates = BUNDLED_RESOURCE_DIR
         .get()
-        .map(|directory| {
-            vec![directory.join(if cfg!(windows) {
-                "ffmpeg.exe"
-            } else {
-                "ffmpeg"
-            })]
-        })
+        .map(|directory| vec![directory.join("ffmpeg")])
         .unwrap_or_default();
     if cfg!(debug_assertions) {
-        if let Some(path) = executable_on_path(if cfg!(windows) {
-            "ffmpeg.exe"
-        } else {
-            "ffmpeg"
-        }) {
+        if let Some(path) = executable_on_path("ffmpeg") {
             candidates.push(path);
         }
         #[cfg(target_os = "macos")]

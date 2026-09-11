@@ -51,9 +51,7 @@ const localDependencies = [
   "src-tauri/resources/audio-tools/licenses",
   "src-tauri/resources/audio-tools/manifest.json",
   "src-tauri/resources/ytdlp-search/yt-dlp",
-  "src-tauri/resources/ytdlp-search/yt-dlp.exe",
   "src-tauri/resources/executorch-runtime/sonarcan-executorch-worker",
-  "src-tauri/resources/executorch-runtime/sonarcan-executorch-worker.exe",
 ];
 
 function safePath(relativePath) {

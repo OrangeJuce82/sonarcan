@@ -53,22 +53,8 @@ impl YtDlpCommand {
     pub(crate) fn command(&self) -> Command {
         let mut command = Command::new(&self.executable);
         command.args(&self.prefix_arguments);
-        suppress_console_window(&mut command);
         command
     }
-}
-
-fn suppress_console_window(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    #[cfg(not(windows))]
-    let _ = command;
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -845,13 +831,6 @@ fn local_input_path(input: &str) -> Option<PathBuf> {
 }
 
 fn platform_file_uri_path(decoded: &str) -> &str {
-    #[cfg(windows)]
-    if let Some(without_root) = decoded.strip_prefix('/') {
-        let bytes = without_root.as_bytes();
-        if bytes.first().is_some_and(u8::is_ascii_alphabetic) && bytes.get(1) == Some(&b':') {
-            return without_root;
-        }
-    }
     decoded
 }
 
@@ -1142,11 +1121,7 @@ fn normalized_url_key(input: &str) -> String {
 }
 
 pub(crate) fn ytdlp_command() -> Result<YtDlpCommand, AppError> {
-    let bundled_name = if cfg!(windows) {
-        "ytdlp-search/yt-dlp.exe"
-    } else {
-        "ytdlp-search/yt-dlp"
-    };
+    let bundled_name = "ytdlp-search/yt-dlp";
     if let Some(executable) = python_runtime::resource_path(bundled_name) {
         if is_executable_file(&executable) {
             return Ok(YtDlpCommand {
@@ -1195,7 +1170,6 @@ fn is_executable_file(path: &Path) -> bool {
 
 fn ensure_ytdlp() -> Result<PathBuf, AppError> {
     let mut probe = Command::new("yt-dlp");
-    suppress_console_window(&mut probe);
     if probe
         .arg("--version")
         .stdout(Stdio::null())
@@ -1236,14 +1210,6 @@ fn platform_release() -> Result<(&'static str, &'static str), AppError> {
         ("macos", _) => Ok((
             "yt-dlp_macos",
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos",
-        )),
-        ("windows", "x86_64") => Ok((
-            "yt-dlp.exe",
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-        )),
-        ("windows", "aarch64") => Ok((
-            "yt-dlp_arm64.exe",
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_arm64.exe",
         )),
         ("linux", "aarch64") => Ok((
             "yt-dlp_linux_aarch64",
@@ -1415,20 +1381,6 @@ mod tests {
         assert_eq!(markers[0].start_seconds, 12.5);
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn hidden_ytdlp_commands_still_capture_output() {
-        let tool = YtDlpCommand {
-            executable: PathBuf::from("cmd.exe"),
-            prefix_arguments: vec!["/D".into(), "/C".into(), "echo".into(), "hidden".into()],
-        };
-
-        let output = tool.command().output().unwrap();
-
-        assert!(output.status.success());
-        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hidden");
-    }
-
     #[test]
     fn local_conversion_preserves_the_source_basename() {
         let output = converted_output_path(
@@ -1505,12 +1457,6 @@ mod tests {
             .to_string_lossy()
             .replace('\\', "/")
             .replace(' ', "%20");
-        let encoded_path = if cfg!(windows) {
-            format!("/{encoded_path}")
-        } else {
-            encoded_path
-        };
-
         for input in [
             format!("file://{encoded_path}"),
             format!("file://file://{encoded_path}"),

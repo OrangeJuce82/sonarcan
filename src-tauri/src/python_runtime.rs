@@ -21,7 +21,6 @@ pub fn bundled_python_313() -> Option<PathBuf> {
     [
         resources.join("python-runtime/runtime/bin/python3.13"),
         resources.join("python-runtime/runtime/bin/python3"),
-        resources.join("python-runtime/runtime/python.exe"),
     ]
     .into_iter()
     .find(|candidate| candidate.is_file())

@@ -10,7 +10,7 @@ if (gpuBackend && !["nvidia", "amd"].includes(gpuBackend)) {
   throw new Error(`unsupported SONARCAN_GPU_BACKEND: ${gpuBackend}`);
 }
 if (gpuBackend && process.platform === "darwin") {
-  throw new Error("SONARCAN_GPU_BACKEND is only valid for Windows and Linux runtimes");
+  throw new Error("SONARCAN_GPU_BACKEND is only valid for Debian runtimes");
 }
 const runtimeProject = gpuBackend === "nvidia"
   ? "sonarcan-python-runtime-cuda"
@@ -48,13 +48,11 @@ for (const model of [beatModel]) {
 const managedPython = run("uv", ["python", "find", "--managed-python", "3.13.5"], {
   capture: true,
 });
-const managedRoot = process.platform === "win32" ? dirname(managedPython) : dirname(dirname(managedPython));
+const managedRoot = dirname(dirname(managedPython));
 rmSync(runtime, { recursive: true, force: true });
 mkdirSync(dirname(runtime), { recursive: true });
 cpSync(managedRoot, runtime, { recursive: true, dereference: false });
-const runtimePython = process.platform === "win32"
-  ? join(runtime, "python.exe")
-  : join(runtime, "bin/python3.13");
+const runtimePython = join(runtime, "bin/python3.13");
 
 run("uv", [
   "export", "--quiet", "--project", project, "--locked", "--no-dev", "--no-editable",
@@ -62,9 +60,6 @@ run("uv", [
 ]);
 run("uv", [
   "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
-  // The pinned Cython Git build exceeds Windows' linker path limits when uv
-  // recreates it below a fresh temporary cache. Reuse its prepared wheel; only
-  // the accelerator runtime download below needs to bypass stale wheel caches.
   ...madmomBuildDependencies,
 ]);
 run("uv", [
@@ -77,9 +72,7 @@ run("uv", [
   ...runtimePipArguments(process.platform, gpuBackend), "--requirement", requirements,
 ], { cwd: project });
 
-const sitePackages = process.platform === "win32"
-  ? join(runtime, "Lib", "site-packages")
-  : join(runtime, "lib", "python3.13", "site-packages");
+const sitePackages = join(runtime, "lib", "python3.13", "site-packages");
 const madmomModels = join(sitePackages, "madmom", "models");
 for (const directory of ["beats", "chords", "chroma", "downbeats", "key", "notes", "onsets", "patterns"]) {
   rmSync(join(madmomModels, directory), { recursive: true, force: true });

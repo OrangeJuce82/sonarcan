@@ -67,7 +67,7 @@ fn gpu_snapshot() -> Option<f32> {
     )
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn gpu_snapshot() -> Option<f32> {
     match option_env!("SONARCAN_GPU_BACKEND") {
         Some("nvidia") => command_output(
@@ -84,12 +84,12 @@ fn gpu_snapshot() -> Option<f32> {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn gpu_snapshot() -> Option<f32> {
     None
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn command_output(program: &str, arguments: &[&str]) -> Option<String> {
     let output = Command::new(program).args(arguments).output().ok()?;
     output
@@ -98,7 +98,7 @@ fn command_output(program: &str, arguments: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn parse_numeric_lines(output: &str) -> Option<f32> {
     output
         .lines()

@@ -8,7 +8,7 @@ if (!["nvidia", "amd"].includes(backend)) {
 }
 
 const root = resolve("src-tauri/resources/python-runtime/runtime");
-const python = process.platform === "win32" ? join(root, "python.exe") : join(root, "bin/python3.13");
+const python = join(root, "bin/python3.13");
 if (!existsSync(python)) throw new Error(`shared Python runtime is missing: ${python}`);
 
 const expression = backend === "nvidia"

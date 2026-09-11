@@ -12,11 +12,9 @@ test("portable FFmpeg archives belong to the pinned dated autobuild", () => {
   assert.equal(audioToolsRelease.checksumsAssetId, 555281436);
   assert.deepEqual(audioToolsRelease.assets, {
     "linux-x64": "ffmpeg-N-126492-gefb0a7e5e7-linux64-lgpl.tar.xz",
-    "win32-x64": "ffmpeg-N-126492-gefb0a7e5e7-win64-lgpl.zip",
   });
   assert.deepEqual(audioToolsRelease.assetIds, {
     "linux-x64": 555280642,
-    "win32-x64": 555279662,
   });
   assert.equal(Object.values(audioToolsRelease.assets).some((asset) => asset.includes("latest")), false);
 });

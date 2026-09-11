@@ -1,6 +1,6 @@
 # SonArcan 0.1.1-beta.5
 
-SonArcan now uses one application contract and four target-specific packages,
+SonArcan now uses one application contract and three target-specific packages,
 without a duplicate build pipeline. Qualified GPU sessions expose local Beat,
 Chords, and Mix analysis; the same package
 starts in safe simplified mode when its accelerator probe does not succeed.
@@ -41,14 +41,11 @@ memory-constrained Macs.
 | Release name | Computer | Beat, Chords, Mix | Included compute runtime |
 | --- | --- | --- | --- |
 | SonArcan | Apple-silicon Mac (M1 or newer) | Yes, after the startup probe succeeds | Apple MLX and MPS |
-| SonArcan NVIDIA GPU | Windows x64 or Linux x64 with a compatible NVIDIA GPU | Yes, after the startup probe succeeds | PyTorch CUDA 12.6 |
+| SonArcan NVIDIA GPU | Debian-compatible Linux x64 with a compatible NVIDIA GPU | Yes, after the startup probe succeeds | PyTorch CUDA 12.6 |
 | SonArcan AMD GPU | Linux x64 with a ROCm 7.2-compatible AMD GPU | Yes, after the startup probe succeeds | PyTorch ROCm 7.2 |
 
-There is no AMD GPU edition for Windows in this beta. AMD's Windows support is
-currently limited to selected recent GPUs and requires a separate Python 3.12
-runtime, which has not yet completed SonArcan's release qualification. The
-Windows NVIDIA package starts in simplified mode on AMD-only or Intel Windows
-computers. Intel GPUs are not qualified yet.
+Linux distribution is limited to Debian-compatible x64 systems; Intel GPUs are
+not qualified yet.
 
 GPU releases never run Beat, Chords, or Mix silently on the CPU. At every
 application launch, SonArcan exercises the actual production model graphs on the detected
@@ -64,8 +61,8 @@ CUDA and ROCm runtimes are too large for GitHub's 2 GiB limit per release file.
 Each GPU package is therefore split into numbered `part-000`, `part-001`, …
 files, accompanied by a platform/backend-specific `SHA256SUMS` file. Download
 every part for one backend, plus its matching `SHA256SUMS` file, into the same
-directory. Linux GPU releases are multipart DEBs, Windows NVIDIA is a multipart
-Zip64 archive, and macOS remains a conventional single-file download.
+directory. Linux GPU releases are multipart DEBs and macOS remains a
+conventional single-file download.
 
 ### Linux NVIDIA or AMD
 
@@ -86,36 +83,6 @@ or a checksum failure.
 
 Linux releases are currently distributed only as DEB packages.
 
-### Windows NVIDIA
-
-Open PowerShell in the download directory and run:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-Set-Location "$HOME\Downloads"
-$version = 'v0.1.1-beta.5'
-$checksumFile = 'SHA256SUMS-Windows-NVIDIA-GPU.txt'
-foreach ($line in Get-Content -LiteralPath $checksumFile) {
-  $expected, $file = $line -split '\s+', 2
-  $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actual -ne $expected.ToLowerInvariant()) { throw "Checksum mismatch: $file" }
-}
-$parts = @(Get-ChildItem "SonArcan-Windows-x86_64-NVIDIA-GPU-$version.zip.part-*" | Sort-Object Name)
-if ($parts.Count -eq 0) { throw 'No archive parts found' }
-$archive = "SonArcan-NVIDIA-GPU-$version.zip"
-$output = [IO.File]::Create($archive)
-try {
-  foreach ($part in $parts) {
-    $input = $part.OpenRead()
-    try { $input.CopyTo($output) } finally { $input.Dispose() }
-  }
-} finally { $output.Dispose() }
-Expand-Archive -LiteralPath $archive -DestinationPath "SonArcan-NVIDIA-GPU-$version"
-& ".\SonArcan-NVIDIA-GPU-$version\SonArcan NVIDIA GPU.exe"
-```
-
-PowerShell stops before reconstruction if a part is missing or altered.
-
 ## Other improvements
 
 - Timeline lanes, waveform, overview, time scale, playback slider, help,
@@ -125,7 +92,7 @@ PowerShell stops before reconstruction if a part is missing or altered.
 - Import provider selection is highlighted, source logos remain beside
   relevance information, and long failed-import titles wrap instead of being
   truncated.
-- Every Windows and Linux hardware package carries the shared runtime needed for
+- Every Debian hardware package carries the shared runtime needed for
   imports but never enables heavy analysis unless its startup probe succeeds.
 - Release and CI jobs use one application contract without duplicate aliases,
   manifests, runtime builders, or verification branches.

@@ -19,23 +19,15 @@ const resourceDirectory = resolve(
   process.env.SONARCAN_EXECUTORCH_OUTPUT_DIR
     ?? join(root, "src-tauri/resources/executorch-runtime"),
 );
-const executableName = process.platform === "win32"
-  ? "sonarcan-executorch-worker.exe"
-  : "sonarcan-executorch-worker";
-const bundledPython = process.platform === "win32"
-  ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
-  : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
+const executableName = "sonarcan-executorch-worker";
+const bundledPython = join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
 const pythonSetting = process.env.SONARCAN_EXECUTORCH_PYTHON ?? bundledPython;
-const python = resolve(
-  process.platform === "win32" && !pythonSetting.toLowerCase().endsWith(".exe")
-    ? `${pythonSetting}.exe`
-    : pythonSetting,
-);
+const python = resolve(pythonSetting);
 const pythonPath = [
   source,
   process.env.SONARCAN_EXECUTORCH_PYTHONPATH,
   process.env.PYTHONPATH,
-].filter(Boolean).join(process.platform === "win32" ? ";" : ":");
+].filter(Boolean).join(":");
 
 if (!existsSync(join(source, "CMakeLists.txt"))) {
   throw new Error("Set SONARCAN_EXECUTORCH_SOURCE to an ExecuTorch 1.4.1 source checkout");
@@ -90,18 +82,7 @@ if (programDirectory) {
   }
 }
 const operators = pinnedOperators.join(",");
-const windowsCompilerArguments = process.platform === "win32"
-  ? [
-      "-G", "Ninja",
-      "-DCMAKE_C_COMPILER=clang-cl",
-      "-DCMAKE_CXX_COMPILER=clang-cl",
-      "-DCMAKE_POSITION_INDEPENDENT_CODE=OFF",
-      "-DCMAKE_C_FLAGS=/clang:-Wno-unknown-argument",
-      "-DCMAKE_CXX_FLAGS=/clang:-Wno-unknown-argument",
-    ]
-  : [];
 run("cmake", [
-  ...windowsCompilerArguments,
   "-Wno-deprecated",
   "-S", join(root, "tools/sonarcan-executorch-worker"),
   "-B", buildDirectory,
@@ -110,16 +91,6 @@ run("cmake", [
   `-DSONARCAN_EXECUTORCH_SOURCE=${source}`,
   `-DEXECUTORCH_SELECT_OPS_LIST=${operators}`,
 ]);
-// ExecuTorch 1.4.1 omits the .exe suffix from these ExternalProject
-// byproducts. Ninja therefore cannot infer how to create the imported host
-// tools when they are first needed by schema generation on Windows.
-if (process.platform === "win32") {
-  run("cmake", [
-    "--build", buildDirectory,
-    "--target", "flatbuffers_ep", "flatcc_ep",
-    "-j", "8",
-  ]);
-}
 run("cmake", ["--build", buildDirectory, "--target", "sonarcan-executorch-worker", "-j", "8"]);
 
 const builtExecutable = [
@@ -129,6 +100,6 @@ const builtExecutable = [
 if (!builtExecutable) throw new Error(`Missing built worker in ${buildDirectory}`);
 mkdirSync(resourceDirectory, { recursive: true });
 copyFileSync(builtExecutable, join(resourceDirectory, executableName));
-if (process.platform !== "win32") run("chmod", ["755", join(resourceDirectory, executableName)]);
+run("chmod", ["755", join(resourceDirectory, executableName)]);
 const verification = programs.length === 0 ? "the pinned operator manifest" : `${programs.length} PTE files`;
 console.log(`Built selective runtime verified against ${verification} in ${resourceDirectory}`);

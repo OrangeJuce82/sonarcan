@@ -5,9 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runtime = join(root, "src-tauri/resources/python-runtime/runtime");
-const python = process.platform === "win32"
-  ? join(runtime, "python.exe")
-  : join(runtime, "bin/python3.13");
+const python = join(runtime, "bin/python3.13");
 
 if (!existsSync(python)) {
   throw new Error("Missing development Python runtime. Run: npm run python:runtime");

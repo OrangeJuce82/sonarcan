@@ -11,9 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const executableName = process.platform === "win32"
-  ? "sonarcan-executorch-worker.exe"
-  : "sonarcan-executorch-worker";
+const executableName = "sonarcan-executorch-worker";
 const worker = resolve(
   process.env.SONARCAN_EXECUTORCH_WORKER
     ?? join(root, "src-tauri/resources/executorch-runtime", executableName),
@@ -121,11 +119,9 @@ try {
     }
   }
 
-  if (process.platform !== "win32") {
-    const linkedInput = join(temporary, "linked.tensor");
-    symlinkSync(input, linkedInput);
-    run(["infer", model, join(temporary, "linked-output"), linkedInput], 1);
-  }
+  const linkedInput = join(temporary, "linked.tensor");
+  symlinkSync(input, linkedInput);
+  run(["infer", model, join(temporary, "linked-output"), linkedInput], 1);
   const lvStatus = lvModelSetting ? " and LV-Chordia convolution inference" : "";
   const recurrentStatus = lvRecurrentModelSetting ? " and recurrent inference" : "";
   console.log(

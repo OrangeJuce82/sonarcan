@@ -2,7 +2,7 @@
 
 Release assembly installs one target-native CPython 3.13 runtime here. It
 contains the chord/downbeat worker on every platform, plus the MLX stem worker
-on Apple Silicon or the CPU-only Torch stem worker on Linux and Windows.
+on Apple Silicon or the CPU-only Torch stem worker on Debian.
 
 Generate and verify the ignored runtime with:
 

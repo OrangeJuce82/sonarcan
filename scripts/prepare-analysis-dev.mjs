@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
 const supportedAppleSilicon = process.platform === "darwin" && process.arch === "arm64";
-const supportedDiscreteGpu = ["win32", "linux"].includes(process.platform)
+const supportedDiscreteGpu = process.platform === "linux"
   && process.arch === "x64"
   && ["nvidia", "amd"].includes(gpuBackend ?? "");
 
@@ -22,7 +22,7 @@ function run(command, arguments_) {
 if (!supportedAppleSilicon && !supportedDiscreteGpu) {
   console.log(
     "Skipping analysis setup: this development build has no qualified GPU backend. "
-      + "Use SONARCAN_GPU_BACKEND=nvidia or amd on a supported Windows/Linux x64 host.",
+      + "Use SONARCAN_GPU_BACKEND=nvidia or amd on a supported Debian x64 host.",
   );
   process.exit(0);
 }

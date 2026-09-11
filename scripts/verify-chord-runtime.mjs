@@ -4,9 +4,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const runtime = process.platform === "win32"
-  ? join(root, "src-tauri/resources/python-runtime/runtime/python.exe")
-  : join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
+const runtime = join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
 const model = join(root, "src-tauri/resources/models/beat-this/final0.ckpt");
 
 if (!existsSync(runtime)) {

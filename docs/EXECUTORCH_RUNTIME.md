@@ -163,16 +163,3 @@ The reviewed operator union is pinned in
 need PyTorch or the model checkpoints. Supplying `SONARCAN_EXECUTORCH_PTE_DIR`
 turns the build into a drift check and fails if the release programs require a
 different operator set.
-
-Windows builds use the runner's `clang-cl`/Ninja toolchain and prebuild its host
-schema compilers before the selective runtime. ExecuTorch 1.4.1 omits the
-Windows executable suffix from those generated-file dependencies, so the
-explicit build order avoids a Ninja dependency gap without patching vendored
-sources. ExecuTorch 1.4.1 also pins an
-XNNPACK C source macro that fails under the MSVC preprocessor; compiling the
-same reviewed source with the Clang engine and MSVC-compatible command-line
-interface preserves XNNPACK acceleration while accepting ExecuTorch's Windows
-`/Gy` and `/Gw` flags. Its non-MSVC defaults also inject the POSIX `-fPIC`
-option into some Clang targets. Position-independent code is disabled for the
-Windows PE build, where it is neither supported nor required, and the known
-ignored-option diagnostic is suppressed without relaxing other warnings.
