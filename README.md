@@ -24,7 +24,7 @@ your computer in an inspectable `.sac` package.
 - Changes tempo from 50–200% independently of pitch, with semitone and cent
   controls.
 - Creates seamless A/B loops and progressive practice sessions.
-- Detects beats, downbeats, BPM, and timed chords on qualified hardware.
+- Detects beats, downbeats, BPM, and timed chords.
 - Separates vocals, drums, bass, and other with HTDemucs or SCNet.
 - Edits chords, markers, and synchronized lyrics directly on the waveform.
 - Shows piano, guitar, and ukulele positions for detected or edited chords.
@@ -32,18 +32,17 @@ your computer in an inspectable `.sac` package.
 
 ## Hardware support
 
-There is one application behavior, with hardware-specific packages:
+SonArcan exposes its complete feature set or refuses to open. It does not ship a
+reduced mode.
 
-| Package | Accelerated mode | Without a qualified GPU |
-| --- | --- | --- |
-| macOS Apple Silicon | MLX and MPS | Simplified mode |
-| Debian x64 NVIDIA | CUDA 12.6 | Simplified mode |
-| Debian x64 AMD | ROCm 7.2 | Simplified mode |
+| Package | Required accelerator |
+| --- | --- |
+| macOS Apple Silicon | Apple GPU through Core ML |
+| Debian x64 NVIDIA | Compatible NVIDIA GPU through CUDA |
 
-Simplified mode still provides playback, pitch and tempo, projects, imports,
-lyrics, loops, spectrum, and stereo meters. Beat, chord, and stem inference are
-hidden when the startup accelerator probe fails. SonArcan does not silently run
-heavy analysis on an unsuitable CPU.
+The startup probe exercises the complete production inference path. If the
+runtime, driver, device, or model cannot execute it, SonArcan displays an
+incompatibility error and does not open the workspace.
 
 Download current draft and published packages from
 [GitHub Releases](https://github.com/OrangeJuce82/sonarcan/releases). Large
@@ -66,7 +65,7 @@ npm ci
 npm run quality
 ```
 
-For a simplified development session without GPU analysis:
+For frontend and non-inference development:
 
 ```bash
 npm run ytdlp:search
@@ -75,7 +74,7 @@ npm run tauri dev
 ```
 
 Apple Silicon development uses `npm run mlx:sync`; Debian GPU development uses
-`npm run stems:sync` with `SONARCAN_GPU_BACKEND=nvidia` or `amd`. See the
+`npm run stems:sync` with `SONARCAN_GPU_BACKEND=nvidia`. See the
 [development guide](docs/DEVELOPMENT.md) for complete environment setup.
 
 ## Architecture at a glance

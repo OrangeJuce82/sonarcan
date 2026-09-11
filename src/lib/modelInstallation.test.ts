@@ -12,6 +12,15 @@ test("first-run model messages name the active model", () => {
   assert.equal(modelInstallationMessage(progress, modelInstallationCopy("en")), "Downloading SCNet-large…");
 });
 
+test("unsupported hardware receives a blocking full-feature error", () => {
+  const french = modelInstallationCopy("fr", true);
+  assert.equal(french.title, "Matériel incompatible");
+  assert.match(french.failure, /ne peut pas continuer en mode réduit/);
+  const english = modelInstallationCopy("en", true);
+  assert.equal(english.title, "Incompatible hardware");
+  assert.match(english.failure, /cannot continue in a reduced mode/);
+});
+
 test("download byte labels are bounded and readable", () => {
   assert.equal(formatInstallBytes(-1), "0 Mo");
   assert.equal(formatInstallBytes(10 * 1024 * 1024), "10 Mo");

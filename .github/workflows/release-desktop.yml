@@ -198,6 +198,7 @@ jobs:
           "$app_bundle/Contents/Resources/python-runtime/runtime/bin/python3.13" -c "from sonarcan_chord_worker.engine import verify_checkpoints; verify_checkpoints()"
           "$app_bundle/Contents/Resources/ytdlp-search/yt-dlp" --version
           npm run verify:bundled-release -- "$app_bundle"
+          npm run verify:lightweight-bundle -- "$app_bundle"
           codesign --verify --deep --strict --verbose=2 "$app_bundle"
       - name: Generate DMG checksum
         run: |
@@ -221,22 +222,12 @@ jobs:
             sleep "$((attempt * 10))"
           done
   release-linux-gpu:
-    name: Release Linux x64 ${{ matrix.label }} DEB
+    name: Release Linux x64 NVIDIA GPU DEB
     needs: [prepare-release, build-executorch-runtime]
     timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: NVIDIA GPU
-            backend: nvidia
-            config: src-tauri/tauri.nvidia-gpu.conf.json
-          - label: AMD GPU
-            backend: amd
-            config: src-tauri/tauri.amd-gpu.conf.json
     runs-on: ubuntu-22.04
     env:
-      SONARCAN_GPU_BACKEND: ${{ matrix.backend }}
+      SONARCAN_GPU_BACKEND: nvidia
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -252,7 +243,6 @@ jobs:
           enable-cache: true
           cache-dependency-glob: |
             tools/sonarcan-python-runtime-cuda/uv.lock
-            tools/sonarcan-python-runtime-rocm/uv.lock
             tools/sonarcan-chord-worker/uv.lock
       - name: Install Tauri Linux dependencies
         run: |
@@ -294,7 +284,7 @@ jobs:
       # GPU runtimes are larger than GitHub's 2 GiB per-asset limit, so the DEB
       # is split into independently verifiable release assets.
       - name: Build GPU DEB
-        run: npm exec tauri build -- --target x86_64-unknown-linux-gnu --bundles deb --config ${{ matrix.config }}
+        run: npm exec tauri build -- --target x86_64-unknown-linux-gnu --bundles deb --config src-tauri/tauri.nvidia-gpu.conf.json
       - name: Verify and upload multipart Linux GPU DEB
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -304,9 +294,10 @@ jobs:
           test -n "$deb_path"
           dpkg-deb -x "$deb_path" "$verification_root/deb"
           npm run verify:bundled-release -- "$verification_root/deb"
+          npm run verify:lightweight-bundle -- "$verification_root/deb"
           rm -rf "$verification_root"
 
-          backend_name="$(printf '%s' '${{ matrix.backend }}' | tr '[:lower:]' '[:upper:]')"
+          backend_name="NVIDIA"
           portable_name="SonArcan-Linux-x86_64-${backend_name}-GPU-${GITHUB_REF_NAME}.deb"
           portable_path="$RUNNER_TEMP/$portable_name"
           mv "$deb_path" "$portable_path"

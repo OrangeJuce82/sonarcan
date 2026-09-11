@@ -78,8 +78,6 @@ fn gpu_snapshot() -> Option<f32> {
             ],
         )
         .and_then(|output| parse_numeric_lines(&output)),
-        Some("amd") => command_output("rocm-smi", &["--showuse", "--json"])
-            .and_then(|output| parse_values_after_key(&output, "GPU use (%)")),
         _ => None,
     }
 }
@@ -149,17 +147,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_apple_and_amd_gpu_utilization() {
+    fn parses_apple_gpu_utilization() {
         assert_eq!(
             parse_values_after_key(
                 r#""PerformanceStatistics" = {"Device Utilization %"=68}"#,
                 "\"Device Utilization %\"=",
             ),
             Some(68.0)
-        );
-        assert_eq!(
-            parse_values_after_key(r#"{"GPU use (%)": "92"}"#, "GPU use (%)"),
-            Some(92.0)
         );
     }
 }

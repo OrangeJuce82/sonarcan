@@ -73,7 +73,7 @@ rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
-Heavy analysis is capability-gated once per application launch. On the first qualified launch,
+The complete application is capability-gated once per launch. On the first qualified launch,
 SonArcan installs the pinned SCNet-large, HTDemucs, and Beat This! checkpoints sequentially
 into the application-data cache, verifies their sizes and SHA-256 digests, and reports bounded
 progress while the welcome screen remains responsive. Interrupted downloads use adjacent
@@ -85,25 +85,15 @@ Beat This!, LV-Chordia, and four-stem separation only after the platform backend
 has been release-qualified and a bounded on-device inference probe succeeds.
 The probe exercises the production accelerator and rejects invalid values,
 timeouts, missing drivers, unavailable devices, and silent CPU fallback. Rust
-keeps the result as session state and rejects analysis IPC when the probe has not
-succeeded, independently of UI visibility. In degraded mode the UI does not
-render Beat, Chords, Mix, BPM, or the analysis-driven metronome; navigation is
-Time or Lyrics when synchronized lyric lines are available, while playback,
-lyrics, spectrum, and the stereo meter remain available. Loop snapping follows
-those synchronized lines in Lyrics mode. The explanation is persisted as a
-once-per-user-profile notice.
-The startup probe runs before model preparation. A missing or rejected GPU
-therefore enters simplified mode without downloading analysis checkpoints.
-Debian accelerator release builds pin `SONARCAN_GPU_BACKEND` to `nvidia`
-or `amd`; source builds without that explicit qualification cannot accidentally
-enable GPU analysis. The same application therefore enters
-simplified mode without running an accelerator probe, downloading analysis
-checkpoints, or exposing analysis commands. It preserves project analysis caches
-for later use on qualified hardware.
-Apple Silicon uses MLX for stems and MPS for chord/rhythm analysis. NVIDIA
-Debian releases use CUDA 12.6, while AMD Debian releases use ROCm 7.2
-through PyTorch's CUDA-compatible device API. All backends execute both model
-probes on the end-user accelerator before Rust opens the analysis IPC gate.
+keeps the result as session state and rejects workspace initialization when the
+probe has not succeeded. The startup screen then presents a retryable, blocking
+incompatibility error; there is no reduced interface.
+The startup probe runs before model preparation, project initialization, or
+checkpoint download. Debian release builds pin `SONARCAN_GPU_BACKEND` to
+`nvidia`; source builds without that qualification cannot accidentally expose a
+partially functional application. Apple Silicon targets Core ML and NVIDIA
+Debian targets CUDA. Both packages execute every required production probe on
+the end-user accelerator before Rust opens the application gate.
 
 In qualified GPU mode, the analysis workspace first places the chord grid beside a
 multi-view harmony panel using a 40/60 split. Beneath it, the four-stem mixer sits
@@ -115,8 +105,6 @@ consistent sharp or flat spelling, follow the playback pitch transposition, and
 switch between its timed grid, an alphabetical repertoire of unique chords, and
 duration-weighted chord statistics. The statistics are a pure presentation
 derivation of the displayed timeline and never change cached analysis.
-In degraded mode, the lyrics panel occupies the mixer's column, the spectrum
-and stereo meter retain the right-hand column, and the harmony row is omitted.
 The audio header exposes one user navigation mode: Time, Beat, Chord, Marker, or Lyrics. Left
 and Right and the transport jump buttons share that mode. Waveform clicks always
 seek to the exact pointed position, independently of the navigation mode and loop
@@ -127,8 +115,7 @@ available. The selector visibly remains on Time while the preferred mode is bein
 orchestrated, then switches automatically after valid points arrive. Unavailable
 options are disabled and `N` cycles only the currently available modes. Lyrics
 uses synchronized line starts including the saved display offset; Marker uses the
-ordered starts of the current track's project markers and remains available in
-degraded mode. Four non-interactive
+ordered starts of the current track's project markers. Four non-interactive
 states centered in the Audio header expose Beat This!, chord, lyrics, and separated-mix
 orchestration. Left/Right and the transport jump controls move to the adjacent point.
 Shift+Right selects the next playlist track. Shift+Left reuses the previous-track
@@ -354,16 +341,16 @@ The application console is a bounded diagnostic view, not a real-time sink. Rust
 The header resource indicator measures system-wide CPU and used physical memory,
 so Python inference descendants and media tools remain included regardless of
 their process topology. GPU utilization comes from the platform driver (Apple AGX,
-`nvidia-smi`, or `rocm-smi`); all three meters therefore represent machine-wide pressure.
+or `nvidia-smi`); all three meters therefore represent machine-wide pressure.
 For RAM, the detail also reports the used amount in megabytes. Unsupported or
 unavailable GPU telemetry is shown as unavailable rather than estimated. Sampling
 stays outside the audio callback.
 
 Four-stem inference is an implementation detail behind one Rust stem service.
-After the startup capability probe succeeds, Apple Silicon selects the MLX
-worker. NVIDIA Debian selects the CUDA worker and AMD Debian selects the
-ROCm worker. CPU-only heavy analysis is not an accepted user experience, so a
-failed accelerator probe closes the service gate. Both workers receive only canonical project media/model paths
+After the startup capability probe succeeds, Apple Silicon selects its native
+Apple backend and NVIDIA Debian selects CUDA. CPU-only analysis is not an
+accepted user experience, so a failed accelerator probe closes the application
+gate. Workers receive only canonical project media/model paths
 through direct argument arrays and return the same bounded NDJSON protocol.
 Both expose Fast HTDemucs and HQ SCNet Large by starrytong behind the same four-output
 contract. No profile is preselected or stored as a user preference. On first

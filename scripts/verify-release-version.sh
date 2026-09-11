@@ -11,7 +11,6 @@ release_workflow="$repository_root/.github/workflows/release-desktop.yml"
 portable_worker="$repository_root/tools/sonarcan-torch-worker/pyproject.toml"
 shared_runtime="$repository_root/tools/sonarcan-python-runtime/uv.lock"
 cuda_runtime="$repository_root/tools/sonarcan-python-runtime-cuda/uv.lock"
-rocm_runtime="$repository_root/tools/sonarcan-python-runtime-rocm/uv.lock"
 
 if [[ "$package_version" != "$tauri_version" || "$package_version" != "$cargo_version" ]]; then
   echo "package.json, tauri.conf.json and Cargo.toml versions must match." >&2
@@ -107,17 +106,11 @@ if ! grep -Fq 'version = "2.13.0+cu126"' "$cuda_runtime" \
   echo "The NVIDIA release runtime must be locked to the CUDA 12.6 PyTorch graph." >&2
   exit 1
 fi
-if ! grep -Fq 'version = "2.13.0+rocm7.2"' "$rocm_runtime" \
-  || ! grep -Fq 'source = { registry = "https://download.pytorch.org/whl/rocm7.2" }' "$rocm_runtime" \
-  || ! grep -Fq 'name = "triton-rocm"' "$rocm_runtime"; then
-  echo "The AMD Linux release runtime must be locked to the ROCm 7.2 PyTorch graph." >&2
-  exit 1
-fi
 if ! grep -Fq 'release-linux-gpu:' "$release_workflow" \
-  || ! grep -Fq 'backend: nvidia' "$release_workflow" \
-  || ! grep -Fq 'backend: amd' "$release_workflow" \
+  || ! grep -Fq 'SONARCAN_GPU_BACKEND: nvidia' "$release_workflow" \
+  || grep -Fq 'backend: amd' "$release_workflow" \
   || [[ "$(grep -Fc -- '--bundles deb' "$release_workflow")" -lt 1 ]]; then
-  echo "The release workflow must publish Debian NVIDIA and AMD GPU editions." >&2
+  echo "The release workflow must publish only the Debian NVIDIA GPU edition." >&2
   exit 1
 fi
 if grep -Eiq 'windows|win32|windows-2025|x86_64-pc-windows' "$release_workflow"; then
@@ -130,6 +123,10 @@ if grep -Eiq '(^|[^[:alnum:]_])rpm([^[:alnum:]_]|$)' "$release_workflow"; then
 fi
 if ! grep -Fq -- '--notes-file RELEASE_NOTES.md' "$release_workflow"; then
   echo "The release workflow must publish the curated edition notes." >&2
+  exit 1
+fi
+if [[ "$(grep -Fc 'npm run verify:lightweight-bundle' "$release_workflow")" -ne 2 ]]; then
+  echo "Every release package must pass the Python-free 256 MiB bundle gate." >&2
   exit 1
 fi
 if ! grep -Fq 'sha256sum --check' "$repository_root/RELEASE_NOTES.md"; then

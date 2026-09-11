@@ -36,6 +36,7 @@
     "qualify:stem-performance": "node scripts/qualify-stem-performance.mjs",
     "verify:ffmpeg-release": "node scripts/verify-audio-tools.mjs",
     "verify:bundled-release": "node scripts/verify-bundled-release.mjs",
+    "verify:lightweight-bundle": "node scripts/verify-lightweight-bundle.mjs",
     "verify:release-version": "bash scripts/verify-release-version.sh",
     "sign:release-resources": "bash scripts/sign-python-runtime.sh",
     "build:macos:app": "npm run tauri build -- --target aarch64-apple-darwin --bundles app",

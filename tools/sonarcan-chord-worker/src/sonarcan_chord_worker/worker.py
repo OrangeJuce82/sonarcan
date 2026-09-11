@@ -111,14 +111,14 @@ def accelerator_self_test(downbeat_model: Path) -> dict:
     from beat_this.inference import load_model
     from lv_chordia.chord_recognition import load_ensemble
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and torch.version.hip is None:
         device = torch.device("cuda")
-        backend = "ROCm" if torch.version.hip else "CUDA"
+        backend = "CUDA"
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
         backend = "MPS"
     else:
-        raise RuntimeError("no qualified CUDA, ROCm, or MPS accelerator is available")
+        raise RuntimeError("no qualified CUDA or MPS accelerator is available")
     with torch.inference_mode():
         chord_input = torch.zeros((1, 16, 252), dtype=torch.float32, device=device)
         for member in load_ensemble(False, device=device):

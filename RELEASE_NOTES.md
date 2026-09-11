@@ -1,9 +1,8 @@
 # SonArcan 0.1.2
 
-SonArcan now uses one application contract and three target-specific packages,
-without a duplicate build pipeline. Qualified GPU sessions expose local Beat,
-Chords, and Mix analysis; the same package
-starts in safe simplified mode when its accelerator probe does not succeed.
+SonArcan uses one complete application contract and two target-specific
+packages. The workspace opens only when the complete Beat, Chords, and Mix
+pipeline passes its accelerator probe.
 
 The waveform gains aligned marker, chord, and synchronized-lyrics lanes. Their
 blocks can be created, renamed, resized, aligned across lanes with Shift, or
@@ -17,7 +16,7 @@ and older project practice values are normalized safely when reopened.
 
 ## First-run model installation
 
-On the first launch with a qualified GPU backend, SonArcan downloads SCNet-large, HTDemucs, and
+On the first launch with a qualified accelerator, SonArcan downloads SCNet-large, HTDemucs, and
 Beat This! one at a time from their pinned upstream locations. The welcome
 screen identifies each model and shows both per-model and overall progress.
 Every checkpoint is checked against its expected byte length and SHA-256 digest
@@ -41,41 +40,32 @@ memory-constrained Macs.
 | Release name | Computer | Beat, Chords, Mix | Included compute runtime |
 | --- | --- | --- | --- |
 | SonArcan | Apple-silicon Mac (M1 or newer) | Yes, after the startup probe succeeds | Apple MLX and MPS |
-| SonArcan NVIDIA GPU | Debian-compatible Linux x64 with a compatible NVIDIA GPU | Yes, after the startup probe succeeds | PyTorch CUDA 12.6 |
-| SonArcan AMD GPU | Linux x64 with a ROCm 7.2-compatible AMD GPU | Yes, after the startup probe succeeds | PyTorch ROCm 7.2 |
+| SonArcan NVIDIA GPU | Debian-compatible Linux x64 with a compatible NVIDIA GPU | Yes, after the startup probe succeeds | CUDA |
 
 Linux distribution is limited to Debian-compatible x64 systems; Intel GPUs are
 not qualified yet.
 
-GPU releases never run Beat, Chords, or Mix silently on the CPU. At every
+Releases never run Beat, Chords, or Mix silently on the CPU. At every
 application launch, SonArcan exercises the actual production model graphs on the detected
 accelerator. If the driver, device, runtime, model, memory, or inference result
-is incompatible, SonArcan enters safe degraded mode for that session. Beat,
-Chords, Mix, BPM, the analysis metronome, and the piano/guitar/ukulele chord
-views are hidden; playback, time navigation, lyrics, spectrum, and stereo meters
-remain available. The explanation is shown once per user profile.
+is incompatible, SonArcan displays a blocking error and does not open the
+workspace.
 
 ## GPU download format
 
-CUDA and ROCm runtimes are too large for GitHub's 2 GiB limit per release file.
-Each GPU package is therefore split into numbered `part-000`, `part-001`, …
-files, accompanied by a platform/backend-specific `SHA256SUMS` file. Download
-every part for one backend, plus its matching `SHA256SUMS` file, into the same
-directory. Linux GPU releases are multipart DEBs and macOS remains a
-conventional single-file download.
+The release target is a single lightweight DEB using a selective native runtime.
+Multipart packages and bundled Python/PyTorch environments are rejected by the
+release checks.
 
-### Linux NVIDIA or AMD
+### Linux NVIDIA
 
-Open a terminal in the download directory, set `backend` to `NVIDIA` or `AMD`,
-then run:
+Open a terminal in the download directory, then run:
 
 ```bash
 cd ~/Downloads
 version=v0.1.2
-backend=NVIDIA # Replace with AMD for the ROCm release.
-sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
-cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"
-sudo apt install "./SonArcan-${backend}-GPU.deb"
+sha256sum --check SHA256SUMS-Linux-NVIDIA-GPU-DEB.txt
+sudo apt install "./SonArcan-Linux-x86_64-NVIDIA-GPU-${version}.deb"
 ```
 
 Do not install the reconstructed package if `sha256sum` reports a missing file
@@ -92,11 +82,11 @@ Linux releases are currently distributed only as DEB packages.
 - Import provider selection is highlighted, source logos remain beside
   relevance information, and long failed-import titles wrap instead of being
   truncated.
-- Every Debian hardware package carries the shared runtime needed for
-  imports but never enables heavy analysis unless its startup probe succeeds.
+- The package contains one selective native inference runtime; model weights are
+  installed and verified on first launch.
 - Release and CI jobs use one application contract without duplicate aliases,
   manifests, runtime builders, or verification branches.
-- Existing analysis caches and `.sac` project data remain preserved when the
-  application runs in simplified mode.
+- Existing analysis caches and `.sac` project data remain preserved when startup
+  rejects incompatible hardware.
 
 See the README for detailed minimum configurations and installation guidance.

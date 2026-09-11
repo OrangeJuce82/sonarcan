@@ -6,7 +6,7 @@ import { madmomBuildDependencies, runtimePipArguments } from "./python-runtime-i
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
-if (gpuBackend && !["nvidia", "amd"].includes(gpuBackend)) {
+if (gpuBackend && gpuBackend !== "nvidia") {
   throw new Error(`unsupported SONARCAN_GPU_BACKEND: ${gpuBackend}`);
 }
 if (gpuBackend && process.platform === "darwin") {
@@ -14,9 +14,7 @@ if (gpuBackend && process.platform === "darwin") {
 }
 const runtimeProject = gpuBackend === "nvidia"
   ? "sonarcan-python-runtime-cuda"
-  : gpuBackend === "amd"
-    ? "sonarcan-python-runtime-rocm"
-    : "sonarcan-python-runtime";
+  : "sonarcan-python-runtime";
 const project = join(repositoryRoot, `tools/${runtimeProject}`);
 const runtime = join(repositoryRoot, "src-tauri/resources/python-runtime/runtime");
 const requirements = join(runtime, "requirements.lock.txt");
@@ -85,10 +83,9 @@ run(runtimePython, [
   "-m", stemModule, "self-test",
 ]);
 if (gpuBackend) {
-  const expected = gpuBackend === "nvidia" ? "CUDA" : "ROCm";
   run(runtimePython, [
     "-c",
-    `import torch; assert torch.version.cuda if ${JSON.stringify(gpuBackend)} == 'nvidia' else torch.version.hip; print('${expected} runtime present')`,
+    "import torch; assert torch.version.cuda and not torch.version.hip; print('CUDA runtime present')",
   ]);
 }
 

@@ -68,8 +68,8 @@ Review deadline: **2026-11-30**.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
 - PyTorch no longer publishes current Intel macOS wheels, while LV-Chordia
   requires Torch 2.13 or newer. Intel macOS release bundles are therefore not
-  currently published. NVIDIA Windows/Linux GPU releases pin Torch 2.13.0 CUDA 12.6; AMD Linux pins
-  Torch 2.13.0 ROCm 7.2. AMD Windows and Intel GPU builds are not produced.
+  currently published. Debian GPU releases target NVIDIA CUDA. AMD, Windows,
+  and Intel GPU builds are not produced.
 
 These are maintenance advisories, not permission to ignore a vulnerability.
 Any advisory reporting memory safety, code execution, path escape, data loss, or

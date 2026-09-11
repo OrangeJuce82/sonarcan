@@ -7,10 +7,9 @@ practice mixer:
   random shift;
 - **HQ** uses SCNet Large by starrytong with four-way overlap-add.
 
-Apple Silicon executes both profiles with MLX. NVIDIA and AMD Debian packages
-execute the equivalent graphs with Torch through CUDA or ROCm. Builds
-without a qualified GPU backend keep the mixer disabled. CPU-only separation is
-not exposed as a supported user experience.
+Apple Silicon executes both profiles on the Apple GPU. NVIDIA Debian packages
+execute the equivalent graphs through CUDA. A failed qualification blocks the
+workspace; CPU-only separation is not a supported user experience.
 
 ## User workflow
 
@@ -76,9 +75,9 @@ publisher rather than redistributing them.
 
 ## Runtime and project caches
 
-All release workers share one target-native Python 3.13.5 runtime. Apple
-Silicon uses MLX; NVIDIA releases resolve pinned CUDA builds; AMD Debian resolves
-pinned ROCm builds. uv runs only on development/build machines.
+The release target is a selective native runtime with no bundled Python
+interpreter, PyTorch installation, or `site-packages`. Export tooling remains a
+build-time dependency only.
 
 Project results are independent per profile:
 `Stems/<track-id>/<fast|hq>/`. Each cache manifest fingerprints the source size,
@@ -95,7 +94,7 @@ On 7 September 2026, SCNet Large was measured on a 16 GB MacBook Air M3 with a
 and 68.22 s end to end. Batch 2 took 30.30 s for inference and 41.69 s end to
 end, while producing all four valid stems. Batch 4 exhausted Metal memory on
 GitHub's `macos-15` Apple Silicon release runner. The shared SCNet plan is
-therefore batch 2 on MLX, CUDA, and ROCm; MLX also materializes overlap-add and
+therefore batch 2 on MLX and CUDA; MLX also materializes overlap-add and
 clears unused allocations between forwards. Representative full-song
 benchmarks are still required on every supported accelerator.
 

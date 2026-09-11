@@ -128,6 +128,8 @@ def separate(
     if backend == "torch":
         import torch
 
+        if torch.version.hip is not None:
+            raise RuntimeError("the qualified CUDA runtime is unavailable")
         device = choose_torch_device(torch)
 
     started = time.perf_counter()
@@ -256,12 +258,12 @@ def accelerator_self_test(backend: str) -> None:
 
         device = choose_torch_device(torch)
         if device != "cuda":
-            raise RuntimeError("the qualified CUDA or ROCm accelerator is unavailable")
+            raise RuntimeError("the qualified CUDA accelerator is unavailable")
         value = torch.ones((4, 4), device=device) @ torch.ones((4, 4), device=device)
         if not torch.isfinite(value).all().item():
             raise RuntimeError("Torch accelerator self-test produced invalid values")
         torch.cuda.synchronize()
-        label = "ROCm" if torch.version.hip else "CUDA"
+        label = "CUDA"
     emit(
         "ready",
         model=MODEL_ID,

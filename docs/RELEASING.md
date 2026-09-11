@@ -1,15 +1,14 @@
 # Releasing SonArcan
 
-SonArcan publishes one application contract in three hardware packages:
+SonArcan publishes one application contract in two hardware packages:
 
 | Package | Target | Accelerator |
 | --- | --- | --- |
 | SonArcan | macOS Apple Silicon | MLX and MPS |
 | SonArcan NVIDIA GPU | Debian-compatible Linux x64 | CUDA 12.6 |
-| SonArcan AMD GPU | Debian-compatible Linux x64 | ROCm 7.2 |
 
-Every package starts in simplified mode when its production accelerator probe
-fails. The three packages share the same product behavior and release contract.
+Every package blocks startup when its production accelerator probe fails. Both
+packages expose the complete product behavior.
 
 ## Release contract
 
@@ -33,7 +32,6 @@ before publication.
 
 - macOS uses the shared Python 3.13 runtime with MLX and MPS workers;
 - Debian NVIDIA resolves Torch 2.13.0 from the pinned CUDA 12.6 index;
-- Debian AMD resolves Torch 2.13.0 from the pinned ROCm 7.2 index;
 - Beat This!, SCNet, and HTDemucs checkpoints install on first qualified launch
   after size and SHA-256 verification;
 - LV-Chordia checkpoints, FFmpeg, and yt-dlp are verified before packaging;
@@ -58,8 +56,7 @@ Reconstruct a Debian package with the commands included in
 `RELEASE_NOTES.md`, then test both paths:
 
 - compatible GPU: the production model probe succeeds and analysis is exposed;
-- absent or rejected GPU: the same package opens in simplified mode and all
-  non-analysis features remain available.
+- absent or rejected accelerator: startup remains on the incompatibility screen.
 
 ## Cutting a release
 
@@ -70,7 +67,8 @@ Reconstruct a Debian package with the commands included in
 4. Merge the exact qualified commit into `main`.
 5. Tag that commit, for example `v0.1.2`, and push the tag.
 6. Wait for every release job and inspect the draft assets and checksums.
-7. Smoke-test all hardware and degraded-mode cases before manually publishing.
+7. Smoke-test both supported hardware targets and rejected-hardware startup
+   before manually publishing.
 
 Never move a tag to retry a release. Fix the cause, increment the version, and
 create a new tag.

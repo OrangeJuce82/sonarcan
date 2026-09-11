@@ -20,8 +20,6 @@ export const languageOptions: readonly { value: Language; label: string }[] = [
 
 const baseMessages = {
   en: {
-    degradedAnalysisTitle: "Limited experience on this computer",
-    degradedAnalysisMessage: "No compatible, qualified GPU accelerator is available. To protect system stability, Beat, Chords, Mix, BPM, and metronome analysis have been disabled. Playback, time navigation, lyrics, spectrum, and the stereo meter remain available.",
     resetChordEdits: "Reset to the original analysis",
     chordEditMode: "Chord edit mode", chordEditModeHelp: "Enable or disable chord editing (E)", noChord: "No chord",
     checkingProjects: "Checking for recent projects…",
@@ -57,8 +55,6 @@ const baseMessages = {
     importCenter: "Import Center", addFiles: "Add files", analyze: "Analyze", analyzingSources: "Analyzing sources…", sourcesFound: "sources found", noSourcesFound: "No importable source was found.", dropToAnalyze: "Drop files or paste text; analysis starts automatically.", unsupportedDrop: "No supported audio, TXT, or Markdown file was dropped.", startImport: "Import selected", importPlaceholder: "Drop audio, TXT or Markdown files, paste YouTube URLs, playlists, or one track name per line…", directSources: "Direct sources", searchResults: "Search", searchProgress: "Searches analyzed", authorizedOnly: "Only download content you are authorized to use.", importQueue: "Import queue", noTasks: "No background imports", cancelImport: "Cancel import", queued: "Queued", downloading: "Downloading", converting: "Converting", importing: "Importing", completed: "Completed", failed: "Failed", technicalDetails: "Technical details", appearance: "Appearance", theme: "Theme", system: "System", dark: "Dark", light: "Light", importSettings: "Import", simultaneousDownloads: "Simultaneous downloads", youtubeAutoSelectBestMatch: "Automatically select the most relevant YouTube result", youtubeMatchScore: "Relevance", conversionFormat: "Conversion format", keepSupported: "Keep supported formats", mp3Quality: "MP3 quality", mp3VbrHigh: "VBR — maximum quality", sampleRate: "Sample rate", preserve: "Preserve", channels: "Channels", stereo: "Stereo", mono: "Mono", practiceDefaults: "Practice defaults", loopLoadPosition: "When loading a looped track", fromBeginning: "From the beginning (default)", fromLoopStart: "From loop point A", masterVolume: "Master volume", savePreferences: "Save preferences", applicationConsole: "Application Console", hideConsole: "Hide console", logEntries: "entries", minimumLogLevel: "Minimum level", logFamily: "Family", allLogFamilies: "All", noLogs: "No application logs yet.", noMatchingLogs: "No logs match these filters.",
   },
   fr: {
-    degradedAnalysisTitle: "Expérience limitée sur cet ordinateur",
-    degradedAnalysisMessage: "Aucun accélérateur GPU compatible et qualifié n’est disponible. Pour préserver la stabilité du système, Beat, Accords, Mix, BPM et le métronome lié à l’analyse ont été désactivés. La lecture, la navigation temporelle, les paroles, le spectre et le VU-mètre restent disponibles.",
     resetChordEdits: "Rétablir les accords de l’analyse d’origine",
     chordEditMode: "Mode édition des accords", chordEditModeHelp: "Activer ou désactiver l’édition des accords (E)", noChord: "Aucun accord",
     checkingProjects: "Recherche des projets récents…",

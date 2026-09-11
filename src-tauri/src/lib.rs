@@ -53,7 +53,7 @@ struct DiagnosticsSnapshot {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AnalysisCapabilities {
-    accelerated: bool,
+    qualified: bool,
     backend: Option<&'static str>,
     reason: Option<&'static str>,
 }
@@ -74,10 +74,10 @@ fn qualified_analysis_build(
     linux_x64: bool,
     gpu_backend: Option<&str>,
 ) -> bool {
-    apple_silicon || (linux_x64 && matches!(gpu_backend, Some("nvidia" | "amd")))
+    apple_silicon || (linux_x64 && gpu_backend == Some("nvidia"))
 }
 
-fn analysis_enabled_after_probe(build_qualified: bool, probe_succeeded: bool) -> bool {
+fn application_qualified_after_probe(build_qualified: bool, probe_succeeded: bool) -> bool {
     build_qualified && probe_succeeded
 }
 
@@ -87,19 +87,21 @@ fn accelerated_analysis_backend() -> Option<&'static str> {
     } else {
         match option_env!("SONARCAN_GPU_BACKEND") {
             Some("nvidia") => Some("NVIDIA CUDA"),
-            Some("amd") => Some("AMD ROCm"),
             _ => None,
         }
     }
 }
 
 fn require_accelerated_analysis(state: &AnalysisCapabilityState) -> Result<(), AppError> {
-    state.0.load(Ordering::Acquire).then_some(()).ok_or_else(|| {
-        AppError::BackgroundTask(
-            "Chord, beat, and separated-track analysis is disabled because no qualified GPU backend is available on this platform."
-                .into(),
-        )
-    })
+    state
+        .0
+        .load(Ordering::Acquire)
+        .then_some(())
+        .ok_or_else(|| {
+            AppError::BackgroundTask(
+                "SonArcan requires a qualified Apple Silicon or NVIDIA GPU environment.".into(),
+            )
+        })
 }
 
 #[derive(Debug, Serialize)]
@@ -936,12 +938,12 @@ async fn analysis_capabilities(
     } else {
         false
     };
-    let accelerated = analysis_enabled_after_probe(build_qualified, probe_succeeded);
-    state.0.store(accelerated, Ordering::Release);
+    let qualified = application_qualified_after_probe(build_qualified, probe_succeeded);
+    state.0.store(qualified, Ordering::Release);
     Ok(AnalysisCapabilities {
-        accelerated,
-        backend: accelerated.then(accelerated_analysis_backend).flatten(),
-        reason: (!accelerated).then_some("acceleratorUnavailable"),
+        qualified,
+        backend: qualified.then(accelerated_analysis_backend).flatten(),
+        reason: (!qualified).then_some("acceleratorUnavailable"),
     })
 }
 
@@ -1122,14 +1124,14 @@ mod tests {
         if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
             assert!(accelerated_analysis_available());
         } else if !cfg!(all(target_os = "linux", target_arch = "x86_64"))
-            || !matches!(option_env!("SONARCAN_GPU_BACKEND"), Some("nvidia" | "amd"))
+            || option_env!("SONARCAN_GPU_BACKEND") != Some("nvidia")
         {
             assert!(!accelerated_analysis_available());
         }
     }
 
     #[test]
-    fn build_without_a_qualified_gpu_uses_simplified_mode() {
+    fn build_without_a_qualified_gpu_is_rejected() {
         assert!(!qualified_analysis_build(false, true, None));
         assert!(!qualified_analysis_build(false, true, Some("intel")));
         assert!(!qualified_analysis_build(false, false, Some("nvidia")));
@@ -1142,14 +1144,13 @@ mod tests {
     fn supported_accelerator_builds_can_probe_analysis() {
         assert!(qualified_analysis_build(true, false, None));
         assert!(qualified_analysis_build(false, true, Some("nvidia")));
-        assert!(qualified_analysis_build(false, true, Some("amd")));
     }
 
     #[test]
-    fn qualified_gpu_build_stays_simplified_when_the_startup_probe_fails() {
-        assert!(!analysis_enabled_after_probe(true, false));
-        assert!(!analysis_enabled_after_probe(false, true));
-        assert!(analysis_enabled_after_probe(true, true));
+    fn qualified_gpu_build_is_rejected_when_the_startup_probe_fails() {
+        assert!(!application_qualified_after_probe(true, false));
+        assert!(!application_qualified_after_probe(false, true));
+        assert!(application_qualified_after_probe(true, true));
     }
 
     #[test]

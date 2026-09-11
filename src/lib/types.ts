@@ -116,7 +116,7 @@ export interface DiagnosticsSnapshot {
 }
 
 export interface AnalysisCapabilities {
-  accelerated: boolean;
+  qualified: boolean;
   backend: string | null;
   reason: "acceleratorUnavailable" | null;
 }
@@ -242,7 +242,7 @@ export type MeterUnit = "percent" | "dbfs";
 export type MeterPeakHold = "off" | "oneSecond" | "threeSeconds";
 export type StemSeparationProfile = "fast" | "hq";
 export type VisualizationSetting = "spectrumStyle" | "spectrumRange" | "visualizationResponse" | "meterUnit" | "meterPeakHold" | "energyWindowSeconds";
-export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; chordMode: ChordMode; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; visualizationSlotOne: VisualizationKind; visualizationSlotTwo: VisualizationKind; spectrumStyle: SpectrumStyle; spectrumRange: SpectrumRange; visualizationResponse: VisualizationResponse; meterUnit: MeterUnit; meterPeakHold: MeterPeakHold; energyWindowSeconds: number; degradedAnalysisNoticeSeen: boolean; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
+export interface UserPreferences { theme: Theme; language: import("./i18n").Language; timeDisplay: TimeDisplay; toastDurationSeconds: number; concurrentDownloads: number; youtubeAutoSelectBestMatch: boolean; conversionFormat: ConversionFormat; sampleRate: SampleRatePreference; channels: ChannelPreference; mp3Quality: Mp3Quality; masterVolume: number; musicVolume: number; loudnessNormalization: boolean; metronomeVolume: number; metronomeSound: MetronomeSound; beatThisDbn: boolean; chordMode: ChordMode; defaultPlaybackRate: number; defaultPitchSemitones: number; loopLoadPosition: LoopLoadPosition; loopSnapEnabled: boolean; navigationMode: NavigationMode; navigationTimeSeconds: number; visualizationSlotOne: VisualizationKind; visualizationSlotTwo: VisualizationKind; spectrumStyle: SpectrumStyle; spectrumRange: SpectrumRange; visualizationResponse: VisualizationResponse; meterUnit: MeterUnit; meterPeakHold: MeterPeakHold; energyWindowSeconds: number; defaultTrainerStartRate: number; defaultTrainerRepetitions: number; defaultTrainerIncrement: number; defaultTrainerTargetRate: number; }
 export type ImportJobState = "queued" | "downloading" | "converting" | "importing" | "completed" | "failed";
 export type ImportProvider = "youtube" | "soundcloud" | "bandcamp" | "mixcloud" | "web" | "local";
 export type SearchProvider = "youtube" | "soundcloud";

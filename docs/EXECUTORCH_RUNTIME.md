@@ -87,16 +87,10 @@ order. Backend release jobs must additionally:
 6. reject any bundle containing a Python interpreter, `site-packages`, libtorch,
    exporter code, tests, training kernels, profilers, or model checkpoints.
 
-The startup order preserves the existing qualified Apple stem path: MLX stays
-first on Apple Silicon until an end-to-end replacement is qualified. A Core ML
-ExecuTorch program can then be introduced per feature, with CPU XNNPACK as the
-final fallback. Core ML may schedule supported work on the CPU, GPU, or Neural
-Engine. NVIDIA builds prefer a qualified CUDA AOTI program and fall back to the
-same CPU XNNPACK programs when CUDA probing fails. ExecuTorch currently has no
-production ROCm delegate;
-AMD releases must use the CPU fallback until a native AMD delegate passes the
-same qualification rather than silently restoring the multi-gigabyte PyTorch
-ROCm distribution.
+The production target uses Core ML programs on Apple Silicon and CUDA AOTI
+programs on NVIDIA Debian. There is no CPU fallback and no AMD distribution.
+The workspace opens only after every production graph and its native audio
+pipeline pass the bounded startup probe.
 
 ## Export audit results
 

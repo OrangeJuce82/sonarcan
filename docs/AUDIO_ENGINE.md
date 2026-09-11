@@ -8,7 +8,7 @@ Development builds use light optimization for SonArcan and full optimization for
 
 Chord and downbeat recognition are not part of playback or decoded-audio
 ownership. They are available only after the once-per-launch accelerator probe
-succeeds; otherwise no inference process is started. After the selected track is ready, one supervised process runs
+succeeds; otherwise the workspace does not open. After the selected track is ready, one supervised process runs
 LV-Chordia first and Beat This! second. This avoids simultaneous pressure on the
 same CPU or accelerator while retaining both outputs for downstream features.
 Failure of one model retains the other model's result and emits a bounded warning.
@@ -49,9 +49,8 @@ The real-time callback never locks or reads this cache. It only sees the selecte
 Stem mode is disabled by default and never delays ordinary track loading. After
 the startup accelerator probe succeeds, an Apple-silicon Mac starts
 `sonarcan-mlx-worker` with the pinned MLX environment. NVIDIA Debian releases
-start the pinned CUDA 12.6 Torch worker; AMD Debian
-releases start the pinned ROCm 7.2 worker. A GPU release whose on-device graph
-probe fails does not start separation and never falls back to CPU. Both worker
+start the pinned CUDA worker. A release whose on-device graph probe fails does
+not open the workspace and never falls back to CPU. Both worker
 implementations use one four-stem protocol and profile-specific caches.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.

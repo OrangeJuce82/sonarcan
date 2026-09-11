@@ -22,7 +22,7 @@ function run(command, arguments_) {
 if (!supportedAppleSilicon && !supportedDiscreteGpu) {
   console.log(
     "Skipping analysis setup: this development build has no qualified GPU backend. "
-      + "Use SONARCAN_GPU_BACKEND=nvidia or amd on a supported Debian x64 host.",
+      + "Use SONARCAN_GPU_BACKEND=nvidia on a supported Debian x64 host.",
   );
   process.exit(0);
 }
