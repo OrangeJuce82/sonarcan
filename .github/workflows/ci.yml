@@ -79,7 +79,20 @@ jobs:
       - name: Check Rust formatting
         run: npm run format:rust
       - name: Lint Rust
-        run: npm run lint:rust
+        shell: bash
+        run: |
+          if npm run lint:rust > rust-lint.log 2>&1; then
+            cat rust-lint.log
+          else
+            tail -120 rust-lint.log
+            diagnostic="$(grep -E '^(error(\[E[0-9]+\])?:|error: could not)' rust-lint.log | head -1 || true)"
+            diagnostic="${diagnostic:-Rust lint failed without a compiler diagnostic}"
+            diagnostic="${diagnostic//'%'/'%25'}"
+            diagnostic="${diagnostic//$'\r'/'%0D'}"
+            diagnostic="${diagnostic//$'\n'/'%0A'}"
+            echo "::error title=Rust lint failed::$diagnostic"
+            exit 1
+          fi
       - name: Run Rust tests
         run: npm run test:rust
       - run: npm run build:ci
