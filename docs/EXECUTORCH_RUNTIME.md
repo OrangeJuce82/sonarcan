@@ -31,10 +31,17 @@ backend.
 
 ### LV-Chordia
 
-The five pinned ensemble networks accept a fixed real tensor of shape
-`[1, 16, 252]`. Each member exports strictly. The CQT extractor and XHMM chord
-decoder stay outside the graph and must be ported to bounded native code. The
-five programs can share one selective runtime; only their small weights differ.
+The production network consumes the complete CQT sequence; exporting the whole
+bidirectional LSTM from a 16-frame example would incorrectly freeze the song
+length. Each ensemble member is therefore decomposed into ten fixed convolution
+programs, fixed 16-frame and one-frame forward/backward recurrent programs, and
+a fixed classifier program. Native orchestration computes InstanceNorm over the
+complete sequence, carries recurrent states across chunks, and reverses the
+backward stream. This preserves full-song context without a worst-case dynamic
+memory arena. A 37-frame reconstruction of every member differs from eager
+PyTorch by at most `3.51e-5` in logits; every individual program has zero export
+drift. The CQT extractor and XHMM chord decoder stay outside the graph and must
+be ported to bounded native code.
 
 ### Beat This!
 
@@ -66,7 +73,9 @@ to ExecuTorch.
 
 `npm run executorch:audit` exercises strict `torch.export` capture with the real
 architectures and checkpoints. It compares eager and exported outputs and fails
-on any drift above `1e-5`. Backend release jobs must additionally:
+on any drift above `1e-5` per program. The LV-Chordia multi-program
+reconstruction gate allows `5e-5` for floating-point convolution accumulation
+order. Backend release jobs must additionally:
 
 1. lower every program for the target backend;
 2. build one runtime from the union of operators used by every release PTE,
@@ -99,7 +108,7 @@ runtime. PTE files stay in the model cache and are not Tauri resources.
 | --- | --- | ---: | ---: |
 | Beat This | Core ML | 41,787,877 bytes | 0 |
 | Beat This | XNNPACK | 81,343,112 bytes | 0 |
-| LV-Chordia, five members | XNNPACK | 10,075,600 bytes | 0 |
+| LV-Chordia, five chunked members | XNNPACK | 15,385,360 bytes | ≤ 3.51e-5 end-to-end |
 | HTDemucs neural core | Core ML | 109,717,922 bytes | 0 |
 | HTDemucs neural core | portable CPU | 168,275,400 bytes | 0 |
 | SCNet encoders | XNNPACK | 10,702,592 bytes | 0 |
@@ -121,9 +130,9 @@ gates above.
 
 The four exported model families were loaded and executed successfully by one
 selectively linked arm64 macOS ExecuTorch runtime built from the 1.4.1 release.
-The union contains 49 root operators and 77 registered kernel variants. The
+The current 89-program union contains 47 root operators. The
 reproducible portable/XNNPACK probe is 2,395,400 bytes before stripping and
-2,121,480 bytes after stripping. The PTE programs and weights are not part of
+approximately 2.2 MB after stripping. The PTE programs and weights are not part of
 that number and remain first-use downloads.
 
 The measured all-ones audit inputs completed in approximately 1.7 seconds for

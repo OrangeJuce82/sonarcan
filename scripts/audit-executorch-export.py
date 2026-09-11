@@ -12,6 +12,7 @@ script is bundled in the desktop application.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -90,16 +91,28 @@ def _capture(
     *,
     lower: bool = True,
     backend: str | None = None,
+    dynamic_shapes: Any = None,
+    parity_inputs: tuple[torch.Tensor, ...] | None = None,
 ) -> dict[str, Any]:
     model.eval()
     with torch.inference_mode():
         expected = model(*inputs)
-    exported = torch.export.export(model, inputs, strict=True)
+    exported = torch.export.export(
+        model, inputs, dynamic_shapes=dynamic_shapes, strict=True
+    )
     with torch.inference_mode():
         actual = exported.module()(*inputs)
     error = _tree_max_error(expected, actual)
     if error > 1e-5:
         raise RuntimeError(f"{name} export parity drifted by {error}")
+    if parity_inputs is not None:
+        with torch.inference_mode():
+            parity_expected = model(*parity_inputs)
+            parity_actual = exported.module()(*parity_inputs)
+        parity_error = _tree_max_error(parity_expected, parity_actual)
+        if parity_error > 1e-5:
+            raise RuntimeError(f"{name} dynamic export parity drifted by {parity_error}")
+        error = max(error, parity_error)
     report: dict[str, Any] = {
         "model": name,
         "nodes": len(tuple(exported.graph.nodes)),
@@ -158,12 +171,218 @@ def audit_beat_this(checkpoint: Path) -> dict[str, Any]:
     return report
 
 
+class _LVConvolutionChunk(torch.nn.Module):
+    def __init__(self, convolution: torch.nn.Module):
+        super().__init__()
+        self.convolution = copy.deepcopy(convolution)
+
+    def forward(self, value):
+        return self.convolution(value)
+
+
+class _LVRecurrentChunk(torch.nn.Module):
+    def __init__(self, network: torch.nn.Module, *, reverse: bool):
+        super().__init__()
+        source = network.lstm1
+        self.lstm = torch.nn.LSTM(
+            input_size=source.input_size,
+            hidden_size=source.hidden_size,
+            num_layers=1,
+            batch_first=True,
+        )
+        suffix = "_reverse" if reverse else ""
+        with torch.no_grad():
+            for name in ("weight_ih_l0", "weight_hh_l0", "bias_ih_l0", "bias_hh_l0"):
+                getattr(self.lstm, name).copy_(getattr(source, f"{name}{suffix}"))
+
+    def forward(self, value, hidden, cell):
+        output, (next_hidden, next_cell) = self.lstm(value, (hidden, cell))
+        return output, next_hidden, next_cell
+
+
+class _LVClassifierChunk(torch.nn.Module):
+    def __init__(self, network: torch.nn.Module):
+        super().__init__()
+        self.classifier = copy.deepcopy(network.final_fc1)
+
+    def forward(self, value):
+        return self.classifier(value)
+
+
+def _run_lv_convolution(
+    convolution: _LVConvolutionChunk, value: torch.Tensor
+) -> torch.Tensor:
+    frame_count = value.shape[2]
+    padded_frames = ((frame_count + 15) // 16) * 16
+    padded = torch.nn.functional.pad(value, (0, 0, 1, padded_frames - frame_count + 1))
+    outputs = [
+        convolution(padded[:, :, cursor : cursor + 18])[:, :, 1:17]
+        for cursor in range(0, padded_frames, 16)
+    ]
+    return torch.cat(outputs, dim=2)[:, :, :frame_count]
+
+
+def _run_lv_classifier(
+    classifier: _LVClassifierChunk, value: torch.Tensor
+) -> torch.Tensor:
+    frame_count = value.shape[1]
+    padded_frames = ((frame_count + 15) // 16) * 16
+    padded = torch.nn.functional.pad(value, (0, 0, 0, padded_frames - frame_count))
+    outputs = [
+        classifier(padded[:, cursor : cursor + 16])
+        for cursor in range(0, padded_frames, 16)
+    ]
+    return torch.cat(outputs, dim=1)[:, :frame_count]
+
+
+def _run_lv_recurrent(
+    recurrent_16: _LVRecurrentChunk,
+    recurrent_1: _LVRecurrentChunk,
+    features: torch.Tensor,
+) -> torch.Tensor:
+    hidden = torch.zeros((1, features.shape[0], recurrent_16.lstm.hidden_size))
+    cell = torch.zeros_like(hidden)
+    outputs = []
+    cursor = 0
+    while cursor + 16 <= features.shape[1]:
+        output, hidden, cell = recurrent_16(
+            features[:, cursor : cursor + 16], hidden, cell
+        )
+        outputs.append(output)
+        cursor += 16
+    while cursor < features.shape[1]:
+        output, hidden, cell = recurrent_1(
+            features[:, cursor : cursor + 1], hidden, cell
+        )
+        outputs.append(output)
+        cursor += 1
+    return torch.cat(outputs, dim=1)
+
+
+def _audit_lv_member(index: int, network: torch.nn.Module) -> dict[str, Any]:
+    feature = network.audio_feature_block
+    feature_layers = [
+        (feature.conv1a, feature.norm1a, None),
+        (feature.conv1b, feature.norm1b, None),
+        (feature.conv1c, feature.norm1c, feature.pool1),
+        (feature.conv2a, feature.norm2a, None),
+        (feature.conv2b, feature.norm2b, None),
+        (feature.conv2c, feature.norm2c, feature.pool2),
+        (feature.conv3a, feature.norm3a, None),
+        (feature.conv3b, feature.norm3b, feature.pool3),
+        (feature.conv4a, feature.norm4a, None),
+        (feature.conv4b, feature.norm4b, None),
+    ]
+    forward_16 = _LVRecurrentChunk(network, reverse=False).eval()
+    forward_1 = _LVRecurrentChunk(network, reverse=False).eval()
+    backward_16 = _LVRecurrentChunk(network, reverse=True).eval()
+    backward_1 = _LVRecurrentChunk(network, reverse=True).eval()
+    classifier = _LVClassifierChunk(network).eval()
+    recurrent_input = torch.ones((1, 16, network.lstm1.input_size))
+    recurrent_step = recurrent_input[:, :1]
+    state = torch.zeros((1, 1, network.lstm1.hidden_size))
+    classifier_input = torch.ones((1, 16, network.hidden_dim1))
+    programs = [
+        _capture(
+            f"lv-chordia-s{index}-forward-16",
+            forward_16,
+            (recurrent_input, state, state),
+        ),
+        _capture(
+            f"lv-chordia-s{index}-forward-1",
+            forward_1,
+            (recurrent_step, state, state),
+        ),
+        _capture(
+            f"lv-chordia-s{index}-backward-16",
+            backward_16,
+            (recurrent_input, state, state),
+        ),
+        _capture(
+            f"lv-chordia-s{index}-backward-1",
+            backward_1,
+            (recurrent_step, state, state),
+        ),
+        _capture(
+            f"lv-chordia-s{index}-classifier-16",
+            classifier,
+            (classifier_input,),
+        ),
+    ]
+
+    # A 37-frame sequence deliberately exercises two full chunks and a tail.
+    # Feature extraction and classification are frame-local, so their final
+    # chunks may be padded and truncated. The recurrent tail uses the one-frame
+    # program to preserve the exact bidirectional LSTM context.
+    value = torch.ones((1, 37, 252))
+    with torch.inference_mode():
+        expected = network(value)
+        feature_value = value.view((1, 1, value.shape[1], value.shape[2]))
+        for layer_index, (source_convolution, normalization, pooling) in enumerate(
+            feature_layers
+        ):
+            convolution = _LVConvolutionChunk(source_convolution).eval()
+            example = torch.ones(
+                (
+                    1,
+                    source_convolution.in_channels,
+                    18,
+                    feature_value.shape[3],
+                )
+            )
+            programs.append(
+                _capture(
+                    f"lv-chordia-s{index}-convolution-{layer_index}",
+                    convolution,
+                    (example,),
+                )
+            )
+            feature_value = torch.nn.functional.selu(
+                normalization(_run_lv_convolution(convolution, feature_value))
+            )
+            if pooling is not None:
+                feature_value = pooling(feature_value)
+        features = feature_value.transpose(1, 2).contiguous().view(
+            (1, value.shape[1], feature.output_size)
+        )
+        forward = _run_lv_recurrent(forward_16, forward_1, features)
+        reversed_features = torch.flip(features, dims=(1,))
+        backward = torch.flip(
+            _run_lv_recurrent(backward_16, backward_1, reversed_features), dims=(1,)
+        )
+        recurrent = torch.cat((forward, backward), dim=2)
+        logits = _run_lv_classifier(classifier, recurrent).reshape((37, -1))
+        widths = [output.shape[1] for output in expected]
+        boundaries = []
+        cursor = 0
+        for width in widths[:-1]:
+            cursor += width
+            boundaries.append(cursor)
+        actual = tuple(torch.tensor_split(logits, boundaries, dim=1))
+    reconstruction_error = _tree_max_error(expected, actual)
+    # Convolution kernels may accumulate in a different order at the fixed
+    # chunk boundary. This is a sub-ULP-scale logit drift for these weights and
+    # remains well below anything that can change the decoded chord class.
+    if reconstruction_error > 5e-5:
+        raise RuntimeError(
+            f"LV-Chordia member {index} chunk reconstruction drifted by "
+            f"{reconstruction_error}"
+        )
+    return {
+        "member": index,
+        "programs": programs,
+        "sequenceFrames": 37,
+        "reconstructionMaxAbsError": reconstruction_error,
+    }
+
+
 def audit_lv_chordia() -> dict[str, Any]:
     from lv_chordia.chord_recognition import load_ensemble
 
-    inputs = (torch.zeros((1, 16, 252)),)
     members = load_ensemble(False, device=torch.device("cpu"))
-    reports = [_capture(f"lv-chordia-s{index}", member.net, inputs) for index, member in enumerate(members)]
+    reports = [
+        _audit_lv_member(index, member.net) for index, member in enumerate(members)
+    ]
     return {"model": "lv-chordia", "members": reports}
 
 

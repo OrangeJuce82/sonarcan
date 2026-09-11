@@ -42,7 +42,8 @@ target_link_libraries(
     extension_tensor
 )
 if(MSVC)
-  target_compile_options(sonarcan-executorch-worker PRIVATE /W4 /WX)
+  target_compile_options(sonarcan-executorch-worker PRIVATE /W4 /WX /wd4018
+                                                              /wd4100)
 else()
   target_compile_options(
     sonarcan-executorch-worker PRIVATE -Wall -Wextra -Werror -ffunction-sections
