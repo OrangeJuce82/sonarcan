@@ -1,5 +1,9 @@
 # Architecture
 
+The native inference migration and its release gates are specified in
+[`EXECUTORCH_RUNTIME.md`](EXECUTORCH_RUNTIME.md). Until a feature satisfies
+those gates, its existing qualified worker remains the production path.
+
 ## Principles
 
 SonArcan is built around three non-negotiable properties: stable real-time audio, reproducible failures, and durable project data. Tauri is a desktop and IPC boundary, not the application core.

@@ -80,6 +80,9 @@ src-tauri/resources/stem-runtime/runtime/
 src-tauri/resources/audio-tools/*
 !src-tauri/resources/audio-tools/README.md
 src-tauri/resources/ytdlp-search/yt-dlp
+src-tauri/resources/ytdlp-search/yt-dlp.exe
+src-tauri/resources/executorch-runtime/sonarcan-executorch-worker
+src-tauri/resources/executorch-runtime/sonarcan-executorch-worker.exe
 src-tauri/resources/models/demucs-mlx/*.safetensors
 src-tauri/resources/models/demucs-mlx/*_config.json
 src-tauri/resources/models/beat-this/*.ckpt

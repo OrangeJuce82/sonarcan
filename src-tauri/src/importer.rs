@@ -1142,25 +1142,29 @@ fn normalized_url_key(input: &str) -> String {
 }
 
 pub(crate) fn ytdlp_command() -> Result<YtDlpCommand, AppError> {
-    if let (Some(archive), Some(python)) = (
-        python_runtime::resource_path("ytdlp-search/yt-dlp"),
-        python_runtime::bundled_python_313(),
-    ) {
-        if archive.is_file() {
+    let bundled_name = if cfg!(windows) {
+        "ytdlp-search/yt-dlp.exe"
+    } else {
+        "ytdlp-search/yt-dlp"
+    };
+    if let Some(executable) = python_runtime::resource_path(bundled_name) {
+        if is_executable_file(&executable) {
             return Ok(YtDlpCommand {
-                executable: python,
-                prefix_arguments: vec![archive.to_string_lossy().into_owned()],
+                executable,
+                prefix_arguments: Vec::new(),
             });
         }
     }
 
     #[cfg(debug_assertions)]
     {
-        let archive = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/ytdlp-search/yt-dlp");
-        if archive.is_file() {
+        let executable = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(bundled_name);
+        if is_executable_file(&executable) {
             return Ok(YtDlpCommand {
-                executable: PathBuf::from("python3"),
-                prefix_arguments: vec![archive.to_string_lossy().into_owned()],
+                executable,
+                prefix_arguments: Vec::new(),
             });
         }
     }
@@ -1169,6 +1173,24 @@ pub(crate) fn ytdlp_command() -> Result<YtDlpCommand, AppError> {
         executable: ensure_ytdlp()?,
         prefix_arguments: Vec::new(),
     })
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 fn ensure_ytdlp() -> Result<PathBuf, AppError> {
@@ -1312,6 +1334,32 @@ mod tests {
         );
         assert_eq!(candidates[0].detail, "SoundCloud playlist");
         assert_eq!(candidates[1].detail, "Bandcamp playlist");
+    }
+
+    #[test]
+    fn bundled_downloader_must_be_a_real_executable_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("yt-dlp");
+        fs::write(&executable, b"standalone downloader").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{symlink, PermissionsExt};
+
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(is_executable_file(&executable));
+
+            let linked = directory.path().join("linked-yt-dlp");
+            symlink(&executable, &linked).unwrap();
+            assert!(!is_executable_file(&linked));
+
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(!is_executable_file(&executable));
+        }
+        #[cfg(not(unix))]
+        assert!(is_executable_file(&executable));
+
+        assert!(!is_executable_file(directory.path()));
+        assert!(!is_executable_file(&directory.path().join("missing")));
     }
 
     #[test]

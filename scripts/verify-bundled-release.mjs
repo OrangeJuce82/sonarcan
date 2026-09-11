@@ -106,8 +106,8 @@ const ffprobe = required(join(resources, "audio-tools", "bin", `ffprobe${suffix}
 run(ffmpeg, ["-hide_banner", "-version"], "bundled FFmpeg");
 run(ffprobe, ["-hide_banner", "-version"], "bundled FFprobe");
 
-const ytdlp = required(join(resources, "ytdlp-search", "yt-dlp"), "bundled yt-dlp search artifact");
-run(sharedPython, [ytdlp, "--version"], "bundled yt-dlp search artifact");
+const ytdlp = required(join(resources, "ytdlp-search", `yt-dlp${suffix}`), "bundled standalone yt-dlp");
+run(ytdlp, ["--version"], "bundled standalone yt-dlp");
 
 console.log(JSON.stringify({
   verifiedBundle: root,

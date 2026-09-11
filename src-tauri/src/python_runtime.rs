@@ -15,6 +15,7 @@ pub fn resource_path(relative: impl AsRef<Path>) -> Option<PathBuf> {
     RESOURCE_DIR.get().map(|root| root.join(relative))
 }
 
+#[cfg(not(debug_assertions))]
 pub fn bundled_python_313() -> Option<PathBuf> {
     let resources = RESOURCE_DIR.get()?;
     [
