@@ -1,4 +1,4 @@
-# SonArcan 0.1.1-beta.5
+# SonArcan 0.1.2
 
 SonArcan now uses one application contract and three target-specific packages,
 without a duplicate build pipeline. Qualified GPU sessions expose local Beat,
@@ -71,7 +71,7 @@ then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.1-beta.5
+version=v0.1.2
 backend=NVIDIA # Replace with AMD for the ROCm release.
 sha256sum --check "SHA256SUMS-Linux-${backend}-GPU-DEB.txt"
 cat "SonArcan-Linux-x86_64-${backend}-GPU-${version}.deb".part-* > "SonArcan-${backend}-GPU.deb"

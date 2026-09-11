@@ -61,16 +61,16 @@ Reconstruct a Debian package with the commands included in
 - absent or rejected GPU: the same package opens in simplified mode and all
   non-analysis features remain available.
 
-## Cutting a beta
+## Cutting a release
 
 1. Update the version in all three manifests and update `RELEASE_NOTES.md`.
 2. Run `npm run quality` locally. Run `npm run security` only if dependencies
    changed.
 3. Push `dev` and wait for every CI job to pass.
 4. Merge the exact qualified commit into `main`.
-5. Tag that commit, for example `v0.1.1-beta.6`, and push the tag.
+5. Tag that commit, for example `v0.1.2`, and push the tag.
 6. Wait for every release job and inspect the draft assets and checksums.
 7. Smoke-test all hardware and degraded-mode cases before manually publishing.
 
-Never move a tag to retry a release. Fix the cause, increment the beta version,
-and create a new tag.
+Never move a tag to retry a release. Fix the cause, increment the version, and
+create a new tag.
