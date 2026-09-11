@@ -164,7 +164,11 @@ need PyTorch or the model checkpoints. Supplying `SONARCAN_EXECUTORCH_PTE_DIR`
 turns the build into a drift check and fails if the release programs require a
 different operator set.
 
-Windows builds use the runner's Clang/Ninja toolchain. ExecuTorch 1.4.1 pins an
+Windows builds use the runner's Clang/Ninja toolchain and prebuild its host
+schema compilers before the selective runtime. ExecuTorch 1.4.1 omits the
+Windows executable suffix from those generated-file dependencies, so the
+explicit build order avoids a Ninja dependency gap without patching vendored
+sources. ExecuTorch 1.4.1 also pins an
 XNNPACK C source macro that fails under the MSVC preprocessor; compiling the
 same reviewed source with Clang preserves XNNPACK acceleration and avoids a
 platform-specific source patch.

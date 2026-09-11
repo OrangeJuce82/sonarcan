@@ -103,6 +103,16 @@ run("cmake", [
   `-DSONARCAN_EXECUTORCH_SOURCE=${source}`,
   `-DEXECUTORCH_SELECT_OPS_LIST=${operators}`,
 ]);
+// ExecuTorch 1.4.1 omits the .exe suffix from these ExternalProject
+// byproducts. Ninja therefore cannot infer how to create the imported host
+// tools when they are first needed by schema generation on Windows.
+if (process.platform === "win32") {
+  run("cmake", [
+    "--build", buildDirectory,
+    "--target", "flatbuffers_ep", "flatcc_ep",
+    "-j", "8",
+  ]);
+}
 run("cmake", ["--build", buildDirectory, "--target", "sonarcan-executorch-worker", "-j", "8"]);
 
 const builtExecutable = [
