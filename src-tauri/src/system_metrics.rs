@@ -106,6 +106,7 @@ fn parse_numeric_lines(output: &str) -> Option<f32> {
         .map(|value| value.clamp(0.0, 100.0))
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_values_after_key(output: &str, key: &str) -> Option<f32> {
     output
         .match_indices(key)
