@@ -70,8 +70,18 @@ jobs:
             librsvg2-dev \
             patchelf
       - run: npm ci
-      - name: Run shared application quality gate
-        run: npm run quality:shared
+      - name: Check Svelte and TypeScript
+        run: npm run check
+      - name: Run TypeScript tests
+        run: npm run test
+      - name: Build frontend
+        run: npm run build
+      - name: Check Rust formatting
+        run: npm run format:rust
+      - name: Lint Rust
+        run: npm run lint:rust
+      - name: Run Rust tests
+        run: npm run test:rust
       - run: npm run build:ci
 
   executorch-runtime:
@@ -111,7 +121,19 @@ jobs:
           SONARCAN_EXECUTORCH_SOURCE: ${{ github.workspace }}/vendor/executorch
           SONARCAN_EXECUTORCH_PYTHON: ${{ env.pythonLocation }}/python
           SONARCAN_EXECUTORCH_BUILD_DIR: ${{ runner.temp }}/sonarcan-executorch-build
-        run: npm run executorch:runtime
+        run: |
+          if npm run executorch:runtime > executorch-build.log 2>&1; then
+            cat executorch-build.log
+          else
+            tail -100 executorch-build.log
+            diagnostic="$(grep -E '(^|[ :])(error C[0-9]+|fatal error|CMake Error|FAILED:|error:)' executorch-build.log | tail -1 || true)"
+            diagnostic="${diagnostic:-ExecuTorch build failed without a compiler diagnostic}"
+            diagnostic="${diagnostic//'%'/'%25'}"
+            diagnostic="${diagnostic//$'\r'/'%0D'}"
+            diagnostic="${diagnostic//$'\n'/'%0A'}"
+            echo "::error title=ExecuTorch runtime build failed::$diagnostic"
+            exit 1
+          fi
       - name: Verify native worker contract
         shell: bash
         run: |
