@@ -73,7 +73,11 @@ const operators = run(
   },
 );
 
+const windowsCompilerArguments = process.platform === "win32"
+  ? ["-G", "Ninja", "-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"]
+  : [];
 run("cmake", [
+  ...windowsCompilerArguments,
   "-S", join(root, "tools/sonarcan-executorch-probe"),
   "-B", buildDirectory,
   "-DCMAKE_BUILD_TYPE=Release",

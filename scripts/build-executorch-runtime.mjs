@@ -90,7 +90,11 @@ if (programDirectory) {
   }
 }
 const operators = pinnedOperators.join(",");
+const windowsCompilerArguments = process.platform === "win32"
+  ? ["-G", "Ninja", "-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"]
+  : [];
 run("cmake", [
+  ...windowsCompilerArguments,
   "-Wno-deprecated",
   "-S", join(root, "tools/sonarcan-executorch-worker"),
   "-B", buildDirectory,

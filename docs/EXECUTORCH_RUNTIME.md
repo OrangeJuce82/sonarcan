@@ -163,3 +163,8 @@ The reviewed operator union is pinned in
 need PyTorch or the model checkpoints. Supplying `SONARCAN_EXECUTORCH_PTE_DIR`
 turns the build into a drift check and fails if the release programs require a
 different operator set.
+
+Windows builds use the runner's Clang/Ninja toolchain. ExecuTorch 1.4.1 pins an
+XNNPACK C source macro that fails under the MSVC preprocessor; compiling the
+same reviewed source with Clang preserves XNNPACK acceleration and avoids a
+platform-specific source patch.

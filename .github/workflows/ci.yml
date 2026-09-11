@@ -86,7 +86,8 @@ jobs:
           else
             tail -120 rust-lint.log
             diagnostic="$(grep -E '^(error(\[E[0-9]+\])?:|error: could not)' rust-lint.log | head -1 || true)"
-            diagnostic="${diagnostic:-Rust lint failed without a compiler diagnostic}"
+            diagnostic="${diagnostic:-$(tail -20 rust-lint.log | tr '\n' ' ')}"
+            diagnostic="${diagnostic:-Rust lint failed without output}"
             diagnostic="${diagnostic//'%'/'%25'}"
             diagnostic="${diagnostic//$'\r'/'%0D'}"
             diagnostic="${diagnostic//$'\n'/'%0A'}"
