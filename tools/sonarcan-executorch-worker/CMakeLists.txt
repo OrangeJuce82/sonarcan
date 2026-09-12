@@ -53,6 +53,22 @@ endif()
 
 add_subdirectory(${SONARCAN_EXECUTORCH_SOURCE} executorch)
 
+if(SONARCAN_EXECUTORCH_ENABLE_CUDA AND TARGET aoti_cuda_shims)
+  # SonArcan's production exports are FP32/FP16. Keep the quantized AOTI
+  # kernels out until quantization has its own audio-parity qualification.
+  # Besides shrinking the runtime, this avoids compiling upstream INT kernels
+  # that are not portable to every supported Linux ARM64 CUDA toolchain.
+  get_target_property(_sonarcan_cuda_shim_sources aoti_cuda_shims SOURCES)
+  list(
+    FILTER _sonarcan_cuda_shim_sources
+    EXCLUDE
+    REGEX "runtime/shims/int(4|5|6|8).*\\.cu$"
+  )
+  set_property(
+    TARGET aoti_cuda_shims PROPERTY SOURCES ${_sonarcan_cuda_shim_sources}
+  )
+endif()
+
 add_executable(sonarcan-executorch-worker main.cpp)
 target_include_directories(
   sonarcan-executorch-worker PRIVATE ${SONARCAN_EXECUTORCH_SOURCE}
