@@ -88,7 +88,7 @@ jobs:
           python-version: "3.12"
       - name: Install the Apple Metal compiler used to build the MLX delegate
         if: runner.os == 'macOS'
-        run: xcodebuild -downloadComponent MetalToolchain
+        run: bash scripts/ensure-metal-toolchain.sh
       - name: Install CUDA 12.6 build toolkit
         if: runner.os == 'Linux'
         shell: bash

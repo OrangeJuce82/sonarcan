@@ -21,6 +21,12 @@ const resourceDirectory = resolve(
 );
 const executableName = "sonarcan-executorch-worker";
 const mlxEnabled = process.platform === "darwin" && process.env.SONARCAN_EXECUTORCH_MLX !== "0";
+const cudaEnabled = process.env.SONARCAN_EXECUTORCH_CUDA === "1";
+const defaultCudaArchitectures = process.arch === "arm64"
+  ? "72;87"
+  : "75;80;86;89;90";
+const cudaArchitectures = process.env.SONARCAN_EXECUTORCH_CUDA_ARCHITECTURES
+  ?? defaultCudaArchitectures;
 const maximumRuntimeBytes = Number(
   process.env.SONARCAN_MAX_EXECUTORCH_RUNTIME_BYTES ?? 96 * 1024 * 1024,
 );
@@ -48,6 +54,9 @@ if (programDirectory && !existsSync(programDirectory)) {
 if (!existsSync(python)) throw new Error("Missing build-time Python with ExecuTorch installed");
 if (!Number.isSafeInteger(maximumRuntimeBytes) || maximumRuntimeBytes <= 0) {
   throw new Error("SONARCAN_MAX_EXECUTORCH_RUNTIME_BYTES must be a positive integer");
+}
+if (cudaEnabled && !/^\d+(;\d+)*$/u.test(cudaArchitectures)) {
+  throw new Error("SONARCAN_EXECUTORCH_CUDA_ARCHITECTURES must be a semicolon-separated list of numeric CUDA architectures");
 }
 
 function filesBelow(directory) {
@@ -107,8 +116,11 @@ const cmakeArguments = [
   `-DSONARCAN_EXECUTORCH_SOURCE=${source}`,
 ];
 if (operators) cmakeArguments.push(`-DEXECUTORCH_SELECT_OPS_LIST=${operators}`);
-if (process.env.SONARCAN_EXECUTORCH_CUDA === "1") {
+if (cudaEnabled) {
   cmakeArguments.push("-DSONARCAN_EXECUTORCH_ENABLE_CUDA=ON");
+  // Hosted CI runners intentionally have no NVIDIA device. CMake therefore
+  // cannot probe a default compute capability even though nvcc is installed.
+  cmakeArguments.push(`-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}`);
 }
 if (process.env.SONARCAN_EXECUTORCH_MLX === "0") {
   cmakeArguments.push("-DSONARCAN_EXECUTORCH_ENABLE_MLX=OFF");
@@ -130,7 +142,7 @@ run("chmod", ["755", installedExecutable]);
 const registeredBackends = JSON.parse(run(installedExecutable, ["--backends"], { capture: true }));
 const expectedBackends = [
   ...(mlxEnabled ? ["MLXBackend"] : []),
-  ...(process.env.SONARCAN_EXECUTORCH_CUDA === "1" ? ["CudaBackend"] : []),
+  ...(cudaEnabled ? ["CudaBackend"] : []),
 ];
 if (registeredBackends.XnnpackBackend === true) {
   throw new Error("Production runtime must not register the XNNPACK CPU backend");
@@ -148,7 +160,7 @@ if (mlxEnabled) {
 }
 const cudaShim = filesBelow(buildDirectory).find((path) => path.endsWith("/libaoti_cuda_shims.so"));
 const installedCudaShim = join(resourceDirectory, "libaoti_cuda_shims.so");
-if (process.env.SONARCAN_EXECUTORCH_CUDA === "1") {
+if (cudaEnabled) {
   if (!cudaShim) throw new Error("CUDA runtime was built without libaoti_cuda_shims.so");
   copyFileSync(cudaShim, installedCudaShim);
 } else if (existsSync(installedCudaShim)) {
@@ -157,7 +169,7 @@ if (process.env.SONARCAN_EXECUTORCH_CUDA === "1") {
 const runtimeFiles = [
   installedExecutable,
   ...(mlxEnabled ? [join(resourceDirectory, "mlx.metallib")] : []),
-  ...(process.env.SONARCAN_EXECUTORCH_CUDA === "1" ? [installedCudaShim] : []),
+  ...(cudaEnabled ? [installedCudaShim] : []),
 ];
 const runtimeBytes = runtimeFiles.reduce((total, path) => total + statSync(path).size, 0);
 if (runtimeBytes > maximumRuntimeBytes) {
