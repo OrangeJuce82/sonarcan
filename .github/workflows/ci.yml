@@ -22,14 +22,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
       - run: npm ci
       - run: npm run check
       - run: npm run test
-      - name: Run dependency-free worker contract tests
-        run: npm run test:mlx
       - run: npm run build
 
   native:
@@ -40,6 +35,8 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-22.04
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
           - name: macOS Apple Silicon
             os: macos-15
     runs-on: ${{ matrix.os }}
@@ -49,9 +46,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -70,6 +64,8 @@ jobs:
         run: npm run check
       - name: Run TypeScript tests
         run: npm run test
+      - name: Verify native-only release boundary
+        run: npm run verify:native-release
       - name: Build frontend
         run: npm run build
       - name: Check Rust formatting
@@ -102,6 +98,10 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-22.04
+            cuda_repository: ubuntu2204/x86_64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            cuda_repository: ubuntu2404/sbsa
           - name: macOS Apple Silicon
             os: macos-15
     runs-on: ${{ matrix.os }}
@@ -121,7 +121,20 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install "PyYAML==6.0.3" "torch==2.14.0"
+      - name: Install the Apple Metal compiler used to build the MLX delegate
+        if: runner.os == 'macOS'
+        run: xcodebuild -downloadComponent MetalToolchain
+      - name: Install CUDA 12.6 build toolkit
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 \
+            "https://developer.download.nvidia.com/compute/cuda/repos/${{ matrix.cuda_repository }}/cuda-keyring_1.1-1_all.deb" \
+            --output "$RUNNER_TEMP/cuda-keyring.deb"
+          sudo dpkg -i "$RUNNER_TEMP/cuda-keyring.deb"
+          sudo apt-get update
+          sudo apt-get install -y cuda-toolkit-12-6
+      - run: python -m pip install "cmake>=3.29,<4" "PyYAML==6.0.3" "torch==2.13.0"
       - run: npm ci
       - name: Build selective native worker
         shell: bash
@@ -129,6 +142,8 @@ jobs:
           SONARCAN_EXECUTORCH_SOURCE: ${{ github.workspace }}/vendor/executorch
           SONARCAN_EXECUTORCH_PYTHON: ${{ env.pythonLocation }}/python
           SONARCAN_EXECUTORCH_BUILD_DIR: ${{ runner.temp }}/sonarcan-executorch-build
+          SONARCAN_EXECUTORCH_CUDA: ${{ runner.os == 'Linux' && '1' || '0' }}
+          SONARCAN_EXECUTORCH_MLX: ${{ runner.os == 'macOS' && '1' || '0' }}
         run: |
           if npm run executorch:runtime > executorch-build.log 2>&1; then
             cat executorch-build.log

@@ -17,9 +17,4 @@ function run(script, scriptArguments) {
   return result.status === 0;
 }
 
-if (arguments_[0] === "dev") {
-  const prepared = run(join(repositoryRoot, "scripts/prepare-analysis-dev.mjs"), []);
-  if (!prepared) process.exit(process.exitCode ?? 1);
-}
-
 run(join(repositoryRoot, "node_modules/@tauri-apps/cli/tauri.js"), arguments_);

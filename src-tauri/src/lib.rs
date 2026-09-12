@@ -2,23 +2,30 @@ mod app_log;
 mod audio;
 mod audio_engine;
 mod audio_fingerprint;
+pub mod beat_inference;
+pub mod beat_preprocessing;
 mod chord_analysis;
 mod chord_contract;
 mod chord_export;
 mod error;
 mod ffmpeg;
 mod importer;
+pub mod inference_backend;
 mod loudness;
+pub mod lv_cqt;
+mod lv_decoder;
+pub mod lv_inference;
 mod lyrics;
 mod model_install;
 mod native_menu;
 mod native_menu_translations;
 mod preferences;
 mod project;
-mod python_runtime;
 mod recent;
+mod resource_paths;
 mod spectrum;
 mod stem_contract;
+mod stem_inference;
 mod stems;
 mod system_metrics;
 mod waveform;
@@ -64,17 +71,15 @@ struct AnalysisCapabilityState(AtomicBool);
 fn accelerated_analysis_available() -> bool {
     qualified_analysis_build(
         cfg!(all(target_os = "macos", target_arch = "aarch64")),
-        cfg!(all(target_os = "linux", target_arch = "x86_64")),
-        option_env!("SONARCAN_GPU_BACKEND"),
+        cfg!(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )) && option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"),
     )
 }
 
-fn qualified_analysis_build(
-    apple_silicon: bool,
-    linux_x64: bool,
-    gpu_backend: Option<&str>,
-) -> bool {
-    apple_silicon || (linux_x64 && gpu_backend == Some("nvidia"))
+fn qualified_analysis_build(apple_silicon: bool, linux_supported: bool) -> bool {
+    apple_silicon || linux_supported
 }
 
 fn application_qualified_after_probe(build_qualified: bool, probe_succeeded: bool) -> bool {
@@ -83,12 +88,13 @@ fn application_qualified_after_probe(build_qualified: bool, probe_succeeded: boo
 
 fn accelerated_analysis_backend() -> Option<&'static str> {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("MLX / MPS")
+        Some("ExecuTorch MLX")
     } else {
-        match option_env!("SONARCAN_GPU_BACKEND") {
-            Some("nvidia") => Some("NVIDIA CUDA"),
-            _ => None,
-        }
+        (cfg!(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )) && option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"))
+        .then_some("ExecuTorch CUDA")
     }
 }
 
@@ -99,7 +105,7 @@ fn require_accelerated_analysis(state: &AnalysisCapabilityState) -> Result<(), A
         .then_some(())
         .ok_or_else(|| {
             AppError::BackgroundTask(
-                "SonArcan requires a qualified Apple Silicon or NVIDIA GPU environment.".into(),
+                "SonArcan requires a qualified native ExecuTorch analysis pipeline.".into(),
             )
         })
 }
@@ -977,7 +983,7 @@ pub fn run() {
         .setup(|app| {
             if let Ok(resource_dir) = app.path().resource_dir() {
                 ffmpeg::configure_bundled(&resource_dir);
-                python_runtime::configure(&resource_dir);
+                resource_paths::configure(&resource_dir);
             }
             app.manage(audio_engine::AudioEngine::new()?);
             app.manage(stems::StemService::default());
@@ -1123,18 +1129,17 @@ mod tests {
     fn analysis_availability_matches_the_qualified_build_backend() {
         if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
             assert!(accelerated_analysis_available());
-        } else if !cfg!(all(target_os = "linux", target_arch = "x86_64"))
-            || option_env!("SONARCAN_GPU_BACKEND") != Some("nvidia")
-        {
+        } else if !cfg!(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )) {
             assert!(!accelerated_analysis_available());
         }
     }
 
     #[test]
-    fn build_without_a_qualified_gpu_is_rejected() {
-        assert!(!qualified_analysis_build(false, true, None));
-        assert!(!qualified_analysis_build(false, true, Some("intel")));
-        assert!(!qualified_analysis_build(false, false, Some("nvidia")));
+    fn unsupported_build_is_rejected() {
+        assert!(!qualified_analysis_build(false, false));
 
         let capability = AnalysisCapabilityState::default();
         assert!(require_accelerated_analysis(&capability).is_err());
@@ -1142,8 +1147,8 @@ mod tests {
 
     #[test]
     fn supported_accelerator_builds_can_probe_analysis() {
-        assert!(qualified_analysis_build(true, false, None));
-        assert!(qualified_analysis_build(false, true, Some("nvidia")));
+        assert!(qualified_analysis_build(true, false));
+        assert!(qualified_analysis_build(false, true));
     }
 
     #[test]

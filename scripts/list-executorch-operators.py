@@ -12,6 +12,7 @@ from codegen.tools.gen_oplist import _get_kernel_metadata_for_model
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--allow-empty", action="store_true")
     parser.add_argument("models", nargs="+", type=Path)
     arguments = parser.parse_args()
 
@@ -24,7 +25,7 @@ def main() -> int:
         with contextlib.redirect_stdout(io.StringIO()):
             operators.update(_get_kernel_metadata_for_model(str(model.resolve())))
 
-    if not operators:
+    if not operators and not arguments.allow_empty:
         raise RuntimeError("the supplied ExecuTorch programs use no registered operators")
     print(",".join(sorted(operators)))
     return 0

@@ -15,10 +15,12 @@ test("first-run model messages name the active model", () => {
 test("unsupported hardware receives a blocking full-feature error", () => {
   const french = modelInstallationCopy("fr", true);
   assert.equal(french.title, "Matériel incompatible");
-  assert.match(french.failure, /ne peut pas continuer en mode réduit/);
+  assert.match(french.failure, /n’a pas de mode CPU/);
+  assert.match(french.failure, /bloquée avant l’ouverture/);
   const english = modelInstallationCopy("en", true);
   assert.equal(english.title, "Incompatible hardware");
-  assert.match(english.failure, /cannot continue in a reduced mode/);
+  assert.match(english.failure, /has no CPU mode/);
+  assert.match(english.failure, /blocked before the workspace opens/);
 });
 
 test("download byte labels are bounded and readable", () => {

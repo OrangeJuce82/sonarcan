@@ -16,8 +16,9 @@ original audio
   -> interface
 ```
 
-The Python process owns model inference and the official LV-Chordia HMM
-dictionary decode. Rust never changes a chord label. It rejects malformed,
+The native analysis service owns ExecuTorch inference and the LV-Chordia HMM
+dictionary decode. The Python implementation is a development parity reference
+only. Rust never changes a chord label. It rejects malformed,
 oversized, non-finite, out-of-order, late, or superseded output and never sends
 PCM through JSON IPC.
 
@@ -45,13 +46,10 @@ change cached analysis.
 
 ## Runtime and trust boundary
 
-The shared runtime is pinned to Python 3.13 and LV-Chordia revision
-`9d7de7bbf45efa6731ec8dc62d35280f141c0702`. The pinned `audioop-lts` package
-provides the standard-library module still imported by upstream `pydub`.
-
-All five pretrained checkpoint files are SHA-256 verified before `torch.load`.
-The release runtime is generated with `npm run python:runtime` and verified by
-the Tauri release build. Development uses the same locked `uv` project.
+The development reference is pinned to LV-Chordia revision
+`9d7de7bbf45efa6731ec8dc62d35280f141c0702`. Its five checkpoints are used only
+to export and compare backend-specific `.pte` programs. Release builds reject
+those checkpoints, Python, PyTorch, and `site-packages`.
 
 ## Presentation
 

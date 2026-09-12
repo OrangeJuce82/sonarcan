@@ -6,7 +6,7 @@
 use std::{
     fs::{self, File},
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use reqwest::blocking::Client;
@@ -15,56 +15,18 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
-use crate::{error::AppError, python_runtime};
+use crate::{
+    error::AppError,
+    inference_backend::{BackendKind, BackendProgram},
+    stem_contract::StemSeparationProfile,
+};
 
 pub const MODEL_INSTALL_PROGRESS: &str = "model-install-progress";
 
-const SCNET_ID: &str = "scnet-large-starrytong-v1.0.9";
-const SCNET_FILE: &str = "SCNet-large_starrytong_fixed.ckpt";
-const SCNET_URL: &str = "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.9/SCNet-large_starrytong_fixed.ckpt";
-const SCNET_SIZE: u64 = 168_852_258;
-const SCNET_SHA256: &str = "65900dfa07d6b6e5d784c0f143920200a4bd281d6e78a806c549d0b912d5885e";
-
-const DEMUCS_ID: &str = "htdemucs-v4";
-const DEMUCS_FILE: &str = "955717e8-8726e21a.th";
-const DEMUCS_URL: &str =
-    "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th";
-const DEMUCS_SIZE: u64 = 84_141_911;
-const DEMUCS_SHA256: &str = "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4";
-
-const BEAT_THIS_FILE: &str = "final0.ckpt";
-const BEAT_THIS_URL: &str =
-    "https://cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/final0.ckpt";
-const BEAT_THIS_SIZE: u64 = 81_058_141;
-const BEAT_THIS_SHA256: &str = "8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331";
-
-const LV_CHORDIA_FILES: [(&str, u64, &str); 5] = [
-    (
-        "joint_chord_net_ismir_naive_v1.0_reweight(0.0,10.0)_s0.best.sdict",
-        5_746_183,
-        "921b42d5d1cf9ce1c0c0e45a74d409b8066e0acec46058ef74e24ee0fb540761",
-    ),
-    (
-        "joint_chord_net_ismir_naive_v1.0_reweight(0.0,10.0)_s1.best.sdict",
-        5_746_175,
-        "bcb75859e0efa256696cf5da396b320093317b9b1d9560c304f46c25fe1f8b17",
-    ),
-    (
-        "joint_chord_net_ismir_naive_v1.0_reweight(0.0,10.0)_s2.best.sdict",
-        5_746_179,
-        "acddf85c3fff29954c4877021177d72e2cba9f729ce80c1010f054c477bf3f61",
-    ),
-    (
-        "joint_chord_net_ismir_naive_v1.0_reweight(0.0,10.0)_s3.best.sdict",
-        5_746_175,
-        "65d81a3ab73435aaaade586981b4cabdf57b8953d76052703e6968c32ef8421c",
-    ),
-    (
-        "joint_chord_net_ismir_naive_v1.0_reweight(0.0,10.0)_s4.best.sdict",
-        5_746_227,
-        "5ff6b0ec85640e17a09a9b3de68c93fdd45adc24488e8fa9be5715c28d561122",
-    ),
-];
+const PACK_MAGIC: &[u8; 8] = b"SACPKG01";
+const MAX_PACK_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_PACK_FILES: usize = 4_096;
+const MAX_PACK_PATH_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,122 +48,210 @@ pub struct ModelInstallResult {
     model_count: usize,
 }
 
-struct RemoteModel {
+struct RemoteModelPack {
     id: &'static str,
     name: &'static str,
     url: &'static str,
-    file: &'static str,
+    destination: &'static str,
     size: u64,
     sha256: &'static str,
 }
 
-const REMOTE_MODELS: [RemoteModel; 3] = [
-    RemoteModel {
-        id: SCNET_ID,
-        name: "SCNet-large",
-        url: SCNET_URL,
-        file: SCNET_FILE,
-        size: SCNET_SIZE,
-        sha256: SCNET_SHA256,
+const MACOS_PACKS: &[RemoteModelPack] = &[
+    RemoteModelPack {
+        id: "chord-rhythm-mlx-v1",
+        name: "Beat and chord analysis (MLX)",
+        url: "https://github.com/OrangeJuce82/sonarcan/releases/download/native-models-v1/sonarcan-macos-chord-rhythm.sacmodels",
+        destination: "chord-rhythm",
+        size: 204_178_291,
+        sha256: "d7727488e99c3b6422cb1833cb2c97f1c76bc3f2f602f41f5e7b1fce02230270",
     },
-    RemoteModel {
-        id: DEMUCS_ID,
-        name: "HTDemucs Fast",
-        url: DEMUCS_URL,
-        file: DEMUCS_FILE,
-        size: DEMUCS_SIZE,
-        sha256: DEMUCS_SHA256,
-    },
-    RemoteModel {
-        id: "beat-this-final0",
-        name: "Beat This!",
-        url: BEAT_THIS_URL,
-        file: BEAT_THIS_FILE,
-        size: BEAT_THIS_SIZE,
-        sha256: BEAT_THIS_SHA256,
+    RemoteModelPack {
+        id: "stem-separation-mlx-v1",
+        name: "Four-stem separation (MLX)",
+        url: "https://github.com/OrangeJuce82/sonarcan/releases/download/native-models-v1/sonarcan-macos-stem-separation.sacmodels",
+        destination: "stem-separation",
+        size: 341_114_095,
+        sha256: "60f62956d6dfc20e692b4c9ffddd547470c61998dffb126508c0c434c355d07a",
     },
 ];
+// Filled after the CUDA exporter and NVIDIA corpus gate publish the immutable
+// x86_64 and arm64 packs. An empty catalog deliberately blocks Linux startup.
+const LINUX_NVIDIA_PACKS: &[RemoteModelPack] = &[];
 
-pub fn beat_this_path(app: &AppHandle) -> Result<PathBuf, AppError> {
+pub fn native_model_root(app: &AppHandle) -> Result<PathBuf, AppError> {
+    #[cfg(debug_assertions)]
+    if let Some(root) = std::env::var_os("SONARCAN_NATIVE_MODEL_ROOT") {
+        return Ok(PathBuf::from(root));
+    }
     app.path()
         .app_data_dir()
-        .map(|root| root.join("models").join("beat-this").join(BEAT_THIS_FILE))
+        .map(|root| root.join("models").join("executorch"))
         .map_err(|error| AppError::BackgroundTask(error.to_string()))
 }
 
-pub fn prepare(app: &AppHandle) -> Result<ModelInstallResult, AppError> {
-    if !crate::accelerated_analysis_available() {
-        emit(app, "runtime", "Runtime", "complete", 1.0, 0, 0, 1, 1);
-        return Ok(ModelInstallResult {
-            installed: false,
-            model_count: 0,
-        });
+pub fn beat_programs(app: &AppHandle, _fixed_only: bool) -> Result<Vec<BackendProgram>, AppError> {
+    let root = native_model_root(app)?.join("chord-rhythm");
+    let mut programs = Vec::new();
+    for backend in native_chord_backends() {
+        let program = root.join(backend_slug(backend)).join("beat-this-fixed.pte");
+        if program.is_file() {
+            programs.push(BackendProgram { backend, program });
+        }
     }
+    Ok(programs)
+}
 
-    let model_root = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| AppError::BackgroundTask(error.to_string()))?
-        .join("models");
-    ensure_directory(&model_root)?;
+pub fn lv_program_roots(app: &AppHandle) -> Result<Vec<BackendProgram>, AppError> {
+    let root = native_model_root(app)?.join("chord-rhythm");
+    Ok(native_chord_backends()
+        .into_iter()
+        .filter_map(|backend| {
+            let directory = root.join(backend_slug(backend)).join("lv-chordia");
+            let probe = directory.join("lv-chordia-s0-convolution-0.pte");
+            probe.is_file().then_some(BackendProgram {
+                backend,
+                program: probe,
+            })
+        })
+        .collect())
+}
+
+pub fn lv_program_root(app: &AppHandle, backend: BackendKind) -> Result<PathBuf, AppError> {
+    Ok(native_model_root(app)?
+        .join("chord-rhythm")
+        .join(backend_slug(backend))
+        .join("lv-chordia"))
+}
+
+pub fn lv_cqt_kernel(app: &AppHandle, tuning: f32) -> Result<PathBuf, AppError> {
+    let index = ((tuning.clamp(-0.5, 0.49) + 0.5) * 100.0).round() as usize;
+    Ok(native_model_root(app)?
+        .join("chord-rhythm")
+        .join("cqt")
+        .join(format!("tuning-{index:02}.saccqt")))
+}
+
+pub fn stem_program_roots(
+    app: &AppHandle,
+    profile: StemSeparationProfile,
+) -> Result<Vec<BackendProgram>, AppError> {
+    let root = native_model_root(app)?.join("stem-separation");
+    Ok(native_stem_backends()
+        .into_iter()
+        .filter_map(|backend| {
+            let directory = root.join(backend_slug(backend)).join(profile.argument());
+            let probe = directory.join(match profile {
+                StemSeparationProfile::Fast => "htdemucs-neural-core.pte",
+                StemSeparationProfile::Hq => "scnet-encoder-0.pte",
+            });
+            probe.is_file().then_some(BackendProgram {
+                backend,
+                program: probe,
+            })
+        })
+        .collect())
+}
+
+pub fn stem_program_root(
+    app: &AppHandle,
+    backend: BackendKind,
+    profile: StemSeparationProfile,
+) -> Result<PathBuf, AppError> {
+    Ok(native_model_root(app)?
+        .join("stem-separation")
+        .join(backend_slug(backend))
+        .join(profile.argument()))
+}
+
+pub const fn backend_slug(backend: BackendKind) -> &'static str {
+    match backend {
+        BackendKind::Mlx => "mlx",
+        BackendKind::Cuda => "cuda",
+    }
+}
+
+fn native_chord_backends() -> Vec<BackendKind> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        vec![BackendKind::Mlx]
+    } else {
+        vec![BackendKind::Cuda]
+    }
+}
+
+fn native_stem_backends() -> Vec<BackendKind> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        vec![BackendKind::Mlx]
+    } else {
+        vec![BackendKind::Cuda]
+    }
+}
+
+pub fn prepare(app: &AppHandle) -> Result<ModelInstallResult, AppError> {
+    let packs = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        MACOS_PACKS
+    } else if cfg!(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )) {
+        LINUX_NVIDIA_PACKS
+    } else {
+        &[]
+    };
+    if packs.is_empty() {
+        return Err(AppError::BackgroundTask(
+            "no qualified native model catalog exists for this GPU platform".into(),
+        ));
+    }
+    let root = native_model_root(app)?;
+    ensure_directory(&root)?;
     let client = Client::builder()
         .connect_timeout(std::time::Duration::from_secs(20))
         .timeout(std::time::Duration::from_secs(30 * 60))
         .build()
         .map_err(model_error)?;
-    let total_bytes = REMOTE_MODELS.iter().map(|model| model.size).sum::<u64>();
-    let mut completed_bytes = 0_u64;
-    let model_count = REMOTE_MODELS.len() + 1;
+    let total_bytes = packs.iter().map(|pack| pack.size).sum::<u64>();
+    let mut completed = 0;
     let mut installed = false;
-
-    for (index, model) in REMOTE_MODELS.iter().enumerate() {
-        let target = if model.id == "beat-this-final0" {
-            beat_this_path(app)?
-        } else {
-            model_root
-                .join("stem-separation")
-                .join(model.id)
-                .join(model.file)
-        };
+    for (index, pack) in packs.iter().enumerate() {
         emit(
             app,
-            model.id,
-            model.name,
+            pack.id,
+            pack.name,
             "checking",
-            fraction(completed_bytes, total_bytes),
-            completed_bytes,
+            fraction(completed, total_bytes),
+            completed,
             total_bytes,
             index + 1,
-            model_count,
+            packs.len(),
         );
-        if !verified_file(&target, model.size, model.sha256)? {
-            download_model(
+        let destination = safe_destination(&root, pack.destination)?;
+        if !verify_installed_pack(&destination, pack.sha256)? {
+            download_pack(
                 &client,
                 app,
-                model,
-                &target,
-                completed_bytes,
+                pack,
+                &root,
+                completed,
                 total_bytes,
                 index + 1,
-                model_count,
+                packs.len(),
             )?;
             installed = true;
         }
-        completed_bytes += model.size;
+        completed += pack.size;
         emit(
             app,
-            model.id,
-            model.name,
+            pack.id,
+            pack.name,
             "verified",
-            fraction(completed_bytes, total_bytes),
-            completed_bytes,
+            fraction(completed, total_bytes),
+            completed,
             total_bytes,
             index + 1,
-            model_count,
+            packs.len(),
         );
     }
-
-    verify_lv_chordia(app, completed_bytes, total_bytes, model_count)?;
     emit(
         app,
         "complete",
@@ -210,93 +260,30 @@ pub fn prepare(app: &AppHandle) -> Result<ModelInstallResult, AppError> {
         1.0,
         total_bytes,
         total_bytes,
-        model_count,
-        model_count,
+        packs.len(),
+        packs.len(),
     );
     Ok(ModelInstallResult {
         installed,
-        model_count,
+        model_count: packs.len(),
     })
 }
 
-fn verify_lv_chordia(
-    app: &AppHandle,
-    completed: u64,
-    total: u64,
-    model_count: usize,
-) -> Result<(), AppError> {
-    emit(
-        app,
-        "lv-chordia",
-        "LV-Chordia",
-        "checking",
-        fraction(completed, total),
-        completed,
-        total,
-        model_count,
-        model_count,
-    );
-    let root = lv_chordia_model_root().ok_or_else(|| {
-        AppError::BackgroundTask("the LV-Chordia runtime location is unavailable".into())
-    })?;
-    for (file, size, sha256) in LV_CHORDIA_FILES {
-        if !verified_file(&root.join(file), size, sha256)? {
-            return Err(AppError::BackgroundTask(format!(
-                "the verified LV-Chordia model is missing or damaged: {file}"
-            )));
-        }
-    }
-    emit(
-        app,
-        "lv-chordia",
-        "LV-Chordia",
-        "verified",
-        1.0,
-        completed,
-        total,
-        model_count,
-        model_count,
-    );
-    Ok(())
-}
-
-fn lv_chordia_model_root() -> Option<PathBuf> {
-    let relative = Path::new("python-runtime/runtime/share/lv-chordia/cache_data");
-    let configured = python_runtime::resource_path(relative);
-    if configured.as_ref().is_some_and(|path| path.is_dir()) {
-        return configured;
-    }
-    #[cfg(debug_assertions)]
-    {
-        let development = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("resources")
-            .join(relative);
-        if development.is_dir() {
-            return Some(development);
-        }
-    }
-    None
-}
-
 #[allow(clippy::too_many_arguments)]
-fn download_model(
+fn download_pack(
     client: &Client,
     app: &AppHandle,
-    model: &RemoteModel,
-    target: &Path,
+    pack: &RemoteModelPack,
+    root: &Path,
     completed_before: u64,
     total_bytes: u64,
     model_index: usize,
     model_count: usize,
 ) -> Result<(), AppError> {
-    let parent = target
-        .parent()
-        .ok_or_else(|| AppError::BackgroundTask("invalid model cache path".into()))?;
-    ensure_directory(parent)?;
-    let temporary = parent.join(format!(".{}.{}.part", model.file, Uuid::new_v4()));
+    let temporary = root.join(format!(".{}.{}.part", pack.id, Uuid::new_v4()));
     let result = (|| {
         let mut response = client
-            .get(model.url)
+            .get(pack.url)
             .send()
             .map_err(model_error)?
             .error_for_status()
@@ -314,10 +301,10 @@ fn download_model(
                 break;
             }
             received = received.saturating_add(count as u64);
-            if received > model.size {
+            if received > pack.size {
                 return Err(AppError::BackgroundTask(format!(
                     "{} download exceeded its pinned size",
-                    model.name
+                    pack.name
                 )));
             }
             output
@@ -325,8 +312,8 @@ fn download_model(
                 .map_err(|error| AppError::io(&temporary, error))?;
             emit(
                 app,
-                model.id,
-                model.name,
+                pack.id,
+                pack.name,
                 "downloading",
                 fraction(completed_before + received, total_bytes),
                 completed_before + received,
@@ -338,22 +325,227 @@ fn download_model(
         output
             .sync_all()
             .map_err(|error| AppError::io(&temporary, error))?;
-        if !verified_file(&temporary, model.size, model.sha256)? {
+        if !verified_file(&temporary, pack.size, pack.sha256)? {
             return Err(AppError::BackgroundTask(format!(
                 "{} failed SHA-256 verification",
-                model.name
+                pack.name
             )));
         }
-        if target.exists() {
-            fs::remove_file(target).map_err(|error| AppError::io(target, error))?;
-        }
-        fs::rename(&temporary, target).map_err(|error| AppError::io(target, error))?;
-        Ok(())
+        install_pack(&temporary, root, pack.destination, pack.sha256)
     })();
     if temporary.exists() {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+fn safe_destination(root: &Path, destination: &str) -> Result<PathBuf, AppError> {
+    let relative = Path::new(destination);
+    if relative.components().count() != 1
+        || !matches!(relative.components().next(), Some(Component::Normal(_)))
+    {
+        return Err(AppError::BackgroundTask(
+            "invalid native model destination".into(),
+        ));
+    }
+    Ok(root.join(relative))
+}
+
+fn install_pack(
+    pack: &Path,
+    root: &Path,
+    destination: &str,
+    pack_sha256: &str,
+) -> Result<(), AppError> {
+    let target = safe_destination(root, destination)?;
+    let staging = root.join(format!(".{destination}.{}.staging", Uuid::new_v4()));
+    fs::create_dir(&staging).map_err(|error| AppError::io(&staging, error))?;
+    let result = extract_pack(pack, &staging, pack_sha256).and_then(|()| {
+        let backup = root.join(format!(".{destination}.{}.backup", Uuid::new_v4()));
+        if target.exists() {
+            fs::rename(&target, &backup).map_err(|error| AppError::io(&target, error))?;
+        }
+        if let Err(error) = fs::rename(&staging, &target) {
+            if backup.exists() {
+                let _ = fs::rename(&backup, &target);
+            }
+            return Err(AppError::io(&target, error));
+        }
+        if backup.exists() {
+            fs::remove_dir_all(&backup).map_err(|error| AppError::io(&backup, error))?;
+        }
+        Ok(())
+    });
+    if staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn extract_pack(pack: &Path, destination: &Path, pack_sha256: &str) -> Result<(), AppError> {
+    let mut source = File::open(pack).map_err(|error| AppError::io(pack, error))?;
+    let mut magic = [0_u8; 8];
+    source
+        .read_exact(&mut magic)
+        .map_err(|error| AppError::io(pack, error))?;
+    if &magic != PACK_MAGIC {
+        return Err(AppError::BackgroundTask(
+            "native model pack has an invalid header".into(),
+        ));
+    }
+    let count = read_pack_u32(&mut source, pack)? as usize;
+    if count == 0 || count > MAX_PACK_FILES {
+        return Err(AppError::BackgroundTask(
+            "native model pack file count is invalid".into(),
+        ));
+    }
+    let mut manifest = format!("{pack_sha256}\n");
+    for _ in 0..count {
+        let path_length = read_pack_u16(&mut source, pack)? as usize;
+        let size = read_pack_u64(&mut source, pack)?;
+        if path_length == 0 || path_length > MAX_PACK_PATH_BYTES || size > MAX_PACK_BYTES {
+            return Err(AppError::BackgroundTask(
+                "native model pack entry exceeds its limit".into(),
+            ));
+        }
+        let mut expected = [0_u8; 32];
+        source
+            .read_exact(&mut expected)
+            .map_err(|error| AppError::io(pack, error))?;
+        let mut path_bytes = vec![0_u8; path_length];
+        source
+            .read_exact(&mut path_bytes)
+            .map_err(|error| AppError::io(pack, error))?;
+        let relative = std::str::from_utf8(&path_bytes)
+            .map_err(|_| AppError::BackgroundTask("native model path is not UTF-8".into()))?;
+        let relative_path = Path::new(relative);
+        if relative_path.is_absolute()
+            || relative_path
+                .components()
+                .any(|part| !matches!(part, Component::Normal(_)))
+        {
+            return Err(AppError::BackgroundTask(
+                "native model pack contains an unsafe path".into(),
+            ));
+        }
+        let target = destination.join(relative_path);
+        let parent = target
+            .parent()
+            .ok_or_else(|| AppError::BackgroundTask("invalid native model path".into()))?;
+        ensure_directory(parent)?;
+        let mut output = File::options()
+            .create_new(true)
+            .write(true)
+            .open(&target)
+            .map_err(|error| AppError::io(&target, error))?;
+        let mut limited = (&mut source).take(size);
+        let mut digest = Sha256::new();
+        let copied = std::io::copy(
+            &mut limited,
+            &mut DigestWriter {
+                output: &mut output,
+                digest: &mut digest,
+            },
+        )
+        .map_err(|error| AppError::io(&target, error))?;
+        output
+            .sync_all()
+            .map_err(|error| AppError::io(&target, error))?;
+        let actual = digest.finalize();
+        if copied != size || actual.as_slice() != expected {
+            return Err(AppError::BackgroundTask(format!(
+                "native model entry failed verification: {relative}"
+            )));
+        }
+        manifest.push_str(&format!("{}\t{size}\t{relative}\n", hex_digest(&expected)));
+    }
+    let mut trailing = [0_u8; 1];
+    if source
+        .read(&mut trailing)
+        .map_err(|error| AppError::io(pack, error))?
+        != 0
+    {
+        return Err(AppError::BackgroundTask(
+            "native model pack has trailing data".into(),
+        ));
+    }
+    let marker = destination.join(".sacpack-manifest");
+    fs::write(&marker, manifest).map_err(|error| AppError::io(&marker, error))
+}
+
+struct DigestWriter<'a> {
+    output: &'a mut File,
+    digest: &'a mut Sha256,
+}
+impl Write for DigestWriter<'_> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let count = self.output.write(buffer)?;
+        self.digest.update(&buffer[..count]);
+        Ok(count)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.output.flush()
+    }
+}
+
+fn read_pack_u16(source: &mut File, path: &Path) -> Result<u16, AppError> {
+    let mut value = [0; 2];
+    source
+        .read_exact(&mut value)
+        .map_err(|error| AppError::io(path, error))?;
+    Ok(u16::from_le_bytes(value))
+}
+fn read_pack_u32(source: &mut File, path: &Path) -> Result<u32, AppError> {
+    let mut value = [0; 4];
+    source
+        .read_exact(&mut value)
+        .map_err(|error| AppError::io(path, error))?;
+    Ok(u32::from_le_bytes(value))
+}
+fn read_pack_u64(source: &mut File, path: &Path) -> Result<u64, AppError> {
+    let mut value = [0; 8];
+    source
+        .read_exact(&mut value)
+        .map_err(|error| AppError::io(path, error))?;
+    Ok(u64::from_le_bytes(value))
+}
+fn hex_digest(digest: &[u8]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn verify_installed_pack(destination: &Path, expected_pack: &str) -> Result<bool, AppError> {
+    let marker = destination.join(".sacpack-manifest");
+    let text = match fs::read_to_string(&marker) {
+        Ok(value) if value.len() <= 512 * 1024 => value,
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(AppError::io(&marker, error)),
+    };
+    let mut lines = text.lines();
+    if lines.next() != Some(expected_pack) {
+        return Ok(false);
+    }
+    for line in lines {
+        let mut fields = line.splitn(3, '\t');
+        let (Some(hash), Some(size), Some(relative)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            return Ok(false);
+        };
+        let Ok(size) = size.parse::<u64>() else {
+            return Ok(false);
+        };
+        let path = Path::new(relative);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|part| !matches!(part, Component::Normal(_)))
+            || !verified_file(&destination.join(path), size, hash)?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn ensure_directory(path: &Path) -> Result<(), AppError> {
@@ -445,5 +637,34 @@ mod tests {
         assert_eq!(fraction(0, 10), 0.0);
         assert_eq!(fraction(5, 10), 0.5);
         assert_eq!(fraction(1, 0), 1.0);
+    }
+
+    #[test]
+    fn extracts_and_rechecks_a_pinned_native_pack() {
+        let directory = tempfile::tempdir().unwrap();
+        let pack = directory.path().join("models.sacmodels");
+        let payload = b"native-pte";
+        let relative = b"mlx/model.pte";
+        let entry_digest = Sha256::digest(payload);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(PACK_MAGIC);
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&(relative.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&entry_digest);
+        bytes.extend_from_slice(relative);
+        bytes.extend_from_slice(payload);
+        fs::write(&pack, bytes).unwrap();
+        let pack_digest = format!("{:x}", Sha256::digest(fs::read(&pack).unwrap()));
+        let destination = directory.path().join("chord-rhythm");
+        fs::create_dir(&destination).unwrap();
+        extract_pack(&pack, &destination, &pack_digest).unwrap();
+        assert_eq!(
+            fs::read(destination.join("mlx/model.pte")).unwrap(),
+            payload
+        );
+        assert!(verify_installed_pack(&destination, &pack_digest).unwrap());
+        fs::write(destination.join("mlx/model.pte"), b"damaged").unwrap();
+        assert!(!verify_installed_pack(&destination, &pack_digest).unwrap());
     }
 }

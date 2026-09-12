@@ -2,12 +2,22 @@ import { lstatSync, readdirSync } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const DEFAULT_MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
+export const DEFAULT_MAX_BUNDLE_BYTES = 512 * 1024 * 1024;
 
-const forbiddenComponents = new Set(["python-runtime", "site-packages", "torch", "torchgen"]);
+const forbiddenComponents = new Set([
+  "python-runtime",
+  "chord-runtime",
+  "mlx-runtime",
+  "stem-runtime",
+  "site-packages",
+  "torch",
+  "torchgen",
+]);
 const forbiddenFiles = [
   /^python3(?:\.\d+)?$/i,
+  /^libpython\d+(?:\.\d+)*\.(?:dylib|so(?:\.\d+)*)$/i,
   /^(?:lib)?torch(?:_cpu|_cuda|_global_deps|_python)?\.(?:dylib|so(?:\.\d+)*)$/i,
+  /\.(?:ckpt|sdict|safetensors|th)$/i,
 ];
 
 /** @param {string} path */

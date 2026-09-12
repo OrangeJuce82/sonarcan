@@ -18,8 +18,11 @@ const buildDirectory = resolve(
   process.env.SONARCAN_EXECUTORCH_BUILD_DIR
     ?? join(root, "tools/sonarcan-executorch-probe/build"),
 );
-const bundledPython = join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
-const python = resolve(process.env.SONARCAN_EXECUTORCH_PYTHON ?? bundledPython);
+const pythonSetting = process.env.SONARCAN_EXECUTORCH_PYTHON;
+if (!pythonSetting) {
+  throw new Error("Set SONARCAN_EXECUTORCH_PYTHON to an external build-time Python executable");
+}
+const python = resolve(pythonSetting);
 const pythonPath = [
   source,
   process.env.SONARCAN_EXECUTORCH_PYTHONPATH,
@@ -64,7 +67,7 @@ function run(command, commandArguments, options = {}) {
 
 const operators = run(
   python,
-  [join(root, "scripts/list-executorch-operators.py"), ...programs],
+  [join(root, "scripts/list-executorch-operators.py"), "--allow-empty", ...programs],
   {
     capture: true,
     env: { ...process.env, PYTHONPATH: pythonPath },

@@ -1,11 +1,11 @@
-//! Supervision of the pinned Fast/HQ four-stem workers.
+//! Supervision of native ExecuTorch Fast/HQ four-stem inference.
 //! Inference and file I/O never run on the CPAL callback.
 
 use std::{
     fs::{self, File},
-    io::{self, BufRead, BufReader, BufWriter, Read, Write},
+    io::{self, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -20,23 +20,26 @@ use uuid::Uuid;
 
 use crate::{
     app_log,
-    audio_engine::{decode_stem_file, AudioEngine, DecodedAudio},
+    audio_engine::{AudioEngine, DecodedAudio},
     error::AppError,
     ffmpeg,
+    inference_backend::{
+        preferred_backends_for, select_first_available, InferenceBackend, ModelFamily,
+    },
+    model_install,
     preferences::{Mp3Quality, UserPreferences},
-    project,
+    project, resource_paths,
     stem_contract::{StemSeparationProfile, STEM_COUNT, STEM_NAMES},
+    stem_inference,
 };
 
 const CACHE_VERSION: u32 = 2;
 const STEM_MAGIC: &[u8; 8] = b"SACSTM02";
-const MAX_PROTOCOL_LINE: usize = 16 * 1024;
-const MAX_PROTOCOL_UNITS: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_STEM_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const PCM_HEADER_BYTES: u64 = 8 + 4 + 8;
 const STEM_EXPORT_ORDER: [usize; STEM_COUNT] = [0, 1, 2, 3];
-const ACCELERATOR_SELF_TEST_TIMEOUT: Duration = Duration::from_secs(30);
+const BACKEND_PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -91,7 +94,6 @@ pub struct StemService {
     status: Arc<Mutex<StemStatus>>,
     running: Arc<AtomicBool>,
     generation: Arc<AtomicU64>,
-    child: Arc<Mutex<Option<Arc<Mutex<Child>>>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -106,100 +108,36 @@ struct StemManifest {
     frames: usize,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-enum WorkerEvent {
-    Stage {
-        stage: String,
-        progress: f32,
-    },
-    Progress {
-        stage: String,
-        progress: f32,
-        #[serde(default)]
-        completed: Option<u64>,
-        #[serde(default)]
-        total: Option<u64>,
-    },
-    Log {
-        level: String,
-        message: String,
-    },
-    Complete {
-        stems: Vec<String>,
-    },
-    Error {
-        message: String,
-    },
-    #[serde(other)]
-    Unknown,
-}
-
-struct WorkerCommand {
-    executable: PathBuf,
-    prefix_arguments: Vec<String>,
-    additional_arguments: Vec<String>,
-    model_dir: PathBuf,
-    backend: StemBackend,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum StemBackend {
-    Mlx,
-    Torch,
-}
-
-impl StemBackend {
-    fn preferred() -> Self {
-        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            Self::Mlx
-        } else {
-            Self::Torch
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Mlx => "MLX",
-            Self::Torch => "Torch",
-        }
-    }
-
-    fn log_source(self) -> &'static str {
-        match self {
-            Self::Mlx => "mlx",
-            Self::Torch => "torch",
-        }
-    }
-}
-
 pub fn accelerator_self_test(app: &AppHandle) -> bool {
-    let Ok(worker) = resolve_worker(app) else {
+    let _ = app;
+    let Ok(worker) = resolve_worker() else {
         return false;
     };
-    let mut command = Command::new(&worker.executable);
-    command
-        .args(&worker.prefix_arguments)
-        .arg("accelerator-self-test")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let Ok(mut child) = command.spawn() else {
+    let Ok(output) = Command::new(worker).arg("--backends").output() else {
         return false;
     };
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if started.elapsed() < ACCELERATOR_SELF_TEST_TIMEOUT => {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            Ok(None) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
+    let Ok(backends) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return false;
+    };
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return output.status.success()
+            && backends.get("MLXBackend").and_then(|value| value.as_bool()) == Some(true);
     }
+    if cfg!(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )) {
+        return output.status.success()
+            && backends
+                .get("CudaBackend")
+                .and_then(|value| value.as_bool())
+                == Some(true)
+            && Command::new("nvidia-smi")
+                .arg("-L")
+                .output()
+                .is_ok_and(|probe| probe.status.success() && !probe.stdout.is_empty());
+    }
+    false
 }
 
 impl StemService {
@@ -216,13 +154,6 @@ impl StemService {
 
     pub fn disable(&self, engine: &AudioEngine) {
         self.generation.fetch_add(1, Ordering::AcqRel);
-        if let Ok(mut current) = self.child.lock() {
-            if let Some(child) = current.take() {
-                if let Ok(mut child) = child.lock() {
-                    let _ = child.kill();
-                }
-            }
-        }
         engine.disable_stems();
         set_status(&self.status, StemStatus::default());
         app_log::push_external("stems", "info", "stem separation disabled");
@@ -301,7 +232,6 @@ impl StemService {
             ));
         }
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let backend = StemBackend::preferred();
         set_status(
             &self.status,
             active_status(
@@ -312,12 +242,11 @@ impl StemService {
                 } else {
                     "checkingCache"
                 },
-                backend.label(),
+                "ExecuTorch",
             ),
         );
         let status = Arc::clone(&self.status);
         let running = Arc::clone(&self.running);
-        let child = Arc::clone(&self.child);
         let active_generation = Arc::clone(&self.generation);
         std::thread::Builder::new()
             .name("sonarcan-stem-worker".into())
@@ -330,13 +259,12 @@ impl StemService {
                     generation,
                     &active_generation,
                     &status,
-                    &child,
                     cache_only,
                 );
                 if active_generation.load(Ordering::Acquire) == generation {
                     if let Err(error) = result {
                         warn!(%track_id, %error, "stem separation failed");
-                        app_log::push_external(backend.log_source(), "error", &error.to_string());
+                        app_log::push_external("executorch", "error", &error.to_string());
                         set_status(
                             &status,
                             StemStatus {
@@ -347,7 +275,7 @@ impl StemService {
                                 track_id: Some(track_id),
                                 cached: false,
                                 error: Some(error.to_string()),
-                                compute_backend: Some(backend.label().into()),
+                                compute_backend: Some("ExecuTorch".into()),
                                 phase_completed: None,
                                 phase_total: None,
                             },
@@ -697,10 +625,8 @@ fn separate_or_load(
     generation: u64,
     active_generation: &AtomicU64,
     status: &Arc<Mutex<StemStatus>>,
-    current_child: &Arc<Mutex<Option<Arc<Mutex<Child>>>>>,
     cache_only: bool,
 ) -> Result<(), AppError> {
-    let backend = StemBackend::preferred();
     let media_path = project::track_media_path(package_path, track_id)?;
     let metadata = media_path
         .metadata()
@@ -722,9 +648,9 @@ fn separate_or_load(
         ) {
             app.state::<AudioEngine>()
                 .activate_stems(&media_path, stems)?;
-            set_status(status, ready_status(track_id, true, backend.label()));
+            set_status(status, ready_status(track_id, true, "ExecuTorch"));
             app_log::push_external(
-                backend.log_source(),
+                "executorch",
                 "info",
                 &format!(
                     "{}: loaded the verified four-stem cache",
@@ -739,418 +665,164 @@ fn separate_or_load(
             "the selected separated-track cache is no longer available".into(),
         ));
     }
-    let worker = resolve_worker(app)?;
-    set_status(
-        status,
-        active_status(track_id, 0.0, "separatingStems", worker.backend.label()),
-    );
-    let separation_started = Instant::now();
-    app_log::push_external(
-        worker.backend.log_source(),
-        "info",
-        &format!(
-            "{}: starting four-stem generation with {}",
-            profile.model_name(),
-            worker.backend.label()
-        ),
-    );
-    let source = app
-        .state::<AudioEngine>()
-        .decoded_for_analysis(&media_path)?;
-    let work_parent = package_path.join("Cache").join("stem-working");
-    fs::create_dir_all(&work_parent).map_err(|error| AppError::io(&work_parent, error))?;
-    let output_dir = work_parent.join(format!("{track_id}-{generation}"));
-    if output_dir.exists() {
-        fs::remove_dir_all(&output_dir).map_err(|error| AppError::io(&output_dir, error))?;
-    }
-    let result = run_worker(
-        &worker,
+    run_native_separation(
+        app,
+        package_path,
         &media_path,
-        &output_dir,
+        &metadata,
         track_id,
+        profile,
         generation,
         active_generation,
         status,
-        current_child,
-        profile,
     )
-    .and_then(|()| {
-        if active_generation.load(Ordering::Acquire) != generation {
-            return Err(AppError::StemSeparation("separation cancelled".into()));
-        }
-        set_status(
-            status,
-            active_status(track_id, 0.985, "validatingStems", worker.backend.label()),
-        );
-        let validation_started = Instant::now();
-        let stems = load_worker_stems(&output_dir, &source)?;
-        app_log::push_external(
-            worker.backend.log_source(),
-            "info",
-            &format!(
-                "{}: four stems decoded and validated in {:.2}s",
-                profile.model_name(),
-                validation_started.elapsed().as_secs_f64()
-            ),
-        );
-        set_status(
-            status,
-            active_status(track_id, 0.995, "cachingStems", worker.backend.label()),
-        );
-        let cache_started = Instant::now();
-        store_cache(
-            package_path,
-            track_id,
-            metadata.len(),
-            modified_ns(&metadata),
-            profile,
-            &stems,
-        )?;
-        app_log::push_external(
-            worker.backend.log_source(),
-            "info",
-            &format!(
-                "{}: four-stem cache written in {:.2}s",
-                profile.model_name(),
-                cache_started.elapsed().as_secs_f64()
-            ),
-        );
-        app.state::<AudioEngine>()
-            .activate_stems(&media_path, stems)?;
-        set_status(
-            status,
-            ready_status(track_id, false, worker.backend.label()),
-        );
-        app_log::push_external(
-            worker.backend.log_source(),
-            "info",
-            &format!(
-                "{}: four-stem generation completed in {:.2}s",
-                profile.model_name(),
-                separation_started.elapsed().as_secs_f64()
-            ),
-        );
-        info!(%track_id, model = profile.model_name(), backend = worker.backend.label(), "four-stem cache is ready");
-        Ok(())
-    });
-    if output_dir.starts_with(&work_parent) && output_dir.exists() {
-        if let Err(error) = fs::remove_dir_all(&output_dir) {
-            warn!(path = %output_dir.display(), %error, "could not remove stem working directory");
-        }
-    }
-    result
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_worker(
-    worker: &WorkerCommand,
-    input: &Path,
-    output: &Path,
+fn run_native_separation(
+    app: &AppHandle,
+    package_path: &Path,
+    media_path: &Path,
+    metadata: &fs::Metadata,
     track_id: Uuid,
+    profile: StemSeparationProfile,
     generation: u64,
     active_generation: &AtomicU64,
     status: &Arc<Mutex<StemStatus>>,
-    current_child: &Arc<Mutex<Option<Arc<Mutex<Child>>>>>,
-    profile: StemSeparationProfile,
 ) -> Result<(), AppError> {
-    let mut command = Command::new(&worker.executable);
-    command
-        .args(&worker.prefix_arguments)
-        .arg("separate")
-        .arg("--input")
-        .arg(input)
-        .arg("--output")
-        .arg(output)
-        .arg("--model-dir")
-        .arg(&worker.model_dir)
-        .arg("--profile")
-        .arg(profile.argument())
-        .args(&worker.additional_arguments)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env_remove("PYTHONHOME")
-        .env_remove("PYTHONPATH");
-    let mut child = command.spawn().map_err(|error| {
-        AppError::StemSeparation(format!(
-            "could not start the pinned {} runtime at {}: {error}",
-            worker.backend.label(),
-            worker.executable.display()
-        ))
-    })?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| AppError::StemSeparation("stem worker stdout is unavailable".into()))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| AppError::StemSeparation("stem worker stderr is unavailable".into()))?;
-    let child = Arc::new(Mutex::new(child));
-    *current_child
-        .lock()
-        .map_err(|_| AppError::StemSeparation("stem process state is unavailable".into()))? =
-        Some(Arc::clone(&child));
-    let log_source = worker.backend.log_source();
-    let stderr_thread = std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if !line.trim().is_empty() {
-                let message: String = line.chars().take(8_192).collect();
-                app_log::push_external(log_source, "info", &message);
-            }
-        }
-    });
-    let mut complete = false;
-    let mut worker_error = None;
-    for line in BufReader::new(stdout).lines() {
-        if active_generation.load(Ordering::Acquire) != generation {
-            break;
-        }
-        let line = line.map_err(|error| AppError::StemSeparation(error.to_string()))?;
-        if line.len() > MAX_PROTOCOL_LINE {
-            return Err(AppError::StemSeparation(
-                "stem worker emitted an oversized protocol message".into(),
-            ));
-        }
-        match serde_json::from_str::<WorkerEvent>(&line) {
-            Ok(WorkerEvent::Stage { stage, progress }) => set_status(
-                status,
-                active_status(track_id, progress, &stage, worker.backend.label()),
-            ),
-            Ok(WorkerEvent::Progress {
-                stage,
-                progress,
-                completed,
-                total,
-            }) => {
-                let (phase_completed, phase_total) = validated_phase_units(completed, total);
-                let mut next = active_status(track_id, progress, &stage, worker.backend.label());
-                next.phase_completed = phase_completed;
-                next.phase_total = phase_total;
-                set_status(status, next);
-            }
-            Ok(WorkerEvent::Log { level, message }) => {
-                app_log::push_external(worker.backend.log_source(), safe_level(&level), &message)
-            }
-            Ok(WorkerEvent::Complete { stems }) => {
-                complete = stems == STEM_NAMES.map(str::to_owned);
-                if !complete {
-                    worker_error = Some("stem worker returned an invalid stem contract".into());
-                }
-            }
-            Ok(WorkerEvent::Error { message }) => worker_error = Some(message),
-            Ok(WorkerEvent::Unknown) => {}
-            Err(error) => app_log::push_external(
-                worker.backend.log_source(),
-                "warn",
-                &format!("ignored malformed worker event: {error}"),
-            ),
-        }
-    }
-    let exit = child
-        .lock()
-        .map_err(|_| AppError::StemSeparation("stem process state is unavailable".into()))?
-        .wait()
-        .map_err(|error| AppError::StemSeparation(error.to_string()))?;
-    let _ = stderr_thread.join();
-    if let Ok(mut current) = current_child.lock() {
-        current.take();
-    }
+    let worker = resolve_worker()?;
+    let priorities = preferred_backends_for(
+        ModelFamily::StemSeparation,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"),
+    );
+    let candidates = model_install::stem_program_roots(app, profile)?;
+    let selected =
+        select_first_available(&worker, &priorities, &candidates, BACKEND_PROBE_TIMEOUT)?;
+    let backend_label = selected.backend.kind().label();
+    let program_root = model_install::stem_program_root(app, selected.backend.kind(), profile)?;
+    let scratch = StemScratch::new(app)?;
+    set_status(
+        status,
+        active_status(track_id, 0.22, "separatingStems", backend_label),
+    );
+    app_log::push_external(
+        "executorch",
+        "info",
+        &format!(
+            "{}: starting native four-stem generation with {backend_label}",
+            profile.model_name()
+        ),
+    );
+    let started = Instant::now();
+    let source = app
+        .state::<AudioEngine>()
+        .decoded_for_analysis(media_path)?;
+    let output = match profile {
+        StemSeparationProfile::Fast => stem_inference::separate_demucs(
+            &selected.backend,
+            &selected.program,
+            &scratch.path,
+            &source,
+        )?,
+        StemSeparationProfile::Hq => stem_inference::separate_scnet(
+            &selected.backend,
+            &program_root,
+            &scratch.path,
+            &source,
+        )?,
+    };
     if active_generation.load(Ordering::Acquire) != generation {
         return Err(AppError::StemSeparation("separation cancelled".into()));
     }
-    if !exit.success() || !complete {
-        return Err(AppError::StemSeparation(worker_error.unwrap_or_else(
-            || format!("stem worker exited with status {exit}"),
-        )));
-    }
+    let inference_ms = output
+        .measurements
+        .iter()
+        .map(|measurement| measurement.inference_time_ms)
+        .sum::<f64>();
+    let peak_rss_bytes = output
+        .measurements
+        .iter()
+        .map(|measurement| measurement.peak_rss_bytes)
+        .max()
+        .unwrap_or(0);
+    let stems = stem_inference::restore_source_format(output.stems, &source)?.map(Arc::new);
+    set_status(
+        status,
+        active_status(track_id, 0.995, "cachingStems", backend_label),
+    );
+    store_cache(
+        package_path,
+        track_id,
+        metadata.len(),
+        modified_ns(metadata),
+        profile,
+        &stems,
+    )?;
+    app.state::<AudioEngine>()
+        .activate_stems(media_path, stems)?;
+    set_status(status, ready_status(track_id, false, backend_label));
+    info!(
+        %track_id,
+        model = profile.model_name(),
+        backend = backend_label,
+        inference_ms,
+        peak_rss_bytes,
+        wall_time_ms = started.elapsed().as_secs_f64() * 1_000.0,
+        "native four-stem cache is ready"
+    );
     Ok(())
 }
 
-fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
-    let backend = StemBackend::preferred();
-    #[cfg(debug_assertions)]
-    {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .ok_or_else(|| AppError::StemSeparation("repository root is unavailable".into()))?;
-        let (worker_root, environment_name, module) = match backend {
-            StemBackend::Mlx => (
-                root.join("tools/sonarcan-mlx-worker"),
-                "SONARCAN_MLX_PYTHON",
-                "sonarcan_mlx_worker",
-            ),
-            StemBackend::Torch => (
-                root.join("tools/sonarcan-torch-worker"),
-                "SONARCAN_TORCH_PYTHON",
-                "sonarcan_torch_worker",
-            ),
-        };
-        let executable = std::env::var_os(environment_name)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| development_python(&worker_root));
-        let model_dir = match std::env::var_os("SONARCAN_STEM_MODEL_DIR") {
-            Some(directory) => PathBuf::from(directory),
-            None => stem_model_cache(app)?,
-        };
-        let additional_arguments = worker_arguments()?;
-        validated_worker(
-            executable,
-            vec!["-m".into(), module.into()],
-            additional_arguments,
-            model_dir,
-            backend,
-        )
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let resources = app
-            .path()
-            .resource_dir()
-            .map_err(|error| AppError::StemSeparation(error.to_string()))?;
-        let module = match backend {
-            StemBackend::Mlx => "sonarcan_mlx_worker",
-            StemBackend::Torch => "sonarcan_torch_worker",
-        };
-        validated_worker(
-            bundled_python(&resources.join("python-runtime").join("runtime")),
-            vec!["-m".into(), module.into()],
-            worker_arguments()?,
-            stem_model_cache(app)?,
-            backend,
-        )
-    }
-}
-
-#[cfg(debug_assertions)]
-fn development_python(worker_root: &Path) -> PathBuf {
-    worker_root.join(".venv/bin/python")
-}
-
-#[cfg(not(debug_assertions))]
-fn bundled_python(runtime: &Path) -> PathBuf {
-    runtime.join("bin/python3.13")
-}
-
-fn worker_arguments() -> Result<Vec<String>, AppError> {
-    let executable = ffmpeg::find().ok_or_else(|| {
-        AppError::StemSeparation(
-            "FFmpeg is required by the portable stem backend but is unavailable".into(),
-        )
-    })?;
-    let executable = executable
-        .canonicalize()
-        .map_err(|error| AppError::io(&executable, error))?;
-    Ok(vec![
-        "--ffmpeg".into(),
-        executable.to_string_lossy().into_owned(),
-    ])
-}
-
-fn stem_model_cache(app: &AppHandle) -> Result<PathBuf, AppError> {
-    app.path()
-        .app_data_dir()
-        .map(|directory| directory.join("models").join("stem-separation"))
-        .map_err(|error| AppError::StemSeparation(error.to_string()))
-}
-
-fn validated_worker(
-    executable: PathBuf,
-    prefix_arguments: Vec<String>,
-    additional_arguments: Vec<String>,
-    model_dir: PathBuf,
-    backend: StemBackend,
-) -> Result<WorkerCommand, AppError> {
-    // Preserve the final virtualenv symlink. Python uses the invoked path to
-    // discover pyvenv.cfg; resolving it would silently run uv's base Python
-    // without the pinned environment in development.
-    let file_name = executable.file_name().ok_or_else(|| {
-        AppError::StemSeparation("the pinned stem runtime path is invalid".into())
-    })?;
-    let executable = executable
-        .parent()
-        .and_then(|parent| parent.canonicalize().ok())
-        .map(|parent| parent.join(file_name))
-        .ok_or_else(|| {
-        AppError::StemSeparation(format!(
-            "the pinned {} runtime is missing; prepare its development environment or install a release containing it ({})",
-            backend.label(),
-            executable.display()
-        ))
-    })?;
-    if !executable.is_file() {
-        return Err(AppError::StemSeparation(format!(
-            "the pinned {} runtime is missing; prepare its development environment or install a release containing it ({})", backend.label(), executable.display()
-        )));
-    }
-    fs::create_dir_all(&model_dir).map_err(|error| AppError::io(&model_dir, error))?;
-    let model_metadata =
-        fs::symlink_metadata(&model_dir).map_err(|error| AppError::io(&model_dir, error))?;
-    if !model_metadata.file_type().is_dir() || model_metadata.file_type().is_symlink() {
-        return Err(AppError::StemSeparation(format!(
-            "the stem model cache is invalid: {}",
-            model_dir.display()
-        )));
-    }
-    Ok(WorkerCommand {
-        executable,
-        prefix_arguments,
-        additional_arguments,
-        model_dir,
-        backend,
-    })
-}
-
-fn load_worker_stems(
-    output: &Path,
-    source: &DecodedAudio,
-) -> Result<[Arc<DecodedAudio>; STEM_COUNT], AppError> {
-    let mut stems = Vec::with_capacity(STEM_COUNT);
-    for name in STEM_NAMES {
-        let path = output.join(format!("{name}.wav"));
-        let metadata = fs::symlink_metadata(&path).map_err(|error| AppError::io(&path, error))?;
-        if !metadata.file_type().is_file() || metadata.len() > MAX_STEM_BYTES {
-            return Err(AppError::StemSeparation(format!(
-                "the stem worker produced an invalid {name} stem"
-            )));
-        }
-        stems.push(Arc::new(align_stem(
-            decode_stem_file(&path)?,
-            source.sample_rate,
-            source.frames,
-        )));
-    }
-    stems.try_into().map_err(|_| {
-        AppError::StemSeparation("the stem worker returned an invalid stem count".into())
-    })
-}
-
-fn align_stem(stem: DecodedAudio, target_rate: u32, target_frames: usize) -> DecodedAudio {
-    if stem.channels == 2 && stem.sample_rate == target_rate && stem.frames == target_frames {
-        return stem;
-    }
-    let channels = stem.channels.max(1);
-    let mut samples = vec![0.0; target_frames.saturating_mul(2)];
-    if stem.frames > 0 && stem.sample_rate > 0 && target_rate > 0 {
-        let ratio = stem.sample_rate as f64 / target_rate as f64;
-        for frame in 0..target_frames {
-            let position = frame as f64 * ratio;
-            let first = (position.floor() as usize).min(stem.frames - 1);
-            let second = (first + 1).min(stem.frames - 1);
-            let fraction = (position - first as f64) as f32;
-            for channel in 0..2 {
-                let source_channel = channel.min(channels - 1);
-                let a = stem.samples[first * channels + source_channel];
-                let b = stem.samples[second * channels + source_channel];
-                samples[frame * 2 + channel] = a + (b - a) * fraction;
+fn resolve_worker() -> Result<PathBuf, AppError> {
+    let path = resource_paths::resource_path("executorch-runtime/sonarcan-executorch-worker")
+        .or_else(|| {
+            #[cfg(debug_assertions)]
+            {
+                Some(
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("resources/executorch-runtime/sonarcan-executorch-worker"),
+                )
             }
-        }
+            #[cfg(not(debug_assertions))]
+            {
+                None
+            }
+        })
+        .ok_or_else(|| AppError::StemSeparation("ExecuTorch worker is unavailable".into()))?;
+    let metadata = fs::symlink_metadata(&path).map_err(|error| AppError::io(&path, error))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(AppError::StemSeparation(
+            "ExecuTorch worker is not a regular file".into(),
+        ));
     }
-    DecodedAudio {
-        samples,
-        channels: 2,
-        sample_rate: target_rate,
-        frames: target_frames,
+    Ok(path)
+}
+
+struct StemScratch {
+    path: PathBuf,
+}
+
+impl StemScratch {
+    fn new(app: &AppHandle) -> Result<Self, AppError> {
+        let root = model_install::native_model_root(app)?.join(".scratch");
+        fs::create_dir_all(&root).map_err(|error| AppError::io(&root, error))?;
+        let metadata = fs::symlink_metadata(&root).map_err(|error| AppError::io(&root, error))?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(AppError::StemSeparation(
+                "native stem scratch root is invalid".into(),
+            ));
+        }
+        let path = root.join(Uuid::new_v4().to_string());
+        fs::create_dir(&path).map_err(|error| AppError::io(&path, error))?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for StemScratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
     }
 }
 
@@ -1183,22 +855,6 @@ fn ready_status(track_id: Uuid, cached: bool, backend: &str) -> StemStatus {
     }
 }
 
-fn validated_phase_units(completed: Option<u64>, total: Option<u64>) -> (Option<u64>, Option<u64>) {
-    match (completed, total) {
-        (Some(completed), Some(total))
-            if total > 0 && total <= MAX_PROTOCOL_UNITS && completed <= total =>
-        {
-            (Some(completed), Some(total))
-        }
-        _ => (None, None),
-    }
-}
-fn safe_level(level: &str) -> &str {
-    match level {
-        "debug" | "info" | "warn" | "error" => level,
-        _ => "info",
-    }
-}
 fn cache_dir(package: &Path, track_id: Uuid, profile: StemSeparationProfile) -> PathBuf {
     package
         .join("Stems")
@@ -1427,52 +1083,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn worker_phase_units_are_bounded_and_consistent() {
-        assert_eq!(
-            validated_phase_units(Some(4), Some(12)),
-            (Some(4), Some(12))
-        );
-        assert_eq!(validated_phase_units(Some(13), Some(12)), (None, None));
-        assert_eq!(
-            validated_phase_units(Some(1), Some(MAX_PROTOCOL_UNITS + 1)),
-            (None, None)
-        );
-        assert_eq!(validated_phase_units(None, Some(12)), (None, None));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn preserves_virtualenv_python_symlink() {
-        use std::os::unix::fs::symlink;
-
-        let directory = tempfile::tempdir().unwrap();
-        let bin = directory.path().join(".venv/bin");
-        let model = directory.path().join("model");
-        fs::create_dir_all(&bin).unwrap();
-        fs::create_dir(&model).unwrap();
-        let base_python = directory.path().join("base-python");
-        fs::write(&base_python, b"python").unwrap();
-        let virtualenv_python = bin.join("python");
-        symlink(&base_python, &virtualenv_python).unwrap();
-
-        let worker = validated_worker(
-            virtualenv_python.clone(),
-            Vec::new(),
-            Vec::new(),
-            model,
-            StemBackend::Mlx,
-        )
-        .unwrap();
-
-        assert_eq!(worker.executable.file_name(), virtualenv_python.file_name());
-        assert!(fs::symlink_metadata(&worker.executable)
-            .unwrap()
-            .file_type()
-            .is_symlink());
-        assert_ne!(worker.executable, base_python.canonicalize().unwrap());
-    }
-
-    #[test]
     fn cache_round_trips_four_stems() {
         let project = tempfile::tempdir().unwrap();
         let track_id = Uuid::new_v4();
@@ -1559,24 +1169,6 @@ mod tests {
             .join(selected.to_string())
             .exists());
         assert!(untouched_cache.exists());
-    }
-
-    #[test]
-    fn aligns_mono_stem() {
-        let aligned = align_stem(
-            DecodedAudio {
-                samples: vec![0.0, 1.0, 0.0],
-                channels: 1,
-                sample_rate: 3,
-                frames: 3,
-            },
-            6,
-            6,
-        );
-        assert_eq!(aligned.channels, 2);
-        assert_eq!(aligned.frames, 6);
-        assert_eq!(aligned.samples[0], aligned.samples[1]);
-        assert!((aligned.samples[4] - 1.0).abs() < 0.001);
     }
 
     #[test]

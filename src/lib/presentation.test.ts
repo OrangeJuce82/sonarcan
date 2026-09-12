@@ -40,15 +40,11 @@ test("audio status captured across a seek cannot restore a stale position", () =
   assert.equal(shouldApplyAudioStatusPosition(4, 4, false, true), false);
 });
 
-test("buildProjectPath preserves absolute and Windows path navigation", () => {
+test("buildProjectPath preserves absolute POSIX path navigation", () => {
   assert.deepEqual(buildProjectPath("/Music/Set.sac"), [
     { label: "Music", path: "/Music" },
     { label: "Set.sac", path: "/Music/Set.sac" },
   ]);
-  assert.deepEqual(buildProjectPath("C:\\Music\\Set.sac").at(-1), {
-    label: "Set.sac",
-    path: "C:/Music/Set.sac",
-  });
 });
 
 test("formatProjectHeaderPath keeps the filename separate and compacts only its directory", () => {

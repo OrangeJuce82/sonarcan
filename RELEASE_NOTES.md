@@ -1,8 +1,8 @@
-# SonArcan 0.1.3
+# SonArcan 0.1.4
 
-SonArcan uses one complete application contract and two target-specific
-packages. The workspace opens only when the complete Beat, Chords, and Mix
-pipeline passes its accelerator probe.
+SonArcan now ships a native-only application contract for macOS Apple Silicon
+and Linux x86_64/arm64. Python and PyTorch remain development export tools and
+are never included in an application package.
 
 The waveform gains aligned marker, chord, and synchronized-lyrics lanes. Their
 blocks can be created, renamed, resized, aligned across lanes with Shift, or
@@ -16,56 +16,55 @@ and older project practice values are normalized safely when reopened.
 
 ## First-run model installation
 
-On the first launch with a qualified accelerator, SonArcan downloads SCNet-large, HTDemucs, and
-Beat This! one at a time from their pinned upstream locations. The welcome
-screen identifies each model and shows both per-model and overall progress.
-Every checkpoint is checked against its expected byte length and SHA-256 digest
-before it is moved atomically into the application cache. An interrupted or
-invalid download is never used and can be retried from the same screen.
+Backend-specific `.pte` programs are installed outside the application bundle.
+The small application package contains only the selectively linked ExecuTorch
+worker. Development checkpoints (`.ckpt`, `.th`, `.sdict`, or `safetensors`)
+are rejected by the release verifier.
 
-LV-Chordia remains bundled with the shared analysis runtime and its five checkpoints are
-verified before the workspace opens. Subsequent launches reuse all verified
-cached models, so the network setup happens only once unless the cache is
-removed or a future release changes a checkpoint.
-
-Stem separation now offers two four-stem profiles: SCNet-large for the primary
-high-quality path and HTDemucs as the alternate profile. Both produce vocals,
-drums, bass, and other. SCNet-large processes two overlapping chunks per
-forward pass on every accelerator. MLX also releases intermediate GPU
+Stem separation offers HTDemucs Fast and SCNet Large HQ four-stem production
+profiles, both producing vocals, drums, bass, and other. SCNet Large processes
+two overlapping chunks per forward pass on every accelerator. MLX also releases intermediate GPU
 allocations between passes to avoid unified-memory exhaustion on
-memory-constrained Macs.
+memory-constrained Macs. SCNet is intentionally the slow HQ profile: the
+qualified 11-second Apple Silicon workload took about 329.5 seconds warm and
+roughly 383 seconds on its first compiled pass. HTDemucs remains the faster
+alternative when turnaround time matters more than the HQ profile.
 
 ## Which file should I download?
 
 | Release name | Computer | Beat, Chords, Mix | Included compute runtime |
 | --- | --- | --- | --- |
-| SonArcan | Apple-silicon Mac (M1 or newer) | Yes, after the startup probe succeeds | Apple MLX and MPS |
-| SonArcan NVIDIA GPU | Debian-compatible Linux x64 with a compatible NVIDIA GPU | Yes, after the startup probe succeeds | CUDA |
+| SonArcan | Apple-silicon Mac (M1 or newer) | Native model programs only | MLX |
+| SonArcan Linux x86_64 | Debian-compatible Linux x64 with NVIDIA GPU | Native model programs only | CUDA |
+| SonArcan Linux arm64 | Debian-compatible Linux arm64 with NVIDIA GPU | Native model programs only | CUDA |
 
-Linux distribution is limited to Debian-compatible x64 systems; Intel GPUs are
-not qualified yet.
+Linux requires a supported NVIDIA GPU, its proprietary driver, and a compatible
+CUDA runtime. There is no CPU mode and no AMD/Intel GPU path. On incompatible
+hardware SonArcan displays a blocking message at startup; the workspace and all
+tools remain inaccessible.
 
-Releases never run Beat, Chords, or Mix silently on the CPU. At every
-application launch, SonArcan exercises the actual production model graphs on the detected
-accelerator. If the driver, device, runtime, model, memory, or inference result
-is incompatible, SonArcan displays a blocking error and does not open the
-workspace.
+Releases never run Beat, Chords, or Mix silently on the CPU. At every launch,
+SonArcan verifies the required GPU, driver, and native delegate before it opens
+the workspace. It then verifies the SHA-256-pinned model packs. If the device, driver,
+runtime, delegate, or models are unavailable or invalid, a blocking error is
+shown and the workspace does not open. Complete model-graph execution is part
+of release qualification on representative GPU hardware.
 
-## GPU download format
+## Linux download format
 
 The release target is a single lightweight DEB using a selective native runtime.
 Multipart packages and bundled Python/PyTorch environments are rejected by the
 release checks.
 
-### Linux NVIDIA
+### Linux
 
 Open a terminal in the download directory, then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.3
-sha256sum --check SHA256SUMS-Linux-NVIDIA-GPU-DEB.txt
-sudo apt install "./SonArcan-Linux-x86_64-NVIDIA-GPU-${version}.deb"
+version=v0.1.4
+sha256sum --check SHA256SUMS-Linux-x86_64-DEB.txt
+sudo apt install "./SonArcan-Linux-x86_64-${version}.deb"
 ```
 
 Do not install the reconstructed package if `sha256sum` reports a missing file

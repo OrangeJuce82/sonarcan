@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,8 +20,14 @@ const resourceDirectory = resolve(
     ?? join(root, "src-tauri/resources/executorch-runtime"),
 );
 const executableName = "sonarcan-executorch-worker";
-const bundledPython = join(root, "src-tauri/resources/python-runtime/runtime/bin/python3.13");
-const pythonSetting = process.env.SONARCAN_EXECUTORCH_PYTHON ?? bundledPython;
+const mlxEnabled = process.platform === "darwin" && process.env.SONARCAN_EXECUTORCH_MLX !== "0";
+const maximumRuntimeBytes = Number(
+  process.env.SONARCAN_MAX_EXECUTORCH_RUNTIME_BYTES ?? 96 * 1024 * 1024,
+);
+const pythonSetting = process.env.SONARCAN_EXECUTORCH_PYTHON;
+if (!pythonSetting) {
+  throw new Error("Set SONARCAN_EXECUTORCH_PYTHON to an external build-time Python executable");
+}
 const python = resolve(pythonSetting);
 const pythonPath = [
   source,
@@ -40,6 +46,9 @@ if (programDirectory && !existsSync(programDirectory)) {
   throw new Error("Set SONARCAN_EXECUTORCH_PTE_DIR to a directory containing release PTE files");
 }
 if (!existsSync(python)) throw new Error("Missing build-time Python with ExecuTorch installed");
+if (!Number.isSafeInteger(maximumRuntimeBytes) || maximumRuntimeBytes <= 0) {
+  throw new Error("SONARCAN_MAX_EXECUTORCH_RUNTIME_BYTES must be a positive integer");
+}
 
 function filesBelow(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -54,7 +63,6 @@ const pinnedOperators = readFileSync(operatorManifest, "utf8")
   .map((value) => value.trim())
   .filter(Boolean)
   .sort();
-if (pinnedOperators.length === 0) throw new Error("The pinned operator manifest is empty");
 
 function run(command, commandArguments, options = {}) {
   const result = spawnSync(command, commandArguments, {
@@ -68,30 +76,47 @@ function run(command, commandArguments, options = {}) {
   return result.stdout?.trim() ?? "";
 }
 
+const clangModuleCache = join(buildDirectory, "clang-module-cache");
+mkdirSync(clangModuleCache, { recursive: true });
+const buildEnvironment = {
+  ...process.env,
+  CLANG_MODULE_CACHE_PATH: process.env.CLANG_MODULE_CACHE_PATH ?? clangModuleCache,
+};
+
 let programs = [];
 if (programDirectory) {
   programs = filesBelow(programDirectory).filter((path) => path.endsWith(".pte")).sort();
   if (programs.length === 0) throw new Error("No PTE files found for operator-manifest verification");
-  const discoveredOperators = run(
+  const discoveredOutput = run(
     python,
-    [join(root, "scripts/list-executorch-operators.py"), ...programs],
+    [join(root, "scripts/list-executorch-operators.py"), "--allow-empty", ...programs],
     { capture: true, env: { ...process.env, PYTHONPATH: pythonPath } },
-  ).split(",").sort();
-  if (JSON.stringify(discoveredOperators) !== JSON.stringify(pinnedOperators)) {
-    throw new Error("Release PTE operators do not match the pinned selective-runtime manifest");
+  );
+  const discoveredOperators = discoveredOutput ? discoveredOutput.split(",").sort() : [];
+  if (discoveredOperators.length !== 0) {
+    throw new Error("Production PTEs must be fully delegated and contain no portable ATen operators");
   }
 }
 const operators = pinnedOperators.join(",");
-run("cmake", [
+const cmakeArguments = [
   "-Wno-deprecated",
   "-S", join(root, "tools/sonarcan-executorch-worker"),
   "-B", buildDirectory,
   "-DCMAKE_BUILD_TYPE=Release",
   `-DPYTHON_EXECUTABLE=${python}`,
   `-DSONARCAN_EXECUTORCH_SOURCE=${source}`,
-  `-DEXECUTORCH_SELECT_OPS_LIST=${operators}`,
-]);
-run("cmake", ["--build", buildDirectory, "--target", "sonarcan-executorch-worker", "-j", "8"]);
+];
+if (operators) cmakeArguments.push(`-DEXECUTORCH_SELECT_OPS_LIST=${operators}`);
+if (process.env.SONARCAN_EXECUTORCH_CUDA === "1") {
+  cmakeArguments.push("-DSONARCAN_EXECUTORCH_ENABLE_CUDA=ON");
+}
+if (process.env.SONARCAN_EXECUTORCH_MLX === "0") {
+  cmakeArguments.push("-DSONARCAN_EXECUTORCH_ENABLE_MLX=OFF");
+}
+run("cmake", cmakeArguments, { env: buildEnvironment });
+run("cmake", ["--build", buildDirectory, "--target", "sonarcan-executorch-worker", "-j", "8"], {
+  env: buildEnvironment,
+});
 
 const builtExecutable = [
   join(buildDirectory, executableName),
@@ -100,6 +125,45 @@ const builtExecutable = [
 if (!builtExecutable) throw new Error(`Missing built worker in ${buildDirectory}`);
 mkdirSync(resourceDirectory, { recursive: true });
 copyFileSync(builtExecutable, join(resourceDirectory, executableName));
-run("chmod", ["755", join(resourceDirectory, executableName)]);
-const verification = programs.length === 0 ? "the pinned operator manifest" : `${programs.length} PTE files`;
-console.log(`Built selective runtime verified against ${verification} in ${resourceDirectory}`);
+const installedExecutable = join(resourceDirectory, executableName);
+run("chmod", ["755", installedExecutable]);
+const registeredBackends = JSON.parse(run(installedExecutable, ["--backends"], { capture: true }));
+const expectedBackends = [
+  ...(mlxEnabled ? ["MLXBackend"] : []),
+  ...(process.env.SONARCAN_EXECUTORCH_CUDA === "1" ? ["CudaBackend"] : []),
+];
+if (registeredBackends.XnnpackBackend === true) {
+  throw new Error("Production runtime must not register the XNNPACK CPU backend");
+}
+const missingBackends = expectedBackends.filter((backend) => registeredBackends[backend] !== true);
+if (missingBackends.length) {
+  throw new Error(`Selective runtime failed to register: ${missingBackends.join(", ")}`);
+}
+const mlxMetallib = filesBelow(buildDirectory).find((path) => path.endsWith("/mlx.metallib"));
+if (mlxEnabled) {
+  if (!mlxMetallib) throw new Error("MLX runtime was built without mlx.metallib");
+  copyFileSync(mlxMetallib, join(resourceDirectory, "mlx.metallib"));
+} else if (existsSync(join(resourceDirectory, "mlx.metallib"))) {
+  unlinkSync(join(resourceDirectory, "mlx.metallib"));
+}
+const cudaShim = filesBelow(buildDirectory).find((path) => path.endsWith("/libaoti_cuda_shims.so"));
+const installedCudaShim = join(resourceDirectory, "libaoti_cuda_shims.so");
+if (process.env.SONARCAN_EXECUTORCH_CUDA === "1") {
+  if (!cudaShim) throw new Error("CUDA runtime was built without libaoti_cuda_shims.so");
+  copyFileSync(cudaShim, installedCudaShim);
+} else if (existsSync(installedCudaShim)) {
+  unlinkSync(installedCudaShim);
+}
+const runtimeFiles = [
+  installedExecutable,
+  ...(mlxEnabled ? [join(resourceDirectory, "mlx.metallib")] : []),
+  ...(process.env.SONARCAN_EXECUTORCH_CUDA === "1" ? [installedCudaShim] : []),
+];
+const runtimeBytes = runtimeFiles.reduce((total, path) => total + statSync(path).size, 0);
+if (runtimeBytes > maximumRuntimeBytes) {
+  throw new Error(
+    `Selective ExecuTorch runtime is ${runtimeBytes} bytes; limit is ${maximumRuntimeBytes} bytes`,
+  );
+}
+const verification = programs.length === 0 ? "the bootstrap kernel manifest" : `${programs.length} fully delegated PTE files`;
+console.log(`Built ${runtimeBytes}-byte selective runtime verified against ${verification} in ${resourceDirectory}`);

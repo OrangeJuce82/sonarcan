@@ -225,9 +225,8 @@ export function zoomWaveformViewport(
 }
 
 export function buildProjectPath(packagePath: string): ProjectPathPart[] {
-  const normalized = packagePath.replaceAll("\\", "/");
-  const absolute = normalized.startsWith("/");
-  const segments = normalized.split("/").filter(Boolean);
+  const absolute = packagePath.startsWith("/");
+  const segments = packagePath.split("/").filter(Boolean);
   let current = absolute ? "/" : "";
   return segments.map((label) => {
     current = current === "/" ? `/${label}` : current ? `${current}/${label}` : label;
@@ -237,7 +236,7 @@ export function buildProjectPath(packagePath: string): ProjectPathPart[] {
 
 /** Split a project package path and compact only the directory portion. */
 export function formatProjectHeaderPath(packagePath: string, targetDirectoryLength = 20): ProjectHeaderPath {
-  const fullPath = packagePath.replaceAll("\\", "/");
+  const fullPath = packagePath;
   const separator = fullPath.lastIndexOf("/");
   const fileName = separator >= 0 ? fullPath.slice(separator + 1) : fullPath;
   const extensionStart = fileName.lastIndexOf(".");

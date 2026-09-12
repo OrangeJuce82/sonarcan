@@ -134,14 +134,13 @@ test("Alt+M toggles Beat This! DBN", () => {
   assert.equal(shouldToggleBeatThisDbnShortcut(shortcutEvent({ key: "m", altKey: true, target: input })), false);
 });
 
-test("shortcut labels follow macOS, Windows, and Linux keyboards", () => {
+test("shortcut labels follow macOS and Linux keyboards", () => {
   assert.equal(shortcutPlatformFor("MacIntel"), "macos");
-  assert.equal(shortcutPlatformFor("Win32"), "windows");
   assert.equal(shortcutPlatformFor("Linux x86_64"), "linux");
   assert.deepEqual(shortcutKeyLabels("macos"), {
     backspace: "⌫", delete: "Fn ⌫", space: "Space",
   });
-  assert.deepEqual(shortcutKeyLabels("windows"), {
+  assert.deepEqual(shortcutKeyLabels("linux"), {
     backspace: "Backspace", delete: "Del", space: "Space",
   });
 });

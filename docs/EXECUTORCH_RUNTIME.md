@@ -5,11 +5,47 @@ ExecuTorch runtime. Python, PyTorch, CUDA development tools, model exporters,
 and package managers are build-time dependencies only and must not be present
 in a desktop bundle.
 
-This is a migration contract, not permission to remove the qualified Python
-workers prematurely. A release may switch a feature to ExecuTorch only after
-the exported program, its native preprocessing, and its native postprocessing
-pass the same audio corpus as the current production worker on every advertised
-backend.
+Release builds are native-only. Python and PyTorch remain confined to external
+development environments used for export and parity tests; their former runtime
+workers and packagers have been removed. A native feature stays unavailable
+until its exported program, preprocessing, and postprocessing pass the reference
+corpus.
+
+## Runtime topology
+
+```text
+macOS arm64                         Linux x86_64 / arm64
+Tauri / Rust                       Tauri / Rust
+  │ native DSP                       │ native DSP
+  └─ InferenceBackend                └─ InferenceBackend
+       └─ MLX                             └─ CUDA (NVIDIA required)
+              │                                 │
+              └──── minimal ExecuTorch C++ ─────┘
+                              │
+                     backend-specific .pte
+```
+
+The deprecated MPS delegate is removed. Apple Silicon uses MLX. Linux requires
+NVIDIA and uses CUDA exclusively. A missing device,
+driver, CUDA runtime, delegate, or qualified model leaves the startup screen in
+its blocking incompatibility state. There is no XNNPACK, portable CPU, Python,
+or PyTorch production fallback. No code outside
+`InferenceBackend` may depend on a delegate name or API.
+
+## Migration status
+
+| Model | Export | Native graph runner | Native audio boundary | Corpus parity | Production |
+| --- | --- | --- | --- | --- | --- |
+| Beat This | fixed MLX program | validated on Apple Silicon GPU | native log-mel, fixed-window aggregation, and DBN/minimal decoding | macOS passed; CUDA pending | macOS candidate |
+| LV-Chordia | 95 fully delegated MLX programs | validated on Apple Silicon GPU | native CQT bank, recurrent orchestration, ensemble, and XHMM decoder | macOS passed; CUDA pending | macOS candidate |
+| HTDemucs | fully delegated MLX neural core | validated on Apple Silicon GPU | native STFT/ISTFT, masking, normalization, and overlap-add | macOS passed; CUDA pending | macOS candidate |
+| SCNet | 12 fully delegated MLX partitions | validated on Apple Silicon GPU | native STFT/ISTFT, real FFT boundaries, and overlap-add | macOS numeric parity passed; expected HQ cost measured; CUDA pending | macOS candidate |
+
+The first native runtime milestone records model load time, inference time,
+wall time, peak RSS, runtime size, PTE size, and RTF when an audio duration is
+known. The selected backend must come from the verified artifact manifest; the final
+qualification report must additionally prove the delegate executed. Merely
+linking or selecting a delegate is not accepted as that proof.
 
 ## Artifact boundary
 
@@ -24,8 +60,9 @@ backend.
 - Audio decoding, resampling, chunking, overlap-add, FFT boundaries, and result
   validation belong to the native worker. Existing Rust FFmpeg and FFT support
   should be reused instead of linking duplicate Python scientific stacks.
-- A failed runtime or model probe disables analysis for the session and leaves
-  playback and project editing available.
+- A failed hardware, runtime, delegate, model-pack, or startup verification
+  keeps the blocking startup screen visible. The workspace, playback, analysis,
+  and project editing are not accessible in a reduced mode.
 
 ## Model adaptations
 
@@ -45,16 +82,18 @@ be ported to bounded native code.
 
 ### Beat This!
 
-Production inference already uses 1500-frame log-mel windows. The network
-strictly exports with that fixed shape after disabling its opportunistic rotary
-frequency cache. Cache removal is inference-neutral and avoids a mutable model
-state. Audio loading, log-mel calculation, window aggregation, and minimal/DBN
-postprocessing remain native stages.
+Production inference uses a fixed 1500-frame MLX program. Rust pads short
+inputs and splits long inputs into the exact reference windows before keep-first
+aggregation. Disabling the opportunistic rotary frequency cache is
+inference-neutral and avoids mutable model state. The native FP32 log-mel
+implementation matches the pinned 22.05 kHz, 1024-point FFT, 441-sample hop,
+128-band Slaney reference. Resampling and both minimal and DBN postprocessing
+are native.
 
 ### SCNet
 
-The full network strictly exports, but the portable ExecuTorch lowering rejects
-its complex-valued STFT/FFT boundary. The model must therefore be partitioned
+The full network strictly exports, but ExecuTorch delegates do not own its
+complex-valued STFT/FFT boundary. The model is therefore partitioned
 at real-valued boundaries: native STFT, encoder, six dual-path blocks separated
 by native real FFT/IFFT conversions, decoder, then native inverse STFT. This
 also avoids embedding a second FFT implementation.
@@ -63,7 +102,7 @@ also avoids embedding a second FFT implementation.
 
 The pinned HTDemucs network strictly exports after two inference-neutral
 adaptations: `randrange(1)` becomes the constant zero, and development-only
-tensor equality assertions are excluded from the graph. Portable lowering has
+tensor equality assertions are excluded from the graph. Delegate lowering has
 the same complex-tensor limitation as SCNet. Spectrogram creation, complex mask
 arithmetic, inverse spectrogram, split/overlap processing, normalization, and
 stem writing must remain native while the real-valued neural blocks are lowered
@@ -87,70 +126,75 @@ order. Backend release jobs must additionally:
 6. reject any bundle containing a Python interpreter, `site-packages`, libtorch,
    exporter code, tests, training kernels, profilers, or model checkpoints.
 
-The production target uses Core ML programs on Apple Silicon and CUDA AOTI
-programs on NVIDIA Debian. There is no CPU fallback and no AMD distribution.
-The workspace opens only after every production graph and its native audio
-pipeline pass the bounded startup probe.
+Every promoted artifact must publish a versioned JSON report containing the
+reference and candidate revisions, result comparison and threshold, precision,
+inference time, RTF, peak RSS, load time, runtime size, PTE size, and evidence
+for the backend that actually executed. `npm run verify:executorch-qualification
+-- REPORT.json` rejects incomplete reports, failed parity, and precision other
+than FP32 or FP16. The report gate is necessary but does not replace listening
+tests for stem-separation changes.
+
+The native fallback order is GPU-only as described above.
+The selective worker is capped at 96 MiB and the complete package at 512 MiB;
+either excess fails release. The worker links only the target GPU delegates,
+Apple system frameworks where applicable, and the minimal native runtime.
+The release verifier also inspects native dependencies and rejects `libpython`,
+`libtorch`, and paths under `site-packages`. Analysis is enabled only after every required
+native graph and audio pipeline pass the bounded startup probe.
 
 ## Export audit results
 
 The following measurements use the pinned production checkpoints, ExecuTorch
-1.4.1 and PyTorch 2.14.0. They measure model programs, not the final selective
+1.4.1 and PyTorch 2.13.0. They measure model programs, not the final selective
 runtime. PTE files stay in the model cache and are not Tauri resources.
 
 | Model program | Backend | PTE size | Export/reconstruction drift |
 | --- | --- | ---: | ---: |
-| Beat This | Core ML | 41,787,877 bytes | 0 |
-| Beat This | XNNPACK | 81,343,112 bytes | 0 |
-| LV-Chordia, five chunked members | XNNPACK | 15,385,360 bytes | ≤ 3.51e-5 end-to-end |
-| HTDemucs neural core | Core ML | 109,717,922 bytes | 0 |
-| HTDemucs neural core | portable CPU | 168,275,400 bytes | 0 |
-| SCNet encoders | XNNPACK | 10,702,592 bytes | 0 |
-| SCNet dual-path blocks | portable CPU | 157,466,112 bytes | 0 |
-| SCNet decoders | XNNPACK | 16,276,928 bytes | 0 |
+| Beat This | MLX | 81,123,584 bytes | 0 |
+| LV-Chordia, 95 chunked programs | MLX | 25,972,240 bytes | ≤ 5.066e-5 end-to-end |
+| HTDemucs neural core | MLX | 168,208,896 bytes | 0 graph and split drift |
+| SCNet, 12 partitions | MLX | 172,901,912 bytes | 0 export drift |
 
-SCNet uses the portable CPU library only for its unrolled LSTM graphs. Running
-the XNNPACK partition search for those graphs takes several minutes per block
-without producing a useful runtime advantage; its convolutional encoders and
-decoders remain delegated to XNNPACK. `SONARCAN_EXECUTORCH_PARTITIONS` can
-select `encoder`, `dual-path`, `decoder`, and `mask` during targeted audits.
-
-These numbers are feasibility evidence, not a production switch. Release
-packaging remains on the existing worker until the selectively linked native
-runner and the native audio boundaries pass the end-to-end corpus and device
-gates above.
+Every program in these macOS packs is fully delegated to MLX and contains no
+portable ATen operator. These results qualify the model boundary and native
+orchestration; CUDA exports and corpus measurements remain separately required
+before Linux packages can be promoted.
 
 ## Native runtime measurement
 
-The four exported model families were loaded and executed successfully by one
-selectively linked arm64 macOS ExecuTorch runtime built from the 1.4.1 release.
-The current 89-program union contains 47 root operators. The
-reproducible portable/XNNPACK probe is 2,395,400 bytes before stripping and
-approximately 2.2 MB after stripping. The PTE programs and weights are not part of
-that number and remain first-use downloads.
+All four model families were loaded and executed successfully by one
+selectively linked arm64 macOS ExecuTorch 1.4.1 runtime. The stripped worker and
+its MLX metallib total 6,901,776 bytes. The model programs remain first-use
+downloads in two SHA-256-pinned packs: 204,178,291 bytes for chord/rhythm and
+341,114,095 bytes for stem separation. Both include the applicable model
+license notices and remain below the 512 MiB release
+limit.
 
-The measured all-ones audit inputs completed in approximately 1.7 seconds for
-Beat This, under 10 milliseconds for one LV-Chordia member, 41 seconds for one
-SCNet dual-path CPU partition, and 133 seconds for the HTDemucs neural core.
-These timings are correctness probes rather than corpus benchmarks. They show
-that the CPU path is functional without claiming it is the normal accelerated
-path.
+On the bounded native corpus, HTDemucs matched the reference probes within
+`1e-7`; its complete Rust STFT/ISTFT pipeline differed by 0.35% in aggregate
+energy and completed in 7.01 seconds. SCNet matched reference probes within
+`8e-7`, peak amplitude within `3e-7`, and aggregate energy within 0.05%. Its
+first 11-second HQ chunk took approximately 383 seconds including graph loading
+and compilation; a complete warm validation took 329.5 seconds and reached
+2,069,200,896 bytes maximum RSS in the qualification harness. This is accepted
+as the expected cost of the explicitly selected HQ profile, not hidden by a
+lower-quality model or CPU fallback. The production report must continue to
+expose this timing, memory use, and the backend used.
 
 `npm run executorch:probe` reproduces the selective native build without
 modifying the ExecuTorch checkout. It requires `SONARCAN_EXECUTORCH_SOURCE`,
 `SONARCAN_EXECUTORCH_PTE_DIR`, and a build-time Python containing ExecuTorch.
 An installation made with `pip --target` can be exposed through
 `SONARCAN_EXECUTORCH_PYTHONPATH`.
-The resulting probe is an audit executable; production packaging still waits
-for the SonArcan audio protocol and end-to-end corpus gates above.
+The resulting probe is an audit executable and does not replace the end-to-end
+corpus gates above.
 
 `npm run executorch:runtime` builds the same selective operator union into the
 production tensor worker. Its `SACTEN01` protocol accepts only bounded float32
 tensors from regular, non-symlink files and publishes outputs atomically. The
 worker contains inference only: model export and dependency installation stay
 in CI, while audio preprocessing and postprocessing remain native SonArcan
-code. Building the worker alone does not authorize switching a feature away
-from its qualified production path.
+code.
 
 The reviewed operator union is pinned in
 `tools/sonarcan-executorch-worker/operators.txt`, so platform builders do not

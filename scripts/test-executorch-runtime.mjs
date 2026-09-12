@@ -21,6 +21,7 @@ if (!modelSetting) throw new Error("Set SONARCAN_EXECUTORCH_TEST_MODEL to beat-t
 const model = resolve(modelSetting);
 const lvModelSetting = process.env.SONARCAN_EXECUTORCH_LV_TEST_MODEL;
 const lvRecurrentModelSetting = process.env.SONARCAN_EXECUTORCH_LV_RECURRENT_TEST_MODEL;
+const dynamicBeatModel = process.env.SONARCAN_EXECUTORCH_TEST_DYNAMIC !== "0";
 const temporary = mkdtempSync(join(tmpdir(), "sonarcan-executorch-test-"));
 
 function run(arguments_, expectedStatus = 0) {
@@ -63,19 +64,35 @@ function readTensor(path) {
   return dimensions;
 }
 
+function verifyMeasurements(response) {
+  for (const name of ["loadTimeMs", "inferenceTimeMs", "peakRssBytes"]) {
+    if (!Number.isFinite(response[name]) || response[name] < 0) {
+      throw new Error(`worker returned an invalid ${name} measurement`);
+    }
+  }
+}
+
 try {
-  const input = join(temporary, "beat.tensor");
-  const output = join(temporary, "output");
-  writeZeroTensor(input, [1, 1500, 128]);
-  const result = run(["infer", model, output, input]);
-  const response = JSON.parse(result.stdout.trim());
-  if (response.outputs !== 2) throw new Error(`expected 2 outputs, received ${response.outputs}`);
-  const shapes = [readTensor(join(output, "0.tensor")), readTensor(join(output, "1.tensor"))];
+  const beatRuns = [1500, ...(dynamicBeatModel ? [269] : [])].map((frames) => {
+    const input = join(temporary, `beat-${frames}.tensor`);
+    const output = join(temporary, `output-${frames}`);
+    writeZeroTensor(input, [1, frames, 128]);
+    const result = run(["infer", model, output, input]);
+    const response = JSON.parse(result.stdout.trim());
+    if (response.outputs !== 2) throw new Error(`expected 2 outputs, received ${response.outputs}`);
+    verifyMeasurements(response);
+    const shapes = [readTensor(join(output, "0.tensor")), readTensor(join(output, "1.tensor"))];
+    const expected = [[1, frames], [1, frames]];
+    if (JSON.stringify(shapes) !== JSON.stringify(expected)) {
+      throw new Error(`unexpected Beat This output shapes ${JSON.stringify(shapes)}`);
+    }
+    return { input, shapes, measurements: response };
+  });
 
   if (lvModelSetting) {
     const lvInput = join(temporary, "lv-convolution.tensor");
     const lvOutput = join(temporary, "lv-convolution-output");
-    writeZeroTensor(lvInput, [1, 1, 18, 252]);
+    writeZeroTensor(lvInput, [1, 1, 66, 252]);
     const lvResult = run([
       "infer",
       resolve(lvModelSetting),
@@ -83,11 +100,12 @@ try {
       lvInput,
     ]);
     const lvResponse = JSON.parse(lvResult.stdout.trim());
+    verifyMeasurements(lvResponse);
     if (lvResponse.outputs !== 1) {
       throw new Error(`expected one LV-Chordia output, received ${lvResponse.outputs}`);
     }
     const lvShape = readTensor(join(lvOutput, "0.tensor"));
-    if (JSON.stringify(lvShape) !== JSON.stringify([1, 16, 18, 252])) {
+    if (JSON.stringify(lvShape) !== JSON.stringify([1, 16, 66, 252])) {
       throw new Error(`unexpected LV-Chordia output shape ${JSON.stringify(lvShape)}`);
     }
   }
@@ -107,6 +125,7 @@ try {
       recurrentState,
     ]);
     const recurrentResponse = JSON.parse(recurrentResult.stdout.trim());
+    verifyMeasurements(recurrentResponse);
     if (recurrentResponse.outputs !== 3) {
       throw new Error(`expected three recurrent outputs, received ${recurrentResponse.outputs}`);
     }
@@ -120,12 +139,12 @@ try {
   }
 
   const linkedInput = join(temporary, "linked.tensor");
-  symlinkSync(input, linkedInput);
+  symlinkSync(beatRuns[0].input, linkedInput);
   run(["infer", model, join(temporary, "linked-output"), linkedInput], 1);
   const lvStatus = lvModelSetting ? " and LV-Chordia convolution inference" : "";
   const recurrentStatus = lvRecurrentModelSetting ? " and recurrent inference" : "";
   console.log(
-    `ExecuTorch Beat This inference${lvStatus}${recurrentStatus} passed with output shapes ${JSON.stringify(shapes)}`,
+    `ExecuTorch Beat This ${dynamicBeatModel ? "fixed and dynamic" : "fixed"} inference${lvStatus}${recurrentStatus} passed: ${JSON.stringify(beatRuns.map(({ shapes, measurements }) => ({ shapes, measurements })))}`,
   );
 } finally {
   rmSync(temporary, { recursive: true, force: true });

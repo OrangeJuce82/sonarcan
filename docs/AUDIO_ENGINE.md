@@ -8,7 +8,10 @@ Development builds use light optimization for SonArcan and full optimization for
 
 Chord and downbeat recognition are not part of playback or decoded-audio
 ownership. They are available only after the once-per-launch accelerator probe
-succeeds; otherwise the workspace does not open. After the selected track is ready, one supervised process runs
+succeeds; otherwise the workspace does not open. During the model-by-model
+ExecuTorch migration, Python remains a development reference only. Release
+builds never package or call it; analysis stays unavailable until the native
+`InferenceBackend` reaches full audio-corpus parity. After the selected track is ready, one supervised process runs
 LV-Chordia first and Beat This! second. This avoids simultaneous pressure on the
 same CPU or accelerator while retaining both outputs for downstream features.
 Failure of one model retains the other model's result and emits a bounded warning.
@@ -44,20 +47,21 @@ Rapid selections use monotonically increasing load generations. A slow, obsolete
 
 The real-time callback never locks or reads this cache. It only sees the selected immutable audio buffer through `ArcSwap`.
 
-## Optional cross-platform four-stem Fast and HQ modes
+## Optional four-stem Fast and HQ modes
 
 Stem mode is disabled by default and never delays ordinary track loading. After
-the startup accelerator probe succeeds, an Apple-silicon Mac starts
-`sonarcan-mlx-worker` with the pinned MLX environment. NVIDIA Debian releases
-start the pinned CUDA worker. A release whose on-device graph probe fails does
-not open the workspace and never falls back to CPU. Both worker
-implementations use one four-stem protocol and profile-specific caches.
-Release assembly copies a complete standalone CPython distribution; uv is never
-installed or executed on an end-user machine.
+the startup native probe succeeds, an Apple-silicon Mac selects MLX and Linux
+selects CUDA. A release
+whose native graph probe fails never falls back to Python/PyTorch. The native
+worker uses one four-stem contract and profile-specific caches. No interpreter,
+package manager, or scientific Python stack is installed on an end-user machine.
+Linux without a supported NVIDIA GPU is blocked before the workspace opens;
+there is no CPU audio-analysis mode.
 
-The installer contains neither checkpoint. The first-run welcome flow downloads
-both Fast HTDemucs and HQ SCNet Large by starrytong into the application-data
-model cache; the empty MIX panel still requires an explicit profile choice. The
+The installer contains no training checkpoint. The first-run welcome flow
+downloads the backend-specific HTDemucs and SCNet Large `.pte` pack into the
+application-data model cache; the empty MIX panel requires an explicit profile
+choice. The
 installer rejects symlinks, partial files, unexpected byte lengths, and any
 SHA-256 mismatch before atomically publishing
 the cache entry. The
@@ -66,9 +70,9 @@ logs, errors, and completion. Rust supervises and can terminate the child
 process, treats every event and output path as untrusted, and accepts only the
 exact vocals, drums, bass, other contract.
 
-Fast runs the official HTDemucs four-source graph with 25% overlap and no random
-shift. HQ runs SCNet Large with 485,100-sample windows and four-way overlap-add
-(`num_overlap = 4`). Torch inference mode removes autograd bookkeeping. Phase timings
+Fast runs the HTDemucs four-source graph with 25% overlap and no random shift.
+HQ runs SCNet Large with 485,100-sample windows and four-way overlap-add
+(`num_overlap = 4`). Phase timings
 are logged independently so further optimization must be supported by measured
 model-load, decode, inference, and write results.
 
@@ -79,8 +83,7 @@ practice state. On a later selection, original playback becomes available first;
 the UI then checks the profile caches without starting inference and activates the
 last selected valid cache in the background. If it is unavailable, HQ is preferred
 over Fast, and no separation is started automatically. Stem gain, pan, mute, solo,
-and display names remain one per-track mix shared by both profiles rather than
-separate settings for each model.
+and display names remain one per-track mix shared by both profiles.
 
 Once the cache is valid, the selected track's four stems can be exported from the
 mixer header. WAV export streams the cached float PCM into lossless 32-bit float
@@ -132,9 +135,9 @@ the system-information service only for the CPU and memory fields used by the
 interface; the platform-specific GPU sample remains separate.
 
 Python, uv, worker dependencies, inference source revision, checkpoint URL,
-size, SHA-256, and model revision are pinned in the worker projects, the shared
-runtime project, and `stem_contract.rs`. Updating any of them requires
-regenerating the lockfiles and runtime, changing the cache revision when output
+size, SHA-256, and model revision are pinned in development exporter projects
+and `stem_contract.rs`. Updating any of them requires regenerating the
+development lockfiles and native programs, changing the cache revision when output
 compatibility changes, and repeating separation parity and performance tests.
 The upstream checkpoint is an ordinary tensor state dictionary and is loaded
 with `weights_only=True`; executable pickle loading is not permitted.

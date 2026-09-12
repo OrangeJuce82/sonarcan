@@ -24,6 +24,10 @@ where = ["src"]
 
 [tool.uv]
 required-version = "==0.9.26"
+environments = [
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+]
 no-build-isolation-package = ["madmom"]
 
 [[tool.uv.dependency-metadata]]

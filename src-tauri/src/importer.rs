@@ -22,7 +22,7 @@ use crate::{
     error::AppError,
     ffmpeg,
     preferences::{ConversionFormat, PreferencesStore, UserPreferences},
-    project, python_runtime,
+    project, resource_paths,
 };
 
 const YOUTUBE_OUTPUT_TEMPLATE: &str = "%(playlist_index&{} - |)s%(title).180B.%(ext)s";
@@ -1122,7 +1122,7 @@ fn normalized_url_key(input: &str) -> String {
 
 pub(crate) fn ytdlp_command() -> Result<YtDlpCommand, AppError> {
     let bundled_name = "ytdlp-search/yt-dlp";
-    if let Some(executable) = python_runtime::resource_path(bundled_name) {
+    if let Some(executable) = resource_paths::resource_path(bundled_name) {
         if is_executable_file(&executable) {
             return Ok(YtDlpCommand {
                 executable,

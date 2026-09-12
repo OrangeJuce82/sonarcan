@@ -16,11 +16,25 @@ dependency gate with `npm run security` only when adding a new library or packag
 Use focused validation for trust-boundary changes. See `CONTRIBUTING.md` and
 `SECURITY.md` for the exact policy.
 
-`npm run quality` is the single complete gate and includes the MLX, Torch, and
-chord-worker contract suites plus all shared application checks. Cross-platform
-CI also runs `quality:shared` on builds without a qualified GPU backend, which
-exercises the simplified-mode native contract without requiring accelerator
-hardware.
+`npm run quality` is the single complete gate. It verifies the native-only
+release boundary, checks and tests the Svelte/TypeScript application, builds the
+frontend, and formats, lints, and tests Rust. These checks do not install or
+execute a Python inference runtime.
+
+## Supported development targets
+
+The application has no reduced or CPU inference mode. A complete development
+run requires either Apple Silicon with its integrated Apple GPU, or Linux
+x86_64/arm64 with a supported NVIDIA GPU, proprietary driver, and compatible
+CUDA runtime. Unsupported hardware remains on the same blocking startup screen
+as a release build.
+
+Python and PyTorch are permitted only in a separate model-export environment.
+Set `SONARCAN_EXECUTORCH_PYTHON` to that environment when running the
+`executorch:audit`, `executorch:probe`, or `executorch:runtime` tooling. The
+resulting backend-specific `.pte` files are qualified against the reference
+implementation before release; neither the interpreter nor PyTorch may be
+copied into application resources.
 
 ## Debugging workflow
 

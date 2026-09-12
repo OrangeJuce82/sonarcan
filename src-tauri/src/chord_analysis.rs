@@ -2,36 +2,38 @@
 
 use std::{
     fs,
-    io::{self, Read, Write},
+    io::Write,
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
-    },
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
+use tracing::info;
 use uuid::Uuid;
 
-#[cfg(not(debug_assertions))]
-use crate::python_runtime;
 use crate::{
+    audio_engine::decode_stem_file,
+    beat_inference,
+    beat_preprocessing::mono_22050,
     chord_contract::{ChordAnalysis, WorkerAnalysis},
     error::AppError,
+    inference_backend::{preferred_backends, select_first_available, InferenceBackend},
+    lv_cqt::{estimate_tuning_36, hybrid_cqt_22050},
+    lv_decoder, lv_inference, model_install, resource_paths,
 };
 
 const CACHE_VERSION: u32 = 15;
-const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
-const MAX_STDERR_BYTES: usize = 32 * 1024;
 const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024;
+const BACKEND_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+const LV_MODEL_VERSION: &str = "lv-chordia@9d7de7bbf45efa6731ec8dc62d35280f141c0702";
+const BEAT_MODEL_VERSION: &str = "beat-this@1.1.0:final0";
 
 #[derive(Default)]
 pub struct ChordAnalysisService {
     generation: AtomicU64,
-    child: Mutex<Option<Arc<Mutex<Child>>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,11 +45,6 @@ struct CacheEnvelope {
     analysis: ChordAnalysis,
 }
 
-struct WorkerCommand {
-    executable: PathBuf,
-    prefix_arguments: Vec<String>,
-}
-
 impl ChordAnalysisService {
     pub fn begin(&self) -> u64 {
         self.cancel();
@@ -56,13 +53,6 @@ impl ChordAnalysisService {
 
     pub fn cancel(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
-        if let Ok(mut slot) = self.child.lock() {
-            if let Some(child) = slot.take() {
-                if let Ok(mut child) = child.lock() {
-                    let _ = child.kill();
-                }
-            }
-        }
     }
 
     pub fn analyze(
@@ -79,64 +69,7 @@ impl ChordAnalysisService {
             return Ok(cached);
         }
 
-        let worker = resolve_worker(app)?;
-        let downbeat_model = resolve_downbeat_model(app)?;
-        let mut child = Command::new(&worker.executable)
-            .args(&worker.prefix_arguments)
-            .arg("--downbeat-model")
-            .arg(downbeat_model)
-            .arg(media_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not start LV-Chordia worker: {error}"))
-            })?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stdout is unavailable".into()))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stderr is unavailable".into()))?;
-        let child = Arc::new(Mutex::new(child));
-        *self.child.lock().map_err(|_| {
-            AppError::ChordAnalysis("analysis process state is unavailable".into())
-        })? = Some(Arc::clone(&child));
-
-        let stdout_reader = std::thread::spawn(move || read_bounded(stdout, MAX_STDOUT_BYTES));
-        let stderr_reader = std::thread::spawn(move || read_bounded(stderr, MAX_STDERR_BYTES));
-        let status = wait_for_child(&child)?;
-        clear_child(&self.child, &child);
-        let stdout = stdout_reader
-            .join()
-            .map_err(|_| AppError::ChordAnalysis("LV-Chordia stdout reader failed".into()))?
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not read LV-Chordia stdout: {error}"))
-            })?;
-        let stderr = stderr_reader
-            .join()
-            .map_err(|_| AppError::ChordAnalysis("LV-Chordia stderr reader failed".into()))?
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not read LV-Chordia stderr: {error}"))
-            })?;
-        ensure_current(&self.generation, generation)?;
-        if !status.success() {
-            return Err(AppError::ChordAnalysis(format!(
-                "LV-Chordia failed: {}",
-                String::from_utf8_lossy(&stderr.bytes).trim()
-            )));
-        }
-        if stdout.exceeded {
-            return Err(AppError::ChordAnalysis(
-                "LV-Chordia output exceeded 8 MiB".into(),
-            ));
-        }
-        let worker: WorkerAnalysis = serde_json::from_slice(&stdout.bytes).map_err(|error| {
-            AppError::ChordAnalysis(format!("invalid LV-Chordia JSON: {error}"))
-        })?;
+        let worker = native_analyze(app, media_path)?;
         let analysis = worker.validate(track_id, CACHE_VERSION)?;
         ensure_current(&self.generation, generation)?;
         if analysis.warnings.is_empty() {
@@ -146,142 +79,160 @@ impl ChordAnalysisService {
     }
 }
 
-struct BoundedOutput {
-    bytes: Vec<u8>,
-    exceeded: bool,
-}
-
-fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<BoundedOutput> {
-    let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
-    let mut exceeded = false;
-    let mut buffer = [0_u8; 8 * 1024];
-    loop {
-        let count = reader.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        let remaining = limit.saturating_sub(bytes.len());
-        bytes.extend_from_slice(&buffer[..count.min(remaining)]);
-        exceeded |= count > remaining;
-    }
-    Ok(BoundedOutput { bytes, exceeded })
-}
-
-fn clear_child(slot: &Mutex<Option<Arc<Mutex<Child>>>>, completed: &Arc<Mutex<Child>>) {
-    if let Ok(mut slot) = slot.lock() {
-        if slot
-            .as_ref()
-            .is_some_and(|active| Arc::ptr_eq(active, completed))
-        {
-            *slot = None;
-        }
-    }
-}
-
-fn wait_for_child(child: &Arc<Mutex<Child>>) -> Result<std::process::ExitStatus, AppError> {
-    loop {
-        let status = child
-            .lock()
-            .map_err(|_| AppError::ChordAnalysis("analysis process state is unavailable".into()))?
-            .try_wait()
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not wait for LV-Chordia: {error}"))
-            })?;
-        if let Some(status) = status {
-            return Ok(status);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
-}
-
 fn ensure_current(active: &AtomicU64, generation: u64) -> Result<(), AppError> {
     (active.load(Ordering::Acquire) == generation)
         .then_some(())
         .ok_or_else(|| AppError::ChordAnalysis("chord analysis was cancelled or superseded".into()))
 }
 
-fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
-    #[cfg(debug_assertions)]
-    {
-        let _ = app;
-        Ok(development_worker())
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = app;
-        if let Some(executable) = python_runtime::bundled_python_313() {
-            return Ok(WorkerCommand {
-                executable,
-                prefix_arguments: vec!["-m".into(), "sonarcan_chord_worker.worker".into()],
-            });
-        }
-        Err(AppError::ChordAnalysis(
-            "the bundled LV-Chordia runtime is unavailable".into(),
-        ))
-    }
+fn native_analyze(app: &AppHandle, media_path: &Path) -> Result<WorkerAnalysis, AppError> {
+    let started = Instant::now();
+    let worker = resolve_worker()?;
+    let decoded = decode_stem_file(media_path)?;
+    let duration = Duration::from_secs_f64(decoded.frames as f64 / f64::from(decoded.sample_rate));
+    let mono = mono_22050(&decoded.samples, decoded.channels, decoded.sample_rate)?;
+    let beat_spectrogram = crate::beat_preprocessing::log_mel_22050(&mono)?;
+    let priorities = preferred_backends(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"),
+    );
+    let beat_programs = model_install::beat_programs(
+        app,
+        beat_spectrogram.frames >= beat_inference::RETAINED_FRAMES,
+    )?;
+    let beat_backend =
+        select_first_available(&worker, &priorities, &beat_programs, BACKEND_PROBE_TIMEOUT)?;
+    let scratch = ScratchDirectory::new(app)?;
+    let rhythm = beat_inference::infer_fixed_windows(
+        &beat_backend.backend,
+        &beat_backend.program,
+        &beat_spectrogram,
+        &scratch.path,
+        duration,
+    )?;
+
+    let tuning = estimate_tuning_36(&mono)?;
+    let cqt = hybrid_cqt_22050(&mono, &model_install::lv_cqt_kernel(app, tuning)?)?;
+    let lv_programs = model_install::lv_program_roots(app)?;
+    let lv_backend =
+        select_first_available(&worker, &priorities, &lv_programs, BACKEND_PROBE_TIMEOUT)?;
+    let lv_root = model_install::lv_program_root(app, lv_backend.backend.kind())?;
+    let ensemble =
+        lv_inference::infer_ensemble(&lv_backend.backend, &lv_root, &cqt, &scratch.path, duration)?;
+    let modes = lv_decoder::decode_modes(&ensemble.probabilities, ensemble.frames)?;
+    let beat_inference_ms = rhythm
+        .measurements
+        .iter()
+        .map(|measurement| measurement.inference_time_ms)
+        .sum::<f64>();
+    let chord_inference_ms = ensemble
+        .measurements
+        .iter()
+        .map(|measurement| measurement.inference_time_ms)
+        .sum::<f64>();
+    info!(
+        beat_backend = beat_backend.backend.kind().label(),
+        chord_backend = lv_backend.backend.kind().label(),
+        beat_inference_ms,
+        chord_inference_ms,
+        wall_time_ms = started.elapsed().as_secs_f64() * 1_000.0,
+        tuning,
+        "native chord and rhythm analysis completed"
+    );
+    Ok(WorkerAnalysis::native(
+        LV_MODEL_VERSION.into(),
+        BEAT_MODEL_VERSION.into(),
+        rhythm.timeline.bpm,
+        rhythm.timeline.beats,
+        rhythm.timeline.downbeats,
+        rhythm.dbn_timeline.bpm,
+        rhythm.dbn_timeline.beats,
+        rhythm.dbn_timeline.downbeats,
+        modes,
+    ))
 }
 
-fn resolve_downbeat_model(app: &AppHandle) -> Result<PathBuf, AppError> {
-    let path = crate::model_install::beat_this_path(app)?;
-    path.is_file().then_some(path).ok_or_else(|| {
-        AppError::ChordAnalysis("the verified Beat This! model is not installed".into())
-    })
-}
-
-pub fn accelerator_self_test(app: &AppHandle) -> bool {
-    {
-        let Ok(worker) = resolve_worker(app) else {
-            return false;
-        };
-        let Ok(downbeat_model) = resolve_downbeat_model(app) else {
-            return false;
-        };
-        let Ok(mut child) = Command::new(&worker.executable)
-            .args(&worker.prefix_arguments)
-            .arg("--accelerator-self-test")
-            .arg("--downbeat-model")
-            .arg(downbeat_model)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        else {
-            return false;
-        };
-        let started = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => return status.success(),
-                Ok(None) if started.elapsed() < Duration::from_secs(30) => {
-                    std::thread::sleep(Duration::from_millis(25));
-                }
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return false;
-                }
+fn resolve_worker() -> Result<PathBuf, AppError> {
+    let path = resource_paths::resource_path("executorch-runtime/sonarcan-executorch-worker")
+        .or_else(|| {
+            #[cfg(debug_assertions)]
+            {
+                Some(
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("resources/executorch-runtime/sonarcan-executorch-worker"),
+                )
             }
+            #[cfg(not(debug_assertions))]
+            {
+                None
+            }
+        })
+        .ok_or_else(|| AppError::ChordAnalysis("ExecuTorch worker path is unavailable".into()))?;
+    let metadata = fs::symlink_metadata(&path).map_err(|error| AppError::io(&path, error))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(AppError::ChordAnalysis(
+            "ExecuTorch worker is not a regular file".into(),
+        ));
+    }
+    Ok(path)
+}
+
+pub fn accelerator_self_test(_app: &AppHandle) -> bool {
+    let Ok(worker) = resolve_worker() else {
+        return false;
+    };
+    let Ok(output) = Command::new(worker).arg("--backends").output() else {
+        return false;
+    };
+    let Ok(backends) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return backends.get("MLXBackend").and_then(|value| value.as_bool()) == Some(true);
+    }
+    if cfg!(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )) {
+        return backends
+            .get("CudaBackend")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+            && Command::new("nvidia-smi")
+                .arg("-L")
+                .output()
+                .is_ok_and(|probe| probe.status.success() && !probe.stdout.is_empty());
+    }
+    false
+}
+
+struct ScratchDirectory {
+    path: PathBuf,
+}
+
+impl ScratchDirectory {
+    fn new(app: &AppHandle) -> Result<Self, AppError> {
+        let root = model_install::native_model_root(app)?.join(".scratch");
+        fs::create_dir_all(&root).map_err(|error| AppError::io(&root, error))?;
+        let metadata = fs::symlink_metadata(&root).map_err(|error| AppError::io(&root, error))?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(AppError::ChordAnalysis(
+                "native inference scratch root is invalid".into(),
+            ));
         }
+        let path = root.join(Uuid::new_v4().to_string());
+        fs::create_dir(&path).map_err(|error| AppError::io(&path, error))?;
+        Ok(Self { path })
     }
 }
 
-#[cfg(debug_assertions)]
-fn development_worker() -> WorkerCommand {
-    let project = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
-        .join("tools/sonarcan-chord-worker");
-    WorkerCommand {
-        executable: PathBuf::from("uv"),
-        prefix_arguments: vec![
-            "run".into(),
-            "--project".into(),
-            project.to_string_lossy().into_owned(),
-            "--locked".into(),
-            "python".into(),
-            "-m".into(),
-            "sonarcan_chord_worker.worker".into(),
-        ],
+impl Drop for ScratchDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
     }
 }
 
@@ -312,7 +263,7 @@ fn load_cached(
     }
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(AppError::io(path, error)),
     };
     let Some(cached) = serde_json::from_slice::<CacheEnvelope>(&bytes).ok() else {
@@ -426,17 +377,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn development_uses_the_current_source_worker() {
-        let worker = development_worker();
-        assert_eq!(worker.executable, PathBuf::from("uv"));
-        assert!(worker
-            .prefix_arguments
-            .windows(2)
-            .any(|arguments| arguments[0] == "--project"
-                && arguments[1].ends_with("tools/sonarcan-chord-worker")));
-    }
-
     #[cfg(unix)]
     #[test]
     fn rejects_a_chord_cache_symlinked_outside_the_project() {
@@ -448,12 +388,5 @@ mod tests {
             cache_path(project.path(), Uuid::new_v4()),
             Err(AppError::AnalysisCacheOutsideProject(_))
         ));
-    }
-
-    #[test]
-    fn bounded_reader_drains_but_retains_only_the_limit() {
-        let output = read_bounded(&b"abcdef"[..], 4).unwrap();
-        assert_eq!(output.bytes, b"abcd");
-        assert!(output.exceeded);
     }
 }

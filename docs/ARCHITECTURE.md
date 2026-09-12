@@ -1,8 +1,8 @@
 # Architecture
 
 The native inference migration and its release gates are specified in
-[`EXECUTORCH_RUNTIME.md`](EXECUTORCH_RUNTIME.md). Until a feature satisfies
-those gates, its existing qualified worker remains the production path.
+[`EXECUTORCH_RUNTIME.md`](EXECUTORCH_RUNTIME.md). Release builds never package
+or call a Python/PyTorch worker; an unqualified native feature remains disabled.
 
 ## Principles
 
@@ -16,10 +16,18 @@ Tauri boundary
 Rust application services
    ├── project domain
    ├── audio engine
-   ├── analysis workers
-   ├── model workers
+   ├── native DSP and analysis orchestration
+   ├── InferenceBackend
+   │    └── minimal ExecuTorch worker
    └── diagnostics
 ```
+
+The supported deployment targets are Apple-silicon macOS and NVIDIA-equipped
+Linux on x86_64 or arm64. Backend-specific PTE programs are selected behind the
+Rust `InferenceBackend` boundary. macOS uses MLX. Linux
+uses CUDA exclusively. There is no CPU inference fallback. A selected backend
+becomes an advertised backend only
+after its PTE and complete native audio pipeline pass the qualification gate.
 
 The Rust core must remain usable and testable without a webview. UI commands validate input, call a core service, and serialize a result. Business rules do not belong in Tauri command handlers or Svelte components.
 
@@ -43,7 +51,8 @@ The frontend uses TypeScript interfaces matching serialized Rust DTOs. Commands 
 
 Raw audio buffers and full-resolution waveform data must not cross the JSON IPC boundary. The UI receives bounded visualization data, metadata, or references to cached artifacts.
 
-Timed chord analysis follows the same boundary through a pinned Python worker.
+Timed chord analysis keeps the same bounded contract. Python may execute it in
+development parity tests, but production reaches only native ExecuTorch code.
 The worker reads the canonical original media, runs the learned LV-Chordia
 five-model ensemble, and emits three bounded timed-label sequences using the
 official `ismir2017`, `submission`, and `full` dictionary decodes. A separate
@@ -74,11 +83,10 @@ cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
 The complete application is capability-gated once per launch. On the first qualified launch,
-SonArcan installs the pinned SCNet-large, HTDemucs, and Beat This! checkpoints sequentially
+SonArcan installs backend-specific SCNet-large, HTDemucs, Beat This!, and LV-Chordia PTE programs sequentially
 into the application-data cache, verifies their sizes and SHA-256 digests, and reports bounded
 progress while the welcome screen remains responsive. Interrupted downloads use adjacent
-temporary files and resume as a clean retry; subsequent launches verify the cache. LV-Chordia's
-five pinned weights remain part of the shared runtime and are verified in the same startup flow.
+temporary files and resume as a clean retry; subsequent launches verify the cache.
 Installation never constructs an inference model or keeps weights resident in memory.
 SonArcan enables
 Beat This!, LV-Chordia, and four-stem separation only after the platform backend
@@ -88,12 +96,14 @@ timeouts, missing drivers, unavailable devices, and silent CPU fallback. Rust
 keeps the result as session state and rejects workspace initialization when the
 probe has not succeeded. The startup screen then presents a retryable, blocking
 incompatibility error; there is no reduced interface.
-The startup probe runs before model preparation, project initialization, or
-checkpoint download. Debian release builds pin `SONARCAN_GPU_BACKEND` to
-`nvidia`; source builds without that qualification cannot accidentally expose a
-partially functional application. Apple Silicon targets Core ML and NVIDIA
-Debian targets CUDA. Both packages execute every required production probe on
-the end-user accelerator before Rust opens the application gate.
+The startup probe runs before model preparation or project initialization.
+Apple Silicon uses MLX. Linux requires its CUDA module and a
+working NVIDIA device; otherwise the blocking startup screen remains visible.
+The launch-time gate verifies the required device, driver, and registered
+delegate before model preparation or project initialization. Model packs are
+then size- and SHA-256-verified before Rust opens the application gate. Complete
+model-graph execution belongs to release qualification on representative GPU
+hardware rather than being repeated during every application launch.
 
 In qualified GPU mode, the analysis workspace first places the chord grid beside a
 multi-view harmony panel using a 40/60 split. Beneath it, the four-stem mixer sits
@@ -339,7 +349,7 @@ than one notification per track.
 The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
 
 The header resource indicator measures system-wide CPU and used physical memory,
-so Python inference descendants and media tools remain included regardless of
+so native inference descendants and media tools remain included regardless of
 their process topology. GPU utilization comes from the platform driver (Apple AGX,
 or `nvidia-smi`); all three meters therefore represent machine-wide pressure.
 For RAM, the detail also reports the used amount in megabytes. Unsupported or
@@ -347,24 +357,18 @@ unavailable GPU telemetry is shown as unavailable rather than estimated. Samplin
 stays outside the audio callback.
 
 Four-stem inference is an implementation detail behind one Rust stem service.
-After the startup capability probe succeeds, Apple Silicon selects its native
-Apple backend and NVIDIA Debian selects CUDA. CPU-only analysis is not an
-accepted user experience, so a failed accelerator probe closes the application
-gate. Workers receive only canonical project media/model paths
+After the startup capability probe succeeds, Apple Silicon selects a native
+GPU backend per model and Linux selects CUDA. Workers receive only canonical project media/model paths
 through direct argument arrays and return the same bounded NDJSON protocol.
-Both expose Fast HTDemucs and HQ SCNet Large by starrytong behind the same four-output
+New separation jobs expose Fast HTDemucs and HQ SCNet Large by starrytong through the four-output
 contract. No profile is preselected or stored as a user preference. On first
-use, the worker downloads the selected upstream checkpoint into the shared
-application-data model cache, then accepts it only when its exact byte length
-and full SHA-256 match the pinned contract. Checkpoints use Torch's tensor-only
-loader; Apple Silicon converts HTDemucs once to a safe MLX cache. Raw
-audio never crosses Tauri IPC. Release builds resolve one target-native,
-preassembled Python 3.13 runtime and never install packages on the user's
-machine. It contains the chord/downbeat worker and exactly one stem backend,
-but not either stem checkpoint, so
-CPython, NumPy, SciPy, and PyTorch are not duplicated.
+use, the worker installs a backend-specific `.pte` into the application-data
+model cache, then accepts it only when its exact byte length and full SHA-256
+match the pinned contract. Raw audio never crosses Tauri IPC. Release builds
+contain one selectively linked native worker and never install CPython, NumPy,
+SciPy, PyTorch, or a package manager on the user's machine.
 
-The stem mixer persists its four display names and control state in each track. Its header switch changes an atomic Rust bypass while retaining the immutable decoded stem buffers. Reset deletes both per-profile caches for the selected track, restores neutral controls, and returns the UI to the two explicit model choices. The WebView receives only four bounded peak scalars and bounded progress/ETA state; it never receives stem audio.
+The stem mixer persists its four display names and control state in each track. Its header switch changes an atomic Rust bypass while retaining the immutable decoded stem buffers. Reset deletes both profile caches for the selected track, restores neutral controls, and returns the UI to the two explicit model choices. The WebView receives only four bounded peak scalars and bounded progress/ETA state; it never receives stem audio.
 
 ## Import pipeline
 
@@ -409,7 +413,7 @@ and publishes each group's candidates as soon as that query finishes. A failed
 query remains isolated in its group and does not hide completed results or stop
 later searches.
 
-Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Public remote media supported by `yt-dlp`, including YouTube, SoundCloud, Bandcamp, and Mixcloud URLs, is extracted directly into the selected final audio format, avoiding a second conversion pass. Authenticated, live, and upcoming content is intentionally excluded. Bounded clean info JSON is retained only inside the temporary download directory long enough to turn provider chapters into persisted source markers, then deleted with the staging directory. Text search offers the two native, reliable yt-dlp engines in scope: YouTube and SoundCloud; Bandcamp and Mixcloud remain direct-link providers. Every recognized provider candidate carries a bounded source URL and provider identity so the frontend can render its local logo and ask Rust to open only an allowlisted HTTPS provider URL. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.13 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
+Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Public remote media supported by `yt-dlp`, including YouTube, SoundCloud, Bandcamp, and Mixcloud URLs, is extracted directly into the selected final audio format, avoiding a second conversion pass. Authenticated, live, and upcoming content is intentionally excluded. Bounded clean info JSON is retained only inside the temporary download directory long enough to turn provider chapters into persisted source markers, then deleted with the staging directory. Text search offers the two native, reliable yt-dlp engines in scope: YouTube and SoundCloud; Bandcamp and Mixcloud remain direct-link providers. Every recognized provider candidate carries a bounded source URL and provider identity so the frontend can render its local logo and ask Rust to open only an allowlisted HTTPS provider URL. Search and download use the pinned standalone `yt-dlp` artifact; it is independent of the removed inference interpreter. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
 
 On the August 30, 2026 Apple-silicon benchmark, the former 35 MiB standalone
 macOS executable took 8.85 seconds for `--version` and 9.62 seconds for a

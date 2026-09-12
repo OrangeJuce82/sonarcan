@@ -37,6 +37,8 @@ pub enum AppError {
     StemSeparation(String),
     #[error("chord analysis error: {0}")]
     ChordAnalysis(String),
+    #[error("native inference error: {0}")]
+    NativeInference(String),
     #[error("the selected file does not exist: {0}")]
     MissingSource(PathBuf),
     #[error("the path is not a SonArcan project package: {0}")]

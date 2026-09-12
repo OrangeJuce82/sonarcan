@@ -66,19 +66,18 @@ Review deadline: **2026-11-30**.
   A reachable memory-safety or code-execution advisory blocks Linux releases.
 - Tauri's `urlpattern` graph carries five unmaintained `unic` crates.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
-- PyTorch no longer publishes current Intel macOS wheels, while LV-Chordia
-  requires Torch 2.13 or newer. Intel macOS release bundles are therefore not
-  currently published. Debian GPU releases target NVIDIA CUDA. AMD, Windows,
-  and Intel GPU builds are not produced.
+- Intel macOS release bundles are not published. The supported native targets
+  are Apple-silicon macOS and NVIDIA-equipped Linux x86_64/arm64. Linux has no
+  CPU, AMD, Intel-GPU, Python, or PyTorch fallback.
 
 These are maintenance advisories, not permission to ignore a vulnerability.
 Any advisory reporting memory safety, code execution, path escape, data loss, or
 denial of service in a reachable supported-target path blocks release.
 
-The MLX and portable Torch workers, Python interpreters, packages, and shared
-model are fixed release inputs. Release assembly validates each target lockfile
-and model checksum; the application does not install uv or resolve Python
-packages at runtime. Linux and Windows FFmpeg archives are accepted only after
+Python/PyTorch/MLX export environments are development inputs only and cannot
+be included in a release. Release assembly validates each native runtime and
+model checksum; the application does not install uv or resolve Python packages
+at runtime. Linux FFmpeg archives are accepted only after
 validating a checksum manifest whose own SHA-256 is pinned in source. Dependency
 and model updates require a fresh audit and regenerated release resources.
 

@@ -3,8 +3,7 @@
 SonArcan exposes two optional four-channel separation profiles behind the same
 practice mixer:
 
-- **Fast** uses the official HTDemucs four-source model with 25% overlap and no
-  random shift;
+- **Fast** uses HTDemucs with 25% overlap and no random shift;
 - **HQ** uses SCNet Large by starrytong with four-way overlap-add.
 
 Apple Silicon executes both profiles on the Apple GPU. NVIDIA Debian packages
@@ -15,8 +14,8 @@ workspace; CPU-only separation is not a supported user experience.
 
 1. An empty MIX panel presents Fast and HQ as two explicit buttons. There is no
    preselection and no separation profile in user preferences.
-2. The first launch with a qualified GPU backend downloads both verified checkpoints.
-   Choosing a profile later prepares the platform graph, then separates vocals,
+2. The first launch with a qualified GPU backend downloads the verified native
+   model pack. Choosing a profile later prepares its graph, then separates vocals,
    drums, bass, and other.
 3. The first-run screen covers downloads and verification. The mixer progress bar covers model preparation, audio loading,
    inference, writing, validation, and caching. The UI displays a continuously
@@ -25,7 +24,7 @@ workspace; CPU-only separation is not a supported user experience.
    unmodified source/profile loads its project cache.
 5. The header switch bypasses the ready mix without unloading it. The header
    Reset action deletes every generated profile for the selected track, resets
-   gain/pan/mute/solo, and shows the two model buttons again.
+   gain/pan/mute/solo, and shows both model buttons again.
 
 The mixer presents vocals, drums, bass, then other. Each channel provides gain,
 pan, a bounded peak meter, mute, solo, a fixed identifying color, and an
@@ -34,31 +33,22 @@ remain global and are applied after stem summing.
 
 ## Model cache and integrity
 
-Checkpoints are not embedded in the installer. The first-run model installation downloads them before opening the workspace. Tauri's
-application-data directory contains `models/stem-separation/`, with
-`htdemucs-v4/` and `scnet-large-starrytong-v1.0.9/` below it. This resolves to:
+Checkpoints are not embedded in the installer. The first-run model installation
+downloads a backend-specific `.pte` pack before opening the workspace. Tauri's
+application-data directory stores it under `models/executorch/stem-separation/`.
+This resolves below:
 
 - macOS: `~/Library/Application Support/music.sonarcan.desktop/`;
 - Debian: `~/.local/share/music.sonarcan.desktop/`.
 
 Downloads use an adjacent temporary file, exact byte length and full SHA-256,
-then atomic rename. Cached checkpoints are checked before every load. Symlinks,
-partial files, and modified files are rejected. Torch checkpoint loading uses
-`weights_only=True` and a bounded allowlist; no unrestricted pickle fallback is
-used.
+then bounded extraction and atomic rename. Every contained file has its own
+SHA-256 and is checked before the pack is published. Symlinks, partial files,
+path traversal, modified files, and packs above 512 MiB are rejected.
 
-Fast uses the official Demucs artifact:
-
-- URL: `https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th`;
-- exact size: 84,141,911 bytes;
-- SHA-256: `8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4`.
-
-On Apple Silicon, the verified Torch artifact is converted once to the safe MLX
-safetensors cache. Other supported systems load the same verified weights in
-Torch. No unofficial GitHub mirror is used because the upstream weight
-redistribution terms have not been established.
-
-HQ uses SCNet Large by starrytong from the v1.0.9 GitHub release:
+The development exporters use the pinned HTDemucs and SCNet checkpoints only to
+produce and compare backend-specific `.pte` programs. SCNet Large by starrytong
+comes from the v1.0.9 GitHub release:
 
 - URL: `https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.9/SCNet-large_starrytong_fixed.ckpt`;
 - exact size: 168,852,258 bytes;
@@ -69,9 +59,8 @@ HQ uses SCNet Large by starrytong from the v1.0.9 GitHub release:
 SCNet's author publicly confirmed that the SCNet and SCNet-large pretrained
 weights use the repository's MIT license and may be redistributed, including
 converted weights, with attribution:
-`https://github.com/starrytong/SCNet/issues/35`. HTDemucs weight terms remain a
-separate release-review item; SonArcan downloads those weights from the official
-publisher rather than redistributing them.
+`https://github.com/starrytong/SCNet/issues/35`. The native model pack preserves
+the applicable MIT notices and provenance for both model families.
 
 ## Runtime and project caches
 
@@ -79,7 +68,7 @@ The release target is a selective native runtime with no bundled Python
 interpreter, PyTorch installation, or `site-packages`. Export tooling remains a
 build-time dependency only.
 
-Project results are independent per profile:
+Project results are independent per profile under
 `Stems/<track-id>/<fast|hq>/`. Each cache manifest fingerprints the source size,
 nanosecond modification time, cache format, and exact profile revision. Rust
 owns cache validation, decoded buffers, real-time mixing, and deletion. The
@@ -89,17 +78,13 @@ locking, or IPC.
 
 ## Performance qualification
 
-On 7 September 2026, SCNet Large was measured on a 16 GB MacBook Air M3 with a
-15-second synthetic 44.1 kHz stereo file. MLX batch 1 took 56.95 s for inference
-and 68.22 s end to end. Batch 2 took 30.30 s for inference and 41.69 s end to
-end, while producing all four valid stems. Batch 4 exhausted Metal memory on
-GitHub's `macos-15` Apple Silicon release runner. The shared SCNet plan is
-therefore batch 2 on MLX and CUDA; MLX also materializes overlap-add and
-clears unused allocations between forwards. Representative full-song
-benchmarks are still required on every supported accelerator.
-
-The HTDemucs Fast protocol has been exercised end-to-end with both its MLX and
-Torch paths, including safe loading and four output files. Representative
-full-song cold/warm benchmarks are still required on every supported
-accelerator. These figures are regression baselines, not universal speed
-promises.
+On 12 September 2026, the final arm64 ExecuTorch MLX worker passed the complete
+native 485,100-sample SCNet chunk. Output probes differed from the reference by
+less than `8e-7`, peak amplitude by less than `3e-7`, and aggregate energy by
+0.05%. The first compiled run took approximately 383 seconds; a warm validation
+took 329.5 seconds and reached 2,069,200,896 bytes maximum RSS in the test
+harness. SCNet is intentionally the slower HQ path. These figures are honest
+regression baselines, not universal speed promises, and no lower-quality model
+or CPU fallback hides the cost. The HTDemucs native path passed the same graph,
+split, STFT/ISTFT, and output-probe gates in 7.01 seconds on its bounded sample,
+with 0.35% aggregate energy drift from the reference.

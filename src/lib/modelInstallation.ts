@@ -55,15 +55,15 @@ const french: ModelInstallationCopy = {
 const incompatibleHardwareEnglish: ModelInstallationCopy = {
   ...english,
   title: "Incompatible hardware",
-  introduction: "SonArcan requires a qualified Apple Silicon or NVIDIA GPU environment to provide all features.",
-  failure: "The required accelerator could not execute SonArcan's complete analysis pipeline. The application cannot continue in a reduced mode.",
+  introduction: "SonArcan requires Apple Silicon, or Linux with a supported NVIDIA GPU, proprietary driver, and compatible CUDA runtime.",
+  failure: "No supported GPU runtime is available. SonArcan has no CPU mode, so the application is blocked before the workspace opens.",
 };
 
 const incompatibleHardwareFrench: ModelInstallationCopy = {
   ...french,
   title: "Matériel incompatible",
-  introduction: "SonArcan exige un environnement Apple Silicon ou NVIDIA qualifié pour fournir toutes ses fonctions.",
-  failure: "L’accélérateur requis n’a pas pu exécuter toute la chaîne d’analyse de SonArcan. L’application ne peut pas continuer en mode réduit.",
+  introduction: "SonArcan exige Apple Silicon, ou Linux avec un GPU NVIDIA pris en charge, son pilote propriétaire et un runtime CUDA compatible.",
+  failure: "Aucun runtime GPU pris en charge n’est disponible. SonArcan n’a pas de mode CPU : l’application est bloquée avant l’ouverture de l’espace de travail.",
 };
 
 export function modelInstallationCopy(language: Language, incompatibleHardware = false): ModelInstallationCopy {

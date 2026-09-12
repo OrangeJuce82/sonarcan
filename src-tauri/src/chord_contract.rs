@@ -62,6 +62,32 @@ pub struct WorkerAnalysis {
 }
 
 impl WorkerAnalysis {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn native(
+        model_version: String,
+        downbeat_model_version: String,
+        bpm: Option<f64>,
+        beats: Vec<f64>,
+        downbeats: Vec<f64>,
+        dbn_bpm: Option<f64>,
+        dbn_beats: Vec<f64>,
+        dbn_downbeats: Vec<f64>,
+        modes: BTreeMap<String, Vec<TimedChord>>,
+    ) -> Self {
+        Self {
+            model_version,
+            downbeat_model_version,
+            bpm,
+            beats,
+            downbeats,
+            dbn_bpm,
+            dbn_beats,
+            dbn_downbeats,
+            modes,
+            warnings: Vec::new(),
+        }
+    }
+
     pub fn validate(self, track_id: Uuid, cache_version: u32) -> Result<ChordAnalysis, AppError> {
         if self.model_version.len() > 96 || !self.model_version.starts_with("lv-chordia@") {
             return Err(invalid_output("invalid model version"));
