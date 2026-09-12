@@ -27,6 +27,7 @@ const defaultCudaArchitectures = process.arch === "arm64"
   : "75;80;86;89;90";
 const cudaArchitectures = process.env.SONARCAN_EXECUTORCH_CUDA_ARCHITECTURES
   ?? defaultCudaArchitectures;
+const cudaCompiler = process.env.CUDACXX ?? "/usr/local/cuda/bin/nvcc";
 const maximumRuntimeBytes = Number(
   process.env.SONARCAN_MAX_EXECUTORCH_RUNTIME_BYTES ?? 96 * 1024 * 1024,
 );
@@ -57,6 +58,9 @@ if (!Number.isSafeInteger(maximumRuntimeBytes) || maximumRuntimeBytes <= 0) {
 }
 if (cudaEnabled && !/^\d+(;\d+)*$/u.test(cudaArchitectures)) {
   throw new Error("SONARCAN_EXECUTORCH_CUDA_ARCHITECTURES must be a semicolon-separated list of numeric CUDA architectures");
+}
+if (cudaEnabled && !existsSync(cudaCompiler)) {
+  throw new Error(`Missing CUDA compiler at ${cudaCompiler}`);
 }
 
 function filesBelow(directory) {
@@ -90,6 +94,7 @@ mkdirSync(clangModuleCache, { recursive: true });
 const buildEnvironment = {
   ...process.env,
   CLANG_MODULE_CACHE_PATH: process.env.CLANG_MODULE_CACHE_PATH ?? clangModuleCache,
+  ...(cudaEnabled ? { CUDACXX: cudaCompiler } : {}),
 };
 
 let programs = [];
@@ -121,6 +126,7 @@ if (cudaEnabled) {
   // Hosted CI runners intentionally have no NVIDIA device. CMake therefore
   // cannot probe a default compute capability even though nvcc is installed.
   cmakeArguments.push(`-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}`);
+  cmakeArguments.push(`-DCMAKE_CUDA_COMPILER=${cudaCompiler}`);
 }
 if (process.env.SONARCAN_EXECUTORCH_MLX === "0") {
   cmakeArguments.push("-DSONARCAN_EXECUTORCH_ENABLE_MLX=OFF");
