@@ -1,4 +1,4 @@
-# SonArcan 0.1.4
+# SonArcan 0.1.5
 
 SonArcan now ships a native-only application contract for macOS Apple Silicon
 and Linux x86_64/arm64. Python and PyTorch remain development export tools and
@@ -62,7 +62,7 @@ Open a terminal in the download directory, then run:
 
 ```bash
 cd ~/Downloads
-version=v0.1.4
+version=v0.1.5
 sha256sum --check SHA256SUMS-Linux-x86_64-DEB.txt
 sudo apt install "./SonArcan-Linux-x86_64-${version}.deb"
 ```

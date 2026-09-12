@@ -62,7 +62,7 @@ Use the commands in `RELEASE_NOTES.md`, then test both paths:
    changed.
 3. Push `dev` and wait for every CI job to pass.
 4. Merge the exact qualified commit into `main`.
-5. Tag that commit, for example `v0.1.4`, and push the tag.
+5. Tag that commit, for example `v0.1.5`, and push the tag.
 6. Wait for every release job and inspect the draft assets and checksums.
 7. Smoke-test both supported hardware targets and rejected-hardware startup
    before manually publishing.
