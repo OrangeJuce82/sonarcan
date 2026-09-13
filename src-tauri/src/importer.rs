@@ -1207,17 +1207,9 @@ fn ensure_ytdlp() -> Result<PathBuf, AppError> {
 }
 fn platform_release() -> Result<(&'static str, &'static str), AppError> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", _) => Ok((
+        ("macos", "aarch64") => Ok((
             "yt-dlp_macos",
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos",
-        )),
-        ("linux", "aarch64") => Ok((
-            "yt-dlp_linux_aarch64",
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64",
-        )),
-        ("linux", "x86_64") => Ok((
-            "yt-dlp_linux",
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux",
         )),
         _ => Err(AppError::BackgroundTask(
             "no yt-dlp binary is available for this platform".into(),

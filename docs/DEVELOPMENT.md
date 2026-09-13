@@ -24,10 +24,8 @@ execute a Python inference runtime.
 ## Supported development targets
 
 The application has no reduced or CPU inference mode. A complete development
-run requires either Apple Silicon with its integrated Apple GPU, or Linux
-x86_64/arm64 with a supported NVIDIA GPU, proprietary driver, and compatible
-CUDA runtime. Unsupported hardware remains on the same blocking startup screen
-as a release build.
+run requires Apple Silicon with its integrated Apple GPU and macOS 14 or later.
+Unsupported hardware remains on the same blocking startup screen as a release build.
 
 Python and PyTorch are permitted only in a separate model-export environment.
 Set `SONARCAN_EXECUTORCH_PYTHON` to that environment when running the

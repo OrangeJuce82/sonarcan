@@ -52,8 +52,8 @@ test("qualification rejects quantized artifacts during the FP32 and FP16 phase",
   assert.throws(() => verifyQualification(quantized), /fp32 or fp16/u);
 });
 
-test("qualification rejects every production CPU backend", () => {
-  const cpu = qualifiedReport();
-  cpu.backendUsed = "xnnpack";
-  assert.throws(() => verifyQualification(cpu), /unsupported backendUsed/u);
+test("qualification rejects every backend other than MLX", () => {
+  const unsupported = qualifiedReport();
+  unsupported.backendUsed = "portable";
+  assert.throws(() => verifyQualification(unsupported), /unsupported backendUsed/u);
 });

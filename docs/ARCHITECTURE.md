@@ -22,10 +22,9 @@ Rust application services
    └── diagnostics
 ```
 
-The supported deployment targets are Apple-silicon macOS and NVIDIA-equipped
-Linux on x86_64 or arm64. Backend-specific PTE programs are selected behind the
-Rust `InferenceBackend` boundary. macOS uses MLX. Linux
-uses CUDA exclusively. There is no CPU inference fallback. A selected backend
+The supported deployment target is macOS on Apple Silicon. Backend-specific PTE
+programs are selected behind the Rust `InferenceBackend` boundary and execute
+through MLX. There is no CPU inference fallback. The backend
 becomes an advertised backend only
 after its PTE and complete native audio pipeline pass the qualification gate.
 
@@ -97,8 +96,7 @@ keeps the result as session state and rejects workspace initialization when the
 probe has not succeeded. The startup screen then presents a retryable, blocking
 incompatibility error; there is no reduced interface.
 The startup probe runs before model preparation or project initialization.
-Apple Silicon uses MLX. Linux requires its CUDA module and a
-working NVIDIA device; otherwise the blocking startup screen remains visible.
+Apple Silicon uses MLX; otherwise the blocking startup screen remains visible.
 The launch-time gate verifies the required device, driver, and registered
 delegate before model preparation or project initialization. Model packs are
 then size- and SHA-256-verified before Rust opens the application gate. Complete
@@ -350,15 +348,15 @@ The application console is a bounded diagnostic view, not a real-time sink. Rust
 
 The header resource indicator measures system-wide CPU and used physical memory,
 so native inference descendants and media tools remain included regardless of
-their process topology. GPU utilization comes from the platform driver (Apple AGX,
-or `nvidia-smi`); all three meters therefore represent machine-wide pressure.
+their process topology. GPU utilization comes from the Apple AGX driver; all
+three meters therefore represent machine-wide pressure.
 For RAM, the detail also reports the used amount in megabytes. Unsupported or
 unavailable GPU telemetry is shown as unavailable rather than estimated. Sampling
 stays outside the audio callback.
 
 Four-stem inference is an implementation detail behind one Rust stem service.
-After the startup capability probe succeeds, Apple Silicon selects a native
-GPU backend per model and Linux selects CUDA. Workers receive only canonical project media/model paths
+After the startup capability probe succeeds, Apple Silicon selects MLX for every
+model. Workers receive only canonical project media/model paths
 through direct argument arrays and return the same bounded NDJSON protocol.
 New separation jobs expose Fast HTDemucs and HQ SCNet Large by starrytong through the four-output
 contract. No profile is preselected or stored as a user preference. On first

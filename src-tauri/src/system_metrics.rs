@@ -54,7 +54,6 @@ fn unavailable_snapshot() -> SystemMetrics {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn gpu_snapshot() -> Option<f32> {
     let output = Command::new("ioreg")
         .args(["-r", "-d", "1", "-w", "0", "-c", "AGXAccelerator"])
@@ -67,46 +66,6 @@ fn gpu_snapshot() -> Option<f32> {
     )
 }
 
-#[cfg(target_os = "linux")]
-fn gpu_snapshot() -> Option<f32> {
-    match option_env!("SONARCAN_GPU_BACKEND") {
-        Some("nvidia") => command_output(
-            "nvidia-smi",
-            &[
-                "--query-gpu=utilization.gpu",
-                "--format=csv,noheader,nounits",
-            ],
-        )
-        .and_then(|output| parse_numeric_lines(&output)),
-        _ => None,
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn gpu_snapshot() -> Option<f32> {
-    None
-}
-
-#[cfg(target_os = "linux")]
-fn command_output(program: &str, arguments: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(arguments).output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-#[cfg(target_os = "linux")]
-fn parse_numeric_lines(output: &str) -> Option<f32> {
-    output
-        .lines()
-        .filter_map(|line| line.trim().parse::<f32>().ok())
-        .filter(|value| value.is_finite())
-        .reduce(f32::max)
-        .map(|value| value.clamp(0.0, 100.0))
-}
-
-#[cfg(any(target_os = "macos", test))]
 fn parse_values_after_key(output: &str, key: &str) -> Option<f32> {
     output
         .match_indices(key)

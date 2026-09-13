@@ -1,3 +1,6 @@
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+compile_error!("SonArcan supports only macOS Apple Silicon");
+
 mod app_log;
 mod audio;
 mod audio_engine;
@@ -69,17 +72,11 @@ struct AnalysisCapabilities {
 struct AnalysisCapabilityState(AtomicBool);
 
 fn accelerated_analysis_available() -> bool {
-    qualified_analysis_build(
-        cfg!(all(target_os = "macos", target_arch = "aarch64")),
-        cfg!(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )) && option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"),
-    )
+    qualified_analysis_build(cfg!(all(target_os = "macos", target_arch = "aarch64")))
 }
 
-fn qualified_analysis_build(apple_silicon: bool, linux_supported: bool) -> bool {
-    apple_silicon || linux_supported
+fn qualified_analysis_build(apple_silicon: bool) -> bool {
+    apple_silicon
 }
 
 fn application_qualified_after_probe(build_qualified: bool, probe_succeeded: bool) -> bool {
@@ -87,15 +84,7 @@ fn application_qualified_after_probe(build_qualified: bool, probe_succeeded: boo
 }
 
 fn accelerated_analysis_backend() -> Option<&'static str> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("ExecuTorch MLX")
-    } else {
-        (cfg!(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )) && option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"))
-        .then_some("ExecuTorch CUDA")
-    }
+    cfg!(all(target_os = "macos", target_arch = "aarch64")).then_some("ExecuTorch MLX")
 }
 
 fn require_accelerated_analysis(state: &AnalysisCapabilityState) -> Result<(), AppError> {
@@ -1129,17 +1118,14 @@ mod tests {
     fn analysis_availability_matches_the_qualified_build_backend() {
         if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
             assert!(accelerated_analysis_available());
-        } else if !cfg!(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )) {
+        } else {
             assert!(!accelerated_analysis_available());
         }
     }
 
     #[test]
     fn unsupported_build_is_rejected() {
-        assert!(!qualified_analysis_build(false, false));
+        assert!(!qualified_analysis_build(false));
 
         let capability = AnalysisCapabilityState::default();
         assert!(require_accelerated_analysis(&capability).is_err());
@@ -1147,8 +1133,7 @@ mod tests {
 
     #[test]
     fn supported_accelerator_builds_can_probe_analysis() {
-        assert!(qualified_analysis_build(true, false));
-        assert!(qualified_analysis_build(false, true));
+        assert!(qualified_analysis_build(true));
     }
 
     #[test]

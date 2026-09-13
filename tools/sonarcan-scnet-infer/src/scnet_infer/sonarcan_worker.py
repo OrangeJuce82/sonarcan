@@ -47,10 +47,8 @@ def validate_contract() -> None:
 def choose_torch_device(torch: Any) -> str:
     requested = os.environ.get("SONARCAN_TORCH_DEVICE", "auto").lower()
     available = {"cpu"}
-    if torch.cuda.is_available():
-        available.add("cuda")
     if requested == "auto":
-        return "cuda" if "cuda" in available else "cpu"
+        return "cpu"
     if requested not in available:
         raise RuntimeError(f"the requested Torch device is unavailable: {requested}")
     return requested
@@ -128,8 +126,6 @@ def separate(
     if backend == "torch":
         import torch
 
-        if torch.version.hip is not None:
-            raise RuntimeError("the qualified CUDA runtime is unavailable")
         device = choose_torch_device(torch)
 
     started = time.perf_counter()
@@ -244,30 +240,19 @@ def separate(
 
 def accelerator_self_test(backend: str) -> None:
     validate_contract()
-    if backend == "mlx":
-        import mlx.core as mx
-        import numpy as np
+    if backend != "mlx":
+        raise RuntimeError("the production accelerator self-test requires MLX")
+    import mlx.core as mx
+    import numpy as np
 
-        value = mx.matmul(mx.ones((4, 4)), mx.ones((4, 4)))
-        mx.eval(value)
-        if not np.isfinite(np.asarray(value)).all():
-            raise RuntimeError("MLX accelerator self-test produced invalid values")
-        label = "MLX"
-    else:
-        import torch
-
-        device = choose_torch_device(torch)
-        if device != "cuda":
-            raise RuntimeError("the qualified CUDA accelerator is unavailable")
-        value = torch.ones((4, 4), device=device) @ torch.ones((4, 4), device=device)
-        if not torch.isfinite(value).all().item():
-            raise RuntimeError("Torch accelerator self-test produced invalid values")
-        torch.cuda.synchronize()
-        label = "CUDA"
+    value = mx.matmul(mx.ones((4, 4)), mx.ones((4, 4)))
+    mx.eval(value)
+    if not np.isfinite(np.asarray(value)).all():
+        raise RuntimeError("MLX accelerator self-test produced invalid values")
     emit(
         "ready",
         model=MODEL_ID,
-        backend=label,
+        backend="MLX",
         accelerated=True,
         stems=list(STEM_NAMES),
     )

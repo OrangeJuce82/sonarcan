@@ -59,16 +59,10 @@ trust boundary instead.
 
 Review deadline: **2026-11-30**.
 
-- Tauri's Linux GTK3 graph carries ten unmaintained GTK binding notices and the
-  `glib 0.18` iterator advisory. The GTK path is required by Tauri's supported
-  Linux WebView and is reviewed as a maintenance risk through the deadline
-  above; none of these notices currently reports an exploitable vulnerability.
-  A reachable memory-safety or code-execution advisory blocks Linux releases.
 - Tauri's `urlpattern` graph carries five unmaintained `unic` crates.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
-- Intel macOS release bundles are not published. The supported native targets
-  are Apple-silicon macOS and NVIDIA-equipped Linux x86_64/arm64. Linux has no
-  CPU, AMD, Intel-GPU, Python, or PyTorch fallback.
+- The sole supported native target is macOS on Apple Silicon. There is no CPU,
+  Python, or PyTorch fallback.
 
 These are maintenance advisories, not permission to ignore a vulnerability.
 Any advisory reporting memory safety, code execution, path escape, data loss, or
@@ -77,9 +71,8 @@ denial of service in a reachable supported-target path blocks release.
 Python/PyTorch/MLX export environments are development inputs only and cannot
 be included in a release. Release assembly validates each native runtime and
 model checksum; the application does not install uv or resolve Python packages
-at runtime. Linux FFmpeg archives are accepted only after
-validating a checksum manifest whose own SHA-256 is pinned in source. Dependency
-and model updates require a fresh audit and regenerated release resources.
+at runtime. FFmpeg is built from pinned source revisions. Dependency and model
+updates require a fresh audit and regenerated release resources.
 
 ## Reporting and response
 

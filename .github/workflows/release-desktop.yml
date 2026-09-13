@@ -26,10 +26,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:release-version
-      - name: Verify pinned macOS/Linux FFmpeg sources
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run verify:audio-tools-source
       - name: Recreate draft release before parallel uploads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,25 +48,10 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
 
   build-executorch-runtime:
-    name: Build ExecuTorch runtime (${{ matrix.label }})
+    name: Build ExecuTorch runtime (macOS Apple Silicon)
     needs: prepare-release
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: macOS arm64
-            os: macos-15
-            artifact: executorch-runtime-macos-arm64
-          - label: Linux x64
-            os: ubuntu-22.04
-            artifact: executorch-runtime-linux-x64
-            cuda_repository: ubuntu2204/x86_64
-          - label: Linux arm64
-            os: ubuntu-24.04-arm
-            artifact: executorch-runtime-linux-arm64
-            cuda_repository: ubuntu2404/sbsa
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -87,18 +68,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the Apple Metal compiler used to build the MLX delegate
-        if: runner.os == 'macOS'
         run: bash scripts/ensure-metal-toolchain.sh
-      - name: Install CUDA 12.6 build toolkit
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          curl --fail --location --retry 3 \
-            "https://developer.download.nvidia.com/compute/cuda/repos/${{ matrix.cuda_repository }}/cuda-keyring_1.1-1_all.deb" \
-            --output "$RUNNER_TEMP/cuda-keyring.deb"
-          sudo dpkg -i "$RUNNER_TEMP/cuda-keyring.deb"
-          sudo apt-get update
-          sudo apt-get install -y cuda-toolkit-12-6
       - run: python -m pip install "cmake>=3.29,<4" "PyYAML==6.0.3" "torch==2.13.0"
       - run: npm ci
       - name: Build selective native worker
@@ -107,8 +77,6 @@ jobs:
           SONARCAN_EXECUTORCH_SOURCE: ${{ github.workspace }}/vendor/executorch
           SONARCAN_EXECUTORCH_PYTHON: ${{ env.pythonLocation }}/python
           SONARCAN_EXECUTORCH_BUILD_DIR: ${{ runner.temp }}/sonarcan-executorch-build
-          SONARCAN_EXECUTORCH_CUDA: ${{ runner.os == 'Linux' && '1' || '0' }}
-          SONARCAN_EXECUTORCH_MLX: ${{ runner.os == 'macOS' && '1' || '0' }}
         run: npm run executorch:runtime
       - name: Verify native worker contract
         shell: bash
@@ -118,11 +86,10 @@ jobs:
           test "$("$worker" --version)" = "sonarcan-executorch-worker 1.4.1 SACTEN01"
       - uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.artifact }}
+          name: executorch-runtime-macos-arm64
           path: |
             src-tauri/resources/executorch-runtime/sonarcan-executorch-worker*
             src-tauri/resources/executorch-runtime/mlx.metallib
-            src-tauri/resources/executorch-runtime/libaoti_cuda_shims.so
           if-no-files-found: error
           retention-days: 1
 
@@ -222,85 +189,3 @@ jobs:
             test "$attempt" -lt 3 || exit 1
             sleep "$((attempt * 10))"
           done
-  release-linux:
-    name: Release Linux ${{ matrix.arch }} DEB
-    needs: [prepare-release, build-executorch-runtime]
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86_64
-            os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            runtime: executorch-runtime-linux-x64
-          - arch: arm64
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            runtime: executorch-runtime-linux-arm64
-    runs-on: ${{ matrix.os }}
-    env:
-      SONARCAN_GPU_BACKEND: nvidia
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            libfuse2 \
-            patchelf
-      - run: npm ci
-      - uses: actions/download-artifact@v7
-        with:
-          name: ${{ matrix.runtime }}
-          path: src-tauri/resources/executorch-runtime
-      - run: chmod 755 src-tauri/resources/executorch-runtime/sonarcan-executorch-worker
-      - run: npm run verify:release-version
-      - run: npm run verify:native-release
-      - run: npm run ytdlp:search
-      - run: npm run verify:ytdlp-search-release
-      - run: npm run ffmpeg:runtime
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: npm run verify:ffmpeg-release
-      - name: Run application quality gate
-        run: npm run quality:shared
-      - name: Build native DEB
-        run: npm exec tauri build -- --target ${{ matrix.target }} --bundles deb
-      - name: Verify and upload lightweight Linux DEB
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          verification_root="$(mktemp -d)"
-          deb_path="$(find src-tauri/target/${{ matrix.target }}/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          test -n "$deb_path"
-          dpkg-deb -x "$deb_path" "$verification_root/deb"
-          npm run verify:bundled-release -- "$verification_root/deb"
-          npm run verify:lightweight-bundle -- "$verification_root/deb"
-          rm -rf "$verification_root"
-
-          portable_name="SonArcan-Linux-${{ matrix.arch }}-${GITHUB_REF_NAME}.deb"
-          portable_path="$RUNNER_TEMP/$portable_name"
-          mv "$deb_path" "$portable_path"
-          checksum_path="$RUNNER_TEMP/SHA256SUMS-Linux-${{ matrix.arch }}-DEB.txt"
-          (cd "$RUNNER_TEMP" && sha256sum "$portable_name" > "$(basename "$checksum_path")")
-          (cd "$RUNNER_TEMP" && sha256sum --check "$(basename "$checksum_path")")
-          for attempt in 1 2 3; do
-            if gh release upload "$GITHUB_REF_NAME" "$portable_path" "$checksum_path" --clobber; then
-              break
-            fi
-            test "$attempt" -lt 3 || exit 1
-            sleep "$((attempt * 10))"
-          done
-          rm -f "$portable_path" "$checksum_path"

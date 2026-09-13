@@ -78,8 +78,7 @@ def demix(
     position = 0
     total_chunks = max(1, (mix.shape[1] + step - 1) // step)
     completed_chunks = 0
-    amp = torch.amp.autocast(device_type="cuda", enabled=spec.use_amp) if device.type == "cuda" else nullcontext()
-    with amp, torch.inference_mode():
+    with nullcontext(), torch.inference_mode():
         while position < mix.shape[1]:
             part = mix[:, position:position + chunk_size].to(device)
             segment_length = part.shape[-1]

@@ -4,57 +4,57 @@
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0411"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0412"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0413"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0414"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0415"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0416"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0417"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0418"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0419"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0420"
-reason = "GTK3 Linux binding is a target-specific Tauri transitive dependency; tracked in SECURITY.md."
+reason = "Unreachable target-specific Tauri transitive dependency outside the sole supported target."
 ignoreUntil = 2026-11-30
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0429"
-reason = "Affected glib iterator API is not called by SonArcan or its Tauri integration; Linux maintenance risk is tracked in SECURITY.md."
+reason = "Affected API is unreachable on SonArcan's sole supported target."
 ignoreUntil = 2026-11-30
 
 

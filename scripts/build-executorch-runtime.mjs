@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,14 +20,9 @@ const resourceDirectory = resolve(
     ?? join(root, "src-tauri/resources/executorch-runtime"),
 );
 const executableName = "sonarcan-executorch-worker";
-const mlxEnabled = process.platform === "darwin" && process.env.SONARCAN_EXECUTORCH_MLX !== "0";
-const cudaEnabled = process.env.SONARCAN_EXECUTORCH_CUDA === "1";
-const defaultCudaArchitectures = process.arch === "arm64"
-  ? "72;87"
-  : "75;80;86;89;90";
-const cudaArchitectures = process.env.SONARCAN_EXECUTORCH_CUDA_ARCHITECTURES
-  ?? defaultCudaArchitectures;
-const cudaCompiler = process.env.CUDACXX ?? "/usr/local/cuda/bin/nvcc";
+if (process.platform !== "darwin" || process.arch !== "arm64") {
+  throw new Error("The production ExecuTorch runtime is built only for macOS Apple Silicon");
+}
 const maximumRuntimeBytes = Number(
   process.env.SONARCAN_MAX_EXECUTORCH_RUNTIME_BYTES ?? 96 * 1024 * 1024,
 );
@@ -55,12 +50,6 @@ if (programDirectory && !existsSync(programDirectory)) {
 if (!existsSync(python)) throw new Error("Missing build-time Python with ExecuTorch installed");
 if (!Number.isSafeInteger(maximumRuntimeBytes) || maximumRuntimeBytes <= 0) {
   throw new Error("SONARCAN_MAX_EXECUTORCH_RUNTIME_BYTES must be a positive integer");
-}
-if (cudaEnabled && !/^\d+(;\d+)*$/u.test(cudaArchitectures)) {
-  throw new Error("SONARCAN_EXECUTORCH_CUDA_ARCHITECTURES must be a semicolon-separated list of numeric CUDA architectures");
-}
-if (cudaEnabled && !existsSync(cudaCompiler)) {
-  throw new Error(`Missing CUDA compiler at ${cudaCompiler}`);
 }
 
 function filesBelow(directory) {
@@ -94,7 +83,6 @@ mkdirSync(clangModuleCache, { recursive: true });
 const buildEnvironment = {
   ...process.env,
   CLANG_MODULE_CACHE_PATH: process.env.CLANG_MODULE_CACHE_PATH ?? clangModuleCache,
-  ...(cudaEnabled ? { CUDACXX: cudaCompiler } : {}),
 };
 
 let programs = [];
@@ -121,16 +109,6 @@ const cmakeArguments = [
   `-DSONARCAN_EXECUTORCH_SOURCE=${source}`,
 ];
 if (operators) cmakeArguments.push(`-DEXECUTORCH_SELECT_OPS_LIST=${operators}`);
-if (cudaEnabled) {
-  cmakeArguments.push("-DSONARCAN_EXECUTORCH_ENABLE_CUDA=ON");
-  // Hosted CI runners intentionally have no NVIDIA device. CMake therefore
-  // cannot probe a default compute capability even though nvcc is installed.
-  cmakeArguments.push(`-DCMAKE_CUDA_ARCHITECTURES=${cudaArchitectures}`);
-  cmakeArguments.push(`-DCMAKE_CUDA_COMPILER=${cudaCompiler}`);
-}
-if (process.env.SONARCAN_EXECUTORCH_MLX === "0") {
-  cmakeArguments.push("-DSONARCAN_EXECUTORCH_ENABLE_MLX=OFF");
-}
 run("cmake", cmakeArguments, { env: buildEnvironment });
 run("cmake", ["--build", buildDirectory, "--target", "sonarcan-executorch-worker", "-j", "8"], {
   env: buildEnvironment,
@@ -146,10 +124,7 @@ copyFileSync(builtExecutable, join(resourceDirectory, executableName));
 const installedExecutable = join(resourceDirectory, executableName);
 run("chmod", ["755", installedExecutable]);
 const registeredBackends = JSON.parse(run(installedExecutable, ["--backends"], { capture: true }));
-const expectedBackends = [
-  ...(mlxEnabled ? ["MLXBackend"] : []),
-  ...(cudaEnabled ? ["CudaBackend"] : []),
-];
+const expectedBackends = ["MLXBackend"];
 if (registeredBackends.XnnpackBackend === true) {
   throw new Error("Production runtime must not register the XNNPACK CPU backend");
 }
@@ -158,24 +133,11 @@ if (missingBackends.length) {
   throw new Error(`Selective runtime failed to register: ${missingBackends.join(", ")}`);
 }
 const mlxMetallib = filesBelow(buildDirectory).find((path) => path.endsWith("/mlx.metallib"));
-if (mlxEnabled) {
-  if (!mlxMetallib) throw new Error("MLX runtime was built without mlx.metallib");
-  copyFileSync(mlxMetallib, join(resourceDirectory, "mlx.metallib"));
-} else if (existsSync(join(resourceDirectory, "mlx.metallib"))) {
-  unlinkSync(join(resourceDirectory, "mlx.metallib"));
-}
-const cudaShim = filesBelow(buildDirectory).find((path) => path.endsWith("/libaoti_cuda_shims.so"));
-const installedCudaShim = join(resourceDirectory, "libaoti_cuda_shims.so");
-if (cudaEnabled) {
-  if (!cudaShim) throw new Error("CUDA runtime was built without libaoti_cuda_shims.so");
-  copyFileSync(cudaShim, installedCudaShim);
-} else if (existsSync(installedCudaShim)) {
-  unlinkSync(installedCudaShim);
-}
+if (!mlxMetallib) throw new Error("MLX runtime was built without mlx.metallib");
+copyFileSync(mlxMetallib, join(resourceDirectory, "mlx.metallib"));
 const runtimeFiles = [
   installedExecutable,
-  ...(mlxEnabled ? [join(resourceDirectory, "mlx.metallib")] : []),
-  ...(cudaEnabled ? [installedCudaShim] : []),
+  join(resourceDirectory, "mlx.metallib"),
 ];
 const runtimeBytes = runtimeFiles.reduce((total, path) => total + statSync(path).size, 0);
 if (runtimeBytes > maximumRuntimeBytes) {

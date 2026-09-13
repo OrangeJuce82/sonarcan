@@ -10,12 +10,12 @@ type ClosestTarget = EventTarget & {
 export type ParameterShortcut = "lyricsOffset" | "metronomeVolume" | "pitch" | "tempo" | "zoom";
 export type ParameterShortcutAction = "decrement" | "increment" | "reset";
 export type MetronomeShortcutAction = "decrementVolume" | "incrementVolume" | "nextSound" | "previousSound" | "resetVolume";
-export type ShortcutPlatform = "linux" | "macos";
+export type ShortcutPlatform = "macos";
 
 export function shortcutPlatformFor(platform: string, userAgent = ""): ShortcutPlatform {
-  const identity = `${platform} ${userAgent}`.toLowerCase();
-  if (identity.includes("mac") || identity.includes("iphone") || identity.includes("ipad")) return "macos";
-  return "linux";
+  void platform;
+  void userAgent;
+  return "macos";
 }
 
 export function shortcutKeyLabels(platform: ShortcutPlatform): {
@@ -23,9 +23,8 @@ export function shortcutKeyLabels(platform: ShortcutPlatform): {
   delete: string;
   space: string;
 } {
-  return platform === "macos"
-    ? { backspace: "⌫", delete: "Fn ⌫", space: "Space" }
-    : { backspace: "Backspace", delete: "Del", space: "Space" };
+  void platform;
+  return { backspace: "⌫", delete: "Fn ⌫", space: "Space" };
 }
 
 export function parameterShortcutForKey(key: string): ParameterShortcut | null {

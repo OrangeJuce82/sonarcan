@@ -50,13 +50,11 @@ The real-time callback never locks or reads this cache. It only sees the selecte
 ## Optional four-stem Fast and HQ modes
 
 Stem mode is disabled by default and never delays ordinary track loading. After
-the startup native probe succeeds, an Apple-silicon Mac selects MLX and Linux
-selects CUDA. A release
+the startup native probe succeeds, an Apple-silicon Mac selects MLX. A release
 whose native graph probe fails never falls back to Python/PyTorch. The native
 worker uses one four-stem contract and profile-specific caches. No interpreter,
 package manager, or scientific Python stack is installed on an end-user machine.
-Linux without a supported NVIDIA GPU is blocked before the workspace opens;
-there is no CPU audio-analysis mode.
+There is no CPU audio-analysis mode.
 
 The installer contains no training checkpoint. The first-run welcome flow
 downloads the backend-specific HTDemucs and SCNet Large `.pte` pack into the

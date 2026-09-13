@@ -55,13 +55,12 @@ if ! grep -Fq 'cancel-in-progress: true' "$release_workflow" \
   echo "Release retries must cancel stale runs and recreate only the draft for their tag." >&2
   exit 1
 fi
-if [[ "$(grep -Ec '^  release-' "$release_workflow")" -ne 2 ]]; then
-  echo "The release workflow must contain exactly the macOS and Linux jobs." >&2
+if [[ "$(grep -Ec '^  release-' "$release_workflow")" -ne 1 ]]; then
+  echo "The release workflow must contain exactly one macOS release job." >&2
   exit 1
 fi
-if ! grep -Fq 'npm run verify:audio-tools-source' "$release_workflow" \
-  || [[ "$(grep -Fc 'npm run verify:native-release' "$release_workflow")" -lt 2 ]]; then
-  echo "Every release must verify its native runtime sources." >&2
+if [[ "$(grep -Fc 'npm run verify:native-release' "$release_workflow")" -ne 1 ]]; then
+  echo "The macOS release must verify its native runtime boundary." >&2
   exit 1
 fi
 if grep -Fq 'npm run python:runtime' "$release_workflow" \
@@ -69,26 +68,16 @@ if grep -Fq 'npm run python:runtime' "$release_workflow" \
   echo "Release packaging must never assemble or inspect a Python/PyTorch runtime." >&2
   exit 1
 fi
-if ! grep -Fq 'release-linux:' "$release_workflow" \
-  || ! grep -Fq 'x86_64-unknown-linux-gnu' "$release_workflow" \
-  || ! grep -Fq 'aarch64-unknown-linux-gnu' "$release_workflow"; then
-  echo "The release workflow must publish Linux x86_64 and arm64 editions." >&2
-  exit 1
-fi
-if grep -Eiq '(^|[^[:alnum:]_])rpm([^[:alnum:]_]|$)' "$release_workflow"; then
-  echo "The release workflow must not build or verify RPM packages." >&2
+if ! grep -Fq -- '--target aarch64-apple-darwin' "$release_workflow"; then
+  echo "The release workflow must publish the macOS Apple Silicon edition." >&2
   exit 1
 fi
 if ! grep -Fq -- '--notes-file RELEASE_NOTES.md' "$release_workflow"; then
   echo "The release workflow must publish the curated edition notes." >&2
   exit 1
 fi
-if [[ "$(grep -Fc 'npm run verify:lightweight-bundle' "$release_workflow")" -ne 2 ]]; then
-  echo "Every release package must pass the Python-free 512 MiB bundle gate." >&2
-  exit 1
-fi
-if grep -Fq 'split -b' "$release_workflow"; then
-  echo "Native Linux packages must remain below the bundle limit and must not be split." >&2
+if [[ "$(grep -Fc 'npm run verify:lightweight-bundle' "$release_workflow")" -ne 1 ]]; then
+  echo "The macOS release package must pass the Python-free 512 MiB bundle gate." >&2
   exit 1
 fi
 echo "Release version $package_version is consistent."

@@ -123,20 +123,6 @@ pub fn accelerator_self_test(app: &AppHandle) -> bool {
         return output.status.success()
             && backends.get("MLXBackend").and_then(|value| value.as_bool()) == Some(true);
     }
-    if cfg!(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )) {
-        return output.status.success()
-            && backends
-                .get("CudaBackend")
-                .and_then(|value| value.as_bool())
-                == Some(true)
-            && Command::new("nvidia-smi")
-                .arg("-L")
-                .output()
-                .is_ok_and(|probe| probe.status.success() && !probe.stdout.is_empty());
-    }
     false
 }
 
@@ -695,7 +681,6 @@ fn run_native_separation(
         ModelFamily::StemSeparation,
         std::env::consts::OS,
         std::env::consts::ARCH,
-        option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"),
     );
     let candidates = model_install::stem_program_roots(app, profile)?;
     let selected =

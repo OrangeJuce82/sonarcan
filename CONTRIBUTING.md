@@ -75,9 +75,8 @@ never silence an advisory without a written reason, owner, and review date.
 ## Validation
 
 `npm run tauri dev` prepares the pinned analysis environments required by the
-current platform before Tauri, Rust, or Vite starts. On Apple Silicon it selects
-the Apple backend. On Debian-compatible Linux x64, set
-`SONARCAN_GPU_BACKEND=nvidia` so the CUDA backend is compiled and prepared. The
+current platform before Tauri, Rust, or Vite starts. It requires Apple Silicon
+and selects the MLX backend. The
 first full development launch may download Python dependencies
 and the pinned Beat This! checkpoint; later launches only synchronize the
 locked environments.

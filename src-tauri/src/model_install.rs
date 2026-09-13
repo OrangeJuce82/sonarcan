@@ -75,9 +75,6 @@ const MACOS_PACKS: &[RemoteModelPack] = &[
         sha256: "60f62956d6dfc20e692b4c9ffddd547470c61998dffb126508c0c434c355d07a",
     },
 ];
-// Filled after the CUDA exporter and NVIDIA corpus gate publish the immutable
-// x86_64 and arm64 packs. An empty catalog deliberately blocks Linux startup.
-const LINUX_NVIDIA_PACKS: &[RemoteModelPack] = &[];
 
 pub fn native_model_root(app: &AppHandle) -> Result<PathBuf, AppError> {
     #[cfg(debug_assertions)]
@@ -167,34 +164,20 @@ pub fn stem_program_root(
 pub const fn backend_slug(backend: BackendKind) -> &'static str {
     match backend {
         BackendKind::Mlx => "mlx",
-        BackendKind::Cuda => "cuda",
     }
 }
 
 fn native_chord_backends() -> Vec<BackendKind> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        vec![BackendKind::Mlx]
-    } else {
-        vec![BackendKind::Cuda]
-    }
+    vec![BackendKind::Mlx]
 }
 
 fn native_stem_backends() -> Vec<BackendKind> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        vec![BackendKind::Mlx]
-    } else {
-        vec![BackendKind::Cuda]
-    }
+    vec![BackendKind::Mlx]
 }
 
 pub fn prepare(app: &AppHandle) -> Result<ModelInstallResult, AppError> {
     let packs = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         MACOS_PACKS
-    } else if cfg!(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )) {
-        LINUX_NVIDIA_PACKS
     } else {
         &[]
     };

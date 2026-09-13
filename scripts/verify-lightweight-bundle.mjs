@@ -15,8 +15,8 @@ const forbiddenComponents = new Set([
 ]);
 const forbiddenFiles = [
   /^python3(?:\.\d+)?$/i,
-  /^libpython\d+(?:\.\d+)*\.(?:dylib|so(?:\.\d+)*)$/i,
-  /^(?:lib)?torch(?:_cpu|_cuda|_global_deps|_python)?\.(?:dylib|so(?:\.\d+)*)$/i,
+  /^libpython\d+(?:\.\d+)*\.dylib$/i,
+  /^(?:lib)?torch(?:_cpu|_global_deps|_python)?\.dylib$/i,
   /\.(?:ckpt|sdict|safetensors|th)$/i,
 ];
 

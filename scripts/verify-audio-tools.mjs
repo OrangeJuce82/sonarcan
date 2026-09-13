@@ -8,14 +8,14 @@ const directory = join(root, "src-tauri/resources/audio-tools");
 const manifestPath = join(directory, "manifest.json");
 if (!existsSync(manifestPath)) throw new Error("audio-tools manifest is missing");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-const expectedArchitecture = process.platform === "darwin" && process.arch === "x64" ? "x86_64" : process.arch;
-if (manifest.architecture !== expectedArchitecture) throw new Error("audio-tools architecture does not match this build host");
-if (manifest.platform && manifest.platform !== process.platform) throw new Error("audio-tools platform does not match this build host");
-if (process.platform === "darwin") {
-  const expectedMinimumMacosVersion = process.arch === "x64" ? "12.0" : "14.0";
-  if (manifest.minimumMacosVersion !== expectedMinimumMacosVersion) {
-    throw new Error(`audio-tools requires macOS ${manifest.minimumMacosVersion ?? "unknown"}; expected ${expectedMinimumMacosVersion}`);
-  }
+if (process.platform !== "darwin" || process.arch !== "arm64") {
+  throw new Error("audio-tools verification requires macOS Apple Silicon");
+}
+if (manifest.architecture !== "arm64" || manifest.platform !== "darwin") {
+  throw new Error("audio-tools does not target macOS Apple Silicon");
+}
+if (manifest.minimumMacosVersion !== "14.0") {
+  throw new Error(`audio-tools requires macOS ${manifest.minimumMacosVersion ?? "unknown"}; expected 14.0`);
 }
 const suffix = "";
 for (const name of ["ffmpeg", "ffprobe"]) {

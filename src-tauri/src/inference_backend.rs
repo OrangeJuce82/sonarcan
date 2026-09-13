@@ -33,14 +33,12 @@ const MAX_TENSOR_BYTES: usize = 512 * 1024 * 1024;
 #[serde(rename_all = "camelCase")]
 pub enum BackendKind {
     Mlx,
-    Cuda,
 }
 
 impl BackendKind {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Mlx => "MLX",
-            Self::Cuda => "CUDA",
         }
     }
 }
@@ -51,37 +49,23 @@ pub enum ModelFamily {
     StemSeparation,
 }
 
-/// Return a model-specific native fallback order.
+/// Return the model-specific native backend.
 ///
-/// Apple Silicon always has an integrated GPU, so MLX is the production
-/// backend. Linux is qualified only with NVIDIA CUDA. No CPU backend can be
-/// represented by the production application boundary.
+/// Apple Silicon always has an integrated GPU, so MLX is the sole production
+/// backend. No CPU backend can be represented by the application boundary.
 pub fn preferred_backends_for(
-    model: ModelFamily,
+    _model: ModelFamily,
     operating_system: &str,
     architecture: &str,
-    nvidia_available: bool,
 ) -> Vec<BackendKind> {
-    match (model, operating_system, architecture) {
-        (_, "macos", "aarch64") => vec![BackendKind::Mlx],
-        (_, "linux", "x86_64" | "aarch64") if nvidia_available => {
-            vec![BackendKind::Cuda]
-        }
+    match (operating_system, architecture) {
+        ("macos", "aarch64") => vec![BackendKind::Mlx],
         _ => Vec::new(),
     }
 }
 
-pub fn preferred_backends(
-    operating_system: &str,
-    architecture: &str,
-    nvidia_available: bool,
-) -> Vec<BackendKind> {
-    preferred_backends_for(
-        ModelFamily::ChordRhythm,
-        operating_system,
-        architecture,
-        nvidia_available,
-    )
+pub fn preferred_backends(operating_system: &str, architecture: &str) -> Vec<BackendKind> {
+    preferred_backends_for(ModelFamily::ChordRhythm, operating_system, architecture)
 }
 
 #[derive(Debug)]
@@ -698,20 +682,12 @@ mod tests {
 
     #[test]
     fn backend_priority_matches_supported_platforms() {
+        assert_eq!(preferred_backends("macos", "aarch64"), [BackendKind::Mlx]);
         assert_eq!(
-            preferred_backends("macos", "aarch64", false),
+            preferred_backends_for(ModelFamily::StemSeparation, "macos", "aarch64"),
             [BackendKind::Mlx]
         );
-        assert_eq!(
-            preferred_backends_for(ModelFamily::StemSeparation, "macos", "aarch64", false,),
-            [BackendKind::Mlx]
-        );
-        assert_eq!(
-            preferred_backends("linux", "x86_64", true),
-            [BackendKind::Cuda]
-        );
-        assert!(preferred_backends("linux", "aarch64", false).is_empty());
-        assert!(preferred_backends("unsupported", "x86_64", true).is_empty());
+        assert!(preferred_backends("unsupported", "x86_64").is_empty());
     }
 
     #[test]
@@ -739,17 +715,11 @@ mod tests {
 
     #[test]
     fn backend_candidates_follow_priority_not_manifest_order() {
-        let programs = [
-            BackendProgram {
-                backend: BackendKind::Cuda,
-                program: PathBuf::from("cuda.pte"),
-            },
-            BackendProgram {
-                backend: BackendKind::Mlx,
-                program: PathBuf::from("mlx.pte"),
-            },
-        ];
-        let priorities = preferred_backends("macos", "aarch64", false);
+        let programs = [BackendProgram {
+            backend: BackendKind::Mlx,
+            program: PathBuf::from("mlx.pte"),
+        }];
+        let priorities = preferred_backends("macos", "aarch64");
         let selected = priorities
             .iter()
             .find_map(|priority| programs.iter().find(|program| program.backend == *priority))

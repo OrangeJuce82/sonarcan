@@ -7,7 +7,7 @@
 
   A local-first desktop workspace for learning, transcribing, and rehearsing music.
 
-  ![Platforms](https://img.shields.io/badge/platforms-Apple%20Silicon%20%7C%20Debian-0ea5e9)
+  ![Platform](https://img.shields.io/badge/platform-macOS%20Apple%20Silicon-0ea5e9)
   [![CI](https://github.com/OrangeJuce82/sonarcan/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangeJuce82/sonarcan/actions/workflows/ci.yml)
   [![MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 </div>
@@ -35,15 +35,12 @@ your computer in an inspectable `.sac` package.
 SonArcan exposes its complete feature set or refuses to open. It does not ship a
 reduced mode.
 
-| Package | Required accelerator |
+| Package | Requirements |
 | --- | --- |
-| macOS Apple Silicon | Integrated Apple GPU through MLX |
-| Debian Linux x86_64 or arm64 | NVIDIA GPU, compatible proprietary driver and CUDA runtime |
+| macOS Apple Silicon | M1 or newer, macOS 14+, integrated Apple GPU through MLX |
 
-There is no CPU inference fallback. Linux computers without a usable NVIDIA
-GPU cannot run SonArcan: a blocking compatibility screen is shown before any
-workspace or tool becomes accessible. AMD/Intel GPUs and nouveau are not
-supported by this release.
+There is no CPU inference fallback. A blocking compatibility screen is shown
+before any workspace or tool becomes accessible when the requirements are not met.
 
 Before the workspace opens, SonArcan verifies the required GPU, driver, and
 native ExecuTorch delegate. It then installs and verifies the SHA-256-pinned model
@@ -61,7 +58,7 @@ Requirements:
 - Node.js 22 and npm
 - stable Rust with Cargo
 - `uv` 0.9.26 and Python 3.13.5, only when exporting or qualifying models
-- FFmpeg and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+- Xcode command-line tools
 
 Install frontend dependencies and run the full quality gate:
 
@@ -90,7 +87,7 @@ runtime. See the [development guide](docs/DEVELOPMENT.md) for the complete setup
 - ML inference runs outside the audio callback in bounded native or isolated
   worker processes.
 - Backend-specific ExecuTorch programs stay outside the installer. Apple
-  Silicon uses MLX. Linux uses CUDA exclusively.
+  Silicon uses MLX.
   No production path falls back to CPU, Python, or PyTorch.
 
 The audio callback performs no I/O, allocation, logging, locking, IPC, or model

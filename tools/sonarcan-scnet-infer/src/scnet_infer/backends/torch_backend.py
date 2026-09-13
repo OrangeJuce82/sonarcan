@@ -51,8 +51,6 @@ class TorchBackend:
 
     def release(self) -> None:
         self._model = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         backend = getattr(torch.backends, "mps", None)
         if backend is not None and backend.is_available():
             torch.mps.empty_cache()

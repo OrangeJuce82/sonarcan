@@ -106,9 +106,8 @@ class MLXBackend:
     def _select_device(device):
         """MLX owns its own execution target; a Torch device string is refused.
 
-        Reinterpreting `device="cuda"` as "run on the Apple GPU anyway" would
-        discard what the caller explicitly asked for. Accepts only the
-        sentinels that genuinely mean "wherever MLX runs".
+        Explicit unsupported devices are rejected instead of silently changing
+        the requested backend. Only sentinels meaning "wherever MLX runs" are accepted.
         """
         if device in (None, "auto", "mps"):
             return "mps"

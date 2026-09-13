@@ -92,11 +92,7 @@ fn native_analyze(app: &AppHandle, media_path: &Path) -> Result<WorkerAnalysis, 
     let duration = Duration::from_secs_f64(decoded.frames as f64 / f64::from(decoded.sample_rate));
     let mono = mono_22050(&decoded.samples, decoded.channels, decoded.sample_rate)?;
     let beat_spectrogram = crate::beat_preprocessing::log_mel_22050(&mono)?;
-    let priorities = preferred_backends(
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        option_env!("SONARCAN_GPU_BACKEND") == Some("nvidia"),
-    );
+    let priorities = preferred_backends(std::env::consts::OS, std::env::consts::ARCH);
     let beat_programs = model_install::beat_programs(
         app,
         beat_spectrogram.frames >= beat_inference::RETAINED_FRAMES,
@@ -193,19 +189,6 @@ pub fn accelerator_self_test(_app: &AppHandle) -> bool {
     }
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         return backends.get("MLXBackend").and_then(|value| value.as_bool()) == Some(true);
-    }
-    if cfg!(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )) {
-        return backends
-            .get("CudaBackend")
-            .and_then(|value| value.as_bool())
-            == Some(true)
-            && Command::new("nvidia-smi")
-                .arg("-L")
-                .output()
-                .is_ok_and(|probe| probe.status.success() && !probe.stdout.is_empty());
     }
     false
 }

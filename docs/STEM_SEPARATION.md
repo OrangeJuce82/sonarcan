@@ -6,9 +6,8 @@ practice mixer:
 - **Fast** uses HTDemucs with 25% overlap and no random shift;
 - **HQ** uses SCNet Large by starrytong with four-way overlap-add.
 
-Apple Silicon executes both profiles on the Apple GPU. NVIDIA Debian packages
-execute the equivalent graphs through CUDA. A failed qualification blocks the
-workspace; CPU-only separation is not a supported user experience.
+Apple Silicon executes both profiles on the Apple GPU through MLX. A failed
+qualification blocks the workspace; CPU-only separation is not supported.
 
 ## User workflow
 
@@ -36,10 +35,7 @@ remain global and are applied after stem summing.
 Checkpoints are not embedded in the installer. The first-run model installation
 downloads a backend-specific `.pte` pack before opening the workspace. Tauri's
 application-data directory stores it under `models/executorch/stem-separation/`.
-This resolves below:
-
-- macOS: `~/Library/Application Support/music.sonarcan.desktop/`;
-- Debian: `~/.local/share/music.sonarcan.desktop/`.
+This resolves below `~/Library/Application Support/music.sonarcan.desktop/`.
 
 Downloads use an adjacent temporary file, exact byte length and full SHA-256,
 then bounded extraction and atomic rename. Every contained file has its own

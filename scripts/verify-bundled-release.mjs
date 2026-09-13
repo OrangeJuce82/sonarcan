@@ -74,26 +74,22 @@ export function forbiddenInferenceDependency(output) {
     .find((line) => /(?:libpython|libtorch|site-packages)/iu.test(line));
 }
 
-/** @param {string} output @param {NodeJS.Platform} platform */
-export function validateProductionBackends(output, platform) {
+/** @param {string} output */
+export function validateProductionBackends(output) {
   let backends;
   try {
     backends = JSON.parse(output);
   } catch {
     throw new Error("bundled ExecuTorch worker returned an invalid backend contract");
   }
-  const expected = platform === "darwin" ? "MLXBackend" : "CudaBackend";
-  const forbidden = platform === "darwin" ? "CudaBackend" : "MLXBackend";
-  if (backends[expected] !== true || backends[forbidden] === true || backends.XnnpackBackend === true) {
-    throw new Error(`bundled ExecuTorch worker does not expose the required GPU-only ${expected} contract`);
+  if (backends.MLXBackend !== true || backends.XnnpackBackend === true) {
+    throw new Error("bundled ExecuTorch worker does not expose the required GPU-only MLXBackend contract");
   }
 }
 
 /** @param {string} worker */
 function verifyNativeInferenceDependencies(worker) {
-  const command = process.platform === "darwin" ? "otool" : "ldd";
-  const argumentsList = process.platform === "darwin" ? ["-L", worker] : [worker];
-  const dependencies = run(command, argumentsList, "native dependency inspection", true);
+  const dependencies = run("otool", ["-L", worker], "native dependency inspection", true);
   const forbidden = forbiddenInferenceDependency(dependencies);
   if (forbidden) {
     throw new Error(`bundled ExecuTorch worker links a forbidden Python/PyTorch runtime: ${forbidden}`);
@@ -106,6 +102,9 @@ function main() {
     throw new Error("usage: node scripts/verify-bundled-release.mjs <bundle-or-install-root>");
   }
   root = resolve(bundleRoot);
+  if (process.platform !== "darwin" || process.arch !== "arm64") {
+    throw new Error("release verification requires macOS Apple Silicon");
+  }
   if (!existsSync(root) || !statSync(root).isDirectory()) {
     throw new Error(`bundle root is not a directory: ${root}`);
   }
@@ -128,7 +127,6 @@ function main() {
   }
   validateProductionBackends(
     run(executorchWorker, ["--backends"], "bundled ExecuTorch backend contract", true),
-    process.platform,
   );
   verifyNativeInferenceDependencies(executorchWorker);
   const ffmpeg = required(join(resources, "audio-tools", "bin", `ffmpeg${suffix}`), "bundled FFmpeg");

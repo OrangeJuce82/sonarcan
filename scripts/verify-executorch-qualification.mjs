@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const models = new Set(["beat-this", "lv-chordia", "htdemucs", "scnet"]);
-const targets = new Set(["macos-arm64", "linux-x86_64", "linux-arm64"]);
-const backends = new Set(["mlx", "cuda"]);
+const targets = new Set(["macos-arm64"]);
+const backends = new Set(["mlx"]);
 const precisions = new Set(["fp32", "fp16"]);
 const comparisonKinds = new Set(["audio", "timeline", "tensor"]);
 

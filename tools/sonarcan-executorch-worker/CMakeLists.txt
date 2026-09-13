@@ -9,11 +9,11 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(SONARCAN_EXECUTORCH_ENABLE_CUDA "Build the Linux NVIDIA CUDA delegate" OFF)
-option(SONARCAN_EXECUTORCH_ENABLE_MLX "Build the Apple MLX delegate" ON)
-
 if(NOT SONARCAN_EXECUTORCH_SOURCE)
   message(FATAL_ERROR "SONARCAN_EXECUTORCH_SOURCE is required")
+endif()
+if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+  message(FATAL_ERROR "SonArcan builds the native worker only for macOS Apple Silicon")
 endif()
 
 set(EXECUTORCH_BUILD_DEVTOOLS OFF CACHE BOOL "" FORCE)
@@ -35,39 +35,13 @@ set(EXECUTORCH_ENABLE_LOGGING ON CACHE BOOL "" FORCE)
 set(EXECUTORCH_ENABLE_PROGRAM_VERIFICATION OFF CACHE BOOL "" FORCE)
 set(EXECUTORCH_XNNPACK_ENABLE_KLEIDI OFF CACHE BOOL "" FORCE)
 
-if(SONARCAN_EXECUTORCH_ENABLE_CUDA)
-  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    message(FATAL_ERROR "The SonArcan CUDA runtime is supported only on Linux")
-  endif()
-  set(EXECUTORCH_BUILD_CUDA ON CACHE BOOL "" FORCE)
-endif()
-
 # A delegated PTE cannot execute unless its backend is linked into the worker.
-# Apple Silicon release builds register MLX only. Linux release builds register
-# CUDA only and require its compiler plus build-time libtorch/AOTI tooling.
-if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
-  set(EXECUTORCH_BUILD_COREML OFF CACHE BOOL "" FORCE)
-  set(EXECUTORCH_BUILD_MLX ${SONARCAN_EXECUTORCH_ENABLE_MLX} CACHE BOOL "" FORCE)
-  set(EXECUTORCH_BUILD_METAL OFF CACHE BOOL "" FORCE)
-endif()
+# Apple Silicon release builds register MLX only.
+set(EXECUTORCH_BUILD_COREML OFF CACHE BOOL "" FORCE)
+set(EXECUTORCH_BUILD_MLX ON CACHE BOOL "" FORCE)
+set(EXECUTORCH_BUILD_METAL OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${SONARCAN_EXECUTORCH_SOURCE} executorch)
-
-if(SONARCAN_EXECUTORCH_ENABLE_CUDA AND TARGET aoti_cuda_shims)
-  # SonArcan's production exports are FP32/FP16. Keep the quantized AOTI
-  # kernels out until quantization has its own audio-parity qualification.
-  # Besides shrinking the runtime, this avoids compiling upstream INT kernels
-  # that are not portable to every supported Linux ARM64 CUDA toolchain.
-  get_target_property(_sonarcan_cuda_shim_sources aoti_cuda_shims SOURCES)
-  list(
-    FILTER _sonarcan_cuda_shim_sources
-    EXCLUDE
-    REGEX "runtime/shims/int(4|5|6|8).*\\.cu$"
-  )
-  set_property(
-    TARGET aoti_cuda_shims PROPERTY SOURCES ${_sonarcan_cuda_shim_sources}
-  )
-endif()
 
 add_executable(sonarcan-executorch-worker main.cpp)
 target_include_directories(
@@ -87,9 +61,6 @@ endif()
 if(TARGET mlxdelegate)
   target_compile_definitions(sonarcan-executorch-worker PRIVATE SONARCAN_HAS_MLX=1)
 endif()
-if(TARGET aoti_cuda_backend)
-  target_compile_definitions(sonarcan-executorch-worker PRIVATE SONARCAN_HAS_CUDA=1)
-endif()
 # `executorch_backends` supplies the platform-specific whole-archive flags in
 # dependency order. Adding a second force-load here moves the Apple delegate's
 # static initializer ahead of the ExecuTorch registry and silently loses its
@@ -104,8 +75,4 @@ target_compile_options(
 # therefore remove unused kernels without removing delegate registration.
 if(APPLE)
   target_link_options(sonarcan-executorch-worker PRIVATE -Wl,-dead_strip)
-elseif(UNIX)
-  target_link_options(
-    sonarcan-executorch-worker PRIVATE -Wl,--gc-sections -Wl,-rpath,$ORIGIN
-  )
 endif()

@@ -55,14 +55,14 @@ const french: ModelInstallationCopy = {
 const incompatibleHardwareEnglish: ModelInstallationCopy = {
   ...english,
   title: "Incompatible hardware",
-  introduction: "SonArcan requires Apple Silicon, or Linux with a supported NVIDIA GPU, proprietary driver, and compatible CUDA runtime.",
+  introduction: "SonArcan requires a Mac with Apple Silicon and macOS 14 or later.",
   failure: "No supported GPU runtime is available. SonArcan has no CPU mode, so the application is blocked before the workspace opens.",
 };
 
 const incompatibleHardwareFrench: ModelInstallationCopy = {
   ...french,
   title: "Matériel incompatible",
-  introduction: "SonArcan exige Apple Silicon, ou Linux avec un GPU NVIDIA pris en charge, son pilote propriétaire et un runtime CUDA compatible.",
+  introduction: "SonArcan exige un Mac avec puce Apple et macOS 14 ou version ultérieure.",
   failure: "Aucun runtime GPU pris en charge n’est disponible. SonArcan n’a pas de mode CPU : l’application est bloquée avant l’ouverture de l’espace de travail.",
 };
 

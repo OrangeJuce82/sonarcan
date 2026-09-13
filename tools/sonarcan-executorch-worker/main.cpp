@@ -392,9 +392,6 @@ int list_backends() {
 #if defined(SONARCAN_HAS_MLX)
   append("MLXBackend");
 #endif
-#if defined(SONARCAN_HAS_CUDA)
-  append("CudaBackend");
-#endif
   std::cout << "}\n";
   return 0;
 }

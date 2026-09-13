@@ -14,22 +14,20 @@ test("release bundles reject embedded Python and PyTorch runtimes", () => {
     "Resources/mlx-runtime/runtime/lib/libpython3.13.dylib",
     "Resources/models/final0.ckpt",
     "Resources/models/htdemucs.safetensors",
-    "usr/lib/sonarcan/site-packages/numpy/__init__.py",
+    "Resources/site-packages/numpy/__init__.py",
     "Resources/libtorch_cpu.dylib",
-    "usr/lib/libtorch_cuda.so.2",
   ]) assert.equal(forbiddenRuntimePath(path), true, path);
 });
 
-test("bundled runtime accepts only the platform GPU delegate", () => {
-  assert.doesNotThrow(() => validateProductionBackends('{"MLXBackend":true}', "darwin"));
-  assert.doesNotThrow(() => validateProductionBackends('{"CudaBackend":true}', "linux"));
+test("bundled runtime accepts only the MLX GPU delegate", () => {
+  assert.doesNotThrow(() => validateProductionBackends('{"MLXBackend":true}'));
   assert.throws(
-    () => validateProductionBackends('{"MLXBackend":true,"XnnpackBackend":true}', "darwin"),
+    () => validateProductionBackends('{"MLXBackend":true,"XnnpackBackend":true}'),
     /GPU-only MLXBackend/u,
   );
   assert.throws(
-    () => validateProductionBackends('{"CudaBackend":false}', "linux"),
-    /GPU-only CudaBackend/u,
+    () => validateProductionBackends('{"MLXBackend":false}'),
+    /GPU-only MLXBackend/u,
   );
 });
 
@@ -40,7 +38,7 @@ test("the selective native runtime remains eligible", () => {
 
 test("native dependency inspection rejects hidden Python and PyTorch linkage", () => {
   assert.match(
-    forbiddenInferenceDependency("/usr/lib/libc++.so\n/app/lib/libtorch_cpu.so") ?? "",
+    forbiddenInferenceDependency("/usr/lib/libc++.dylib\n/app/lib/libtorch_cpu.dylib") ?? "",
     /libtorch_cpu/u,
   );
   assert.match(
