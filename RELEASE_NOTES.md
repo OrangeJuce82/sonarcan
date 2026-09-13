@@ -1,4 +1,4 @@
-# SonArcan 0.1.7
+# SonArcan 0.1.7 beta 1
 
 SonArcan now builds, tests, and releases exclusively for macOS on Apple
 Silicon. Windows, Linux, Intel macOS, CUDA, ROCm, portable Torch, and CPU
@@ -38,6 +38,6 @@ Anyway**.
 - Independent tempo and pitch controls, A/B loops, and progressive training.
 - Portable `.sac` projects with source media separated from generated caches.
 
-The first qualified launch downloads the pinned Beat This!, HTDemucs, and
-SCNet Large checkpoints one at a time. Each file is size- and SHA-256-verified
-before it is published atomically to the application cache.
+Every launch verifies the pinned Beat This!, HTDemucs, and SCNet Large
+checkpoints before probing the accelerator. Missing or invalid cache entries
+are downloaded again, size- and SHA-256-verified, then published atomically.
