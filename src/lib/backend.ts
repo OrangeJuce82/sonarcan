@@ -102,9 +102,9 @@ export async function getWaveform(packagePath: string, trackId: string): Promise
   return invoke<WaveformData>("get_waveform", { packagePath, trackId });
 }
 
-export async function analyzeChords(packagePath: string, trackId: string): Promise<ChordAnalysis> {
+export async function analyzeChords(packagePath: string, trackId: string, mode: ChordMode): Promise<ChordAnalysis> {
   if (!isTauri()) throw new Error("Chord analysis requires the Tauri desktop runtime.");
-  return invoke<ChordAnalysis>("analyze_chords", { packagePath, trackId });
+  return invoke<ChordAnalysis>("analyze_chords", { packagePath, trackId, mode });
 }
 
 export async function cancelChordAnalysis(): Promise<void> {

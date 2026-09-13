@@ -1,4 +1,4 @@
-# SonArcan 0.1.7 beta 1
+# SonArcan 0.1.7 beta 2
 
 SonArcan now builds, tests, and releases exclusively for macOS on Apple
 Silicon. Windows, Linux, Intel macOS, CUDA, ROCm, portable Torch, and CPU
@@ -32,6 +32,11 @@ Anyway**.
 
 ## Included behavior
 
+- LV-Chordia and Beat This! stay resident after startup qualification; only the
+  selected chord vocabulary is decoded initially, and additional vocabularies
+  are calculated on demand without repeating rhythm analysis.
+- YouTube and SoundCloud text searches reuse a bounded pair of resident yt-dlp
+  workers and request only the metadata used by SonArcan.
 - Local beat, downbeat, BPM, and timed-chord analysis through MPS.
 - Fast HTDemucs and HQ SCNet Large four-stem separation through MLX.
 - Waveform editing for markers, chords, and synchronized lyrics.

@@ -1,8 +1,9 @@
 # SonArcan chord worker
 
 This is SonArcan's production chord-recognition worker. It invokes the pinned
-LV-Chordia model directly and emits one bounded JSON document for Rust to
-validate. A separate pinned Beat This! model produces frame-level beat and
+LV-Chordia model directly and emits bounded newline-delimited JSON for Rust to
+validate. The supervised process remains resident, keeps both model families
+loaded, and decodes only the requested chord vocabulary. A separate pinned Beat This! model produces frame-level beat and
 downbeat predictions. The worker returns two timelines: Beat This!'s official
 minimal output and its optional madmom DBN output. The madmom source revision is
 pinned with the rest of the worker. Frame predictions never cross IPC. Beat
@@ -23,6 +24,7 @@ Run inference during development with:
 uv run --project tools/sonarcan-chord-worker --locked \
   python -m sonarcan_chord_worker.worker \
   --downbeat-model src-tauri/resources/models/beat-this/final0.ckpt \
+  --mode essential \
   /absolute/path/to/audio.mp3
 ```
 

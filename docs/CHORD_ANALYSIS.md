@@ -16,8 +16,12 @@ original audio
   -> interface
 ```
 
-The Python process owns model inference and the official LV-Chordia HMM
-dictionary decode. Rust never changes a chord label. It rejects malformed,
+The resident Python process owns model inference and the official LV-Chordia HMM
+dictionary decode. Initial track analysis decodes only the selected user mode.
+Changing vocabulary requests that mode on demand; Rust merges it into the
+source-aware cache, and Beat This! is not recomputed. The worker retains one
+source's probabilities so an immediate mode switch needs only the requested HMM.
+Rust never changes a chord label. It rejects malformed,
 oversized, non-finite, out-of-order, late, or superseded output and never sends
 PCM through JSON IPC.
 

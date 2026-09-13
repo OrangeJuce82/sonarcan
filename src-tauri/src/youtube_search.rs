@@ -2,22 +2,25 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    io::{self, Read},
-    process::{Child, Stdio},
+    io::{self, BufRead, BufReader, Read, Write},
+    path::PathBuf,
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError},
         Arc, Condvar, Mutex,
     },
     thread,
     time::{Duration, Instant},
 };
 
-use serde::Deserialize;
-use tracing::info;
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 use crate::{
     error::AppError,
     importer::{self, CandidateKind, ImportCandidate},
+    python_runtime,
 };
 
 const MAX_CONCURRENT_SEARCHES: usize = 2;
@@ -25,6 +28,7 @@ const MAX_QUERY_BYTES: usize = 180;
 const MAX_STDOUT_BYTES: usize = 512 * 1024;
 const MAX_STDERR_BYTES: usize = 32 * 1024;
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
+const WORKER_START_TIMEOUT: Duration = Duration::from_secs(3);
 const SEARCH_RESULT_COUNT: usize = 10;
 const PUBLISHED_RESULT_COUNT: usize = 5;
 
@@ -56,26 +60,111 @@ pub struct YoutubeSearchService {
     inner: Arc<SearchInner>,
 }
 
-#[derive(Default)]
 struct SearchInner {
     generation: AtomicU64,
     next_child_id: AtomicU64,
     children: Mutex<HashMap<u64, Arc<Mutex<Child>>>>,
-    active_count: Mutex<usize>,
+    active_slots: Mutex<[bool; MAX_CONCURRENT_SEARCHES]>,
+    workers: [Mutex<Option<ResidentWorker>>; MAX_CONCURRENT_SEARCHES],
     slot_available: Condvar,
 }
 
 struct SearchPermit {
     inner: Arc<SearchInner>,
+    slot: usize,
 }
 
 impl Drop for SearchPermit {
     fn drop(&mut self) {
-        if let Ok(mut active) = self.inner.active_count.lock() {
-            *active = active.saturating_sub(1);
+        if let Ok(mut active) = self.inner.active_slots.lock() {
+            active[self.slot] = false;
             self.inner.slot_available.notify_one();
         }
     }
+}
+
+impl Default for SearchInner {
+    fn default() -> Self {
+        Self {
+            generation: AtomicU64::default(),
+            next_child_id: AtomicU64::default(),
+            children: Mutex::default(),
+            active_slots: Mutex::new([false; MAX_CONCURRENT_SEARCHES]),
+            workers: std::array::from_fn(|_| Mutex::new(None)),
+            slot_available: Condvar::default(),
+        }
+    }
+}
+
+struct ResidentWorker {
+    child: Arc<Mutex<Child>>,
+    stdin: ChildStdin,
+    stdout: Receiver<io::Result<Vec<u8>>>,
+}
+
+impl ResidentWorker {
+    fn is_running(&self) -> bool {
+        self.child
+            .lock()
+            .ok()
+            .and_then(|mut child| child.try_wait().ok())
+            .is_some_and(|status| status.is_none())
+    }
+
+    fn search(
+        &mut self,
+        query: &str,
+        provider: SearchProvider,
+    ) -> Result<WorkerResponse, AppError> {
+        let mut request = serde_json::to_vec(&WorkerRequest {
+            query,
+            provider: provider.prefix(),
+        })
+        .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
+        request.push(b'\n');
+        self.stdin
+            .write_all(&request)
+            .and_then(|_| self.stdin.flush())
+            .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
+        let response = receive_worker_line(&self.stdout, SEARCH_TIMEOUT)?;
+        serde_json::from_slice(&response).map_err(|error| {
+            AppError::BackgroundTask(format!("invalid yt-dlp worker response: {error}"))
+        })
+    }
+
+    fn stop(&mut self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for ResidentWorker {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+#[derive(Serialize)]
+struct WorkerRequest<'a> {
+    query: &'a str,
+    provider: &'a str,
+}
+
+#[derive(Deserialize)]
+struct WorkerResponse {
+    #[serde(default)]
+    ok: bool,
+    #[serde(default)]
+    entries: Vec<serde_json::Value>,
+    error: Option<String>,
+}
+
+struct ResidentWorkerCommand {
+    python: PathBuf,
+    archive: PathBuf,
+    script: PathBuf,
 }
 
 struct BoundedOutput {
@@ -110,21 +199,100 @@ impl YoutubeSearchService {
             ));
         }
         ensure_current(&self.inner, generation)?;
-        let _permit = acquire_slot(Arc::clone(&self.inner), generation)?;
+        let permit = acquire_slot(Arc::clone(&self.inner), generation)?;
         ensure_current(&self.inner, generation)?;
 
         let started = Instant::now();
+        let stdout = if resident_worker_command().is_some() {
+            self.resolve_with_worker(query, generation, provider, permit.slot)?
+        } else {
+            self.resolve_with_cli(query, generation, provider)?
+        };
+        let candidates = parse_provider_candidates(&stdout, query, provider);
+        info!(
+            elapsed_ms = started.elapsed().as_millis(),
+            result_count = candidates.len(),
+            provider = provider.label(),
+            "provider search completed"
+        );
+        Ok(candidates)
+    }
+
+    fn resolve_with_worker(
+        &self,
+        query: &str,
+        generation: u64,
+        provider: SearchProvider,
+        slot: usize,
+    ) -> Result<Vec<u8>, AppError> {
+        let mut worker = self.inner.workers[slot]
+            .lock()
+            .map_err(|_| AppError::BackgroundTask("yt-dlp worker is unavailable".into()))?;
+        if worker.as_ref().map_or(true, |worker| !worker.is_running()) {
+            match start_resident_worker() {
+                Ok(started) => *worker = Some(started),
+                Err(_) => {
+                    warn!("resident yt-dlp worker unavailable; using CLI fallback");
+                    drop(worker);
+                    return self.resolve_with_cli(query, generation, provider);
+                }
+            }
+        }
+        let child = Arc::clone(
+            &worker
+                .as_ref()
+                .ok_or_else(|| AppError::BackgroundTask("yt-dlp worker is unavailable".into()))?
+                .child,
+        );
+        let child_id = register_child(&self.inner, child)?;
+        if ensure_current(&self.inner, generation).is_err() {
+            if let Some(worker) = worker.as_mut() {
+                worker.stop();
+            }
+        }
+        let response = worker
+            .as_mut()
+            .ok_or_else(|| AppError::BackgroundTask("yt-dlp worker is unavailable".into()))?
+            .search(query, provider);
+        clear_child(&self.inner, child_id);
+        ensure_current(&self.inner, generation)?;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                *worker = None;
+                return Err(error);
+            }
+        };
+        if !response.ok {
+            return Err(AppError::BackgroundTask(response.error.unwrap_or_else(
+                || "yt-dlp search failed without diagnostics".into(),
+            )));
+        }
+        compact_entries_as_lines(response.entries)
+    }
+
+    fn resolve_with_cli(
+        &self,
+        query: &str,
+        generation: u64,
+        provider: SearchProvider,
+    ) -> Result<Vec<u8>, AppError> {
         let tool = importer::ytdlp_command()?;
-        let mut child = tool
-            .command()
-            .args([
-                "--ignore-config",
-                "--flat-playlist",
-                "--dump-json",
-                "--playlist-end",
-                "10",
-                "--",
-            ])
+        let mut command = tool.command();
+        command.args([
+            "--ignore-config",
+            "--flat-playlist",
+            "--lazy-playlist",
+            "--print",
+            "%(.{id,title,channel,uploader,view_count,channel_is_verified,webpage_url,url})#j",
+            "--playlist-end",
+            "10",
+        ]);
+        if matches!(provider, SearchProvider::Youtube) {
+            command.args(["--extractor-args", "youtubetab:skip=webpage"]);
+        }
+        let mut child = command
+            .arg("--")
             .arg(format!(
                 "{}{SEARCH_RESULT_COUNT}:{query}",
                 provider.prefix()
@@ -142,13 +310,8 @@ impl YoutubeSearchService {
         let stderr = child.stderr.take().ok_or_else(|| {
             AppError::BackgroundTask("yt-dlp search diagnostics are unavailable".into())
         })?;
-        let child_id = self.inner.next_child_id.fetch_add(1, Ordering::Relaxed);
         let child = Arc::new(Mutex::new(child));
-        self.inner
-            .children
-            .lock()
-            .map_err(|_| AppError::BackgroundTask("YouTube search state is unavailable".into()))?
-            .insert(child_id, Arc::clone(&child));
+        let child_id = register_child(&self.inner, Arc::clone(&child))?;
         if ensure_current(&self.inner, generation).is_err() {
             if let Ok(mut child) = child.lock() {
                 let _ = child.kill();
@@ -182,39 +345,204 @@ impl YoutubeSearchService {
                 diagnostic
             }));
         }
-        let candidates = parse_provider_candidates(&stdout.bytes, query, provider);
-        info!(
-            elapsed_ms = started.elapsed().as_millis(),
-            result_count = candidates.len(),
-            provider = provider.label(),
-            "provider search completed"
-        );
-        Ok(candidates)
+        Ok(stdout.bytes)
     }
 }
 
 fn acquire_slot(inner: Arc<SearchInner>, generation: u64) -> Result<SearchPermit, AppError> {
     let mut active = inner
-        .active_count
+        .active_slots
         .lock()
         .map_err(|_| AppError::BackgroundTask("YouTube search slots are unavailable".into()))?;
-    while *active >= MAX_CONCURRENT_SEARCHES {
+    loop {
         ensure_current(&inner, generation)?;
+        if let Some(slot) = active.iter().position(|in_use| !in_use) {
+            active[slot] = true;
+            drop(active);
+            return Ok(SearchPermit { inner, slot });
+        }
         active = inner
             .slot_available
             .wait(active)
             .map_err(|_| AppError::BackgroundTask("YouTube search slots are unavailable".into()))?;
     }
-    ensure_current(&inner, generation)?;
-    *active += 1;
-    drop(active);
-    Ok(SearchPermit { inner })
 }
 
 fn ensure_current(inner: &SearchInner, generation: u64) -> Result<(), AppError> {
     (inner.generation.load(Ordering::Acquire) == generation)
         .then_some(())
         .ok_or_else(|| AppError::BackgroundTask("YouTube search was cancelled or replaced".into()))
+}
+
+fn register_child(inner: &SearchInner, child: Arc<Mutex<Child>>) -> Result<u64, AppError> {
+    let child_id = inner.next_child_id.fetch_add(1, Ordering::Relaxed);
+    inner
+        .children
+        .lock()
+        .map_err(|_| AppError::BackgroundTask("YouTube search state is unavailable".into()))?
+        .insert(child_id, child);
+    Ok(child_id)
+}
+
+fn resident_worker_command() -> Option<ResidentWorkerCommand> {
+    let configured = || {
+        Some(ResidentWorkerCommand {
+            python: python_runtime::bundled_python_313()?,
+            archive: python_runtime::resource_path("ytdlp-search/yt-dlp")?,
+            script: python_runtime::resource_path("ytdlp-search/search_worker.py")?,
+        })
+    };
+    if let Some(command) = configured().filter(ResidentWorkerCommand::is_available) {
+        return Some(command);
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let command = ResidentWorkerCommand {
+            python: resources.join("python-runtime/runtime/bin/python3.13"),
+            archive: resources.join("ytdlp-search/yt-dlp"),
+            script: resources.join("ytdlp-search/search_worker.py"),
+        };
+        if command.is_available() {
+            return Some(command);
+        }
+    }
+    None
+}
+
+impl ResidentWorkerCommand {
+    fn is_available(&self) -> bool {
+        self.python.is_file() && self.archive.is_file() && self.script.is_file()
+    }
+}
+
+fn start_resident_worker() -> Result<ResidentWorker, AppError> {
+    let command = resident_worker_command()
+        .ok_or_else(|| AppError::BackgroundTask("resident yt-dlp worker is unavailable".into()))?;
+    let mut process = Command::new(command.python);
+    importer::suppress_console_window(&mut process);
+    let mut child = process
+        .arg(command.script)
+        .env("PYTHONPATH", command.archive)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            AppError::BackgroundTask(format!("could not start resident yt-dlp worker: {error}"))
+        })?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::BackgroundTask("yt-dlp worker input is unavailable".into()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::BackgroundTask("yt-dlp worker output is unavailable".into()))?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        AppError::BackgroundTask("yt-dlp worker diagnostics are unavailable".into())
+    })?;
+    let child = Arc::new(Mutex::new(child));
+    let stdout = spawn_worker_stdout_reader(stdout);
+    thread::spawn(move || {
+        let _ = read_bounded(stderr, MAX_STDERR_BYTES);
+    });
+    let mut worker = ResidentWorker {
+        child,
+        stdin,
+        stdout,
+    };
+    let ready = receive_worker_line(&worker.stdout, WORKER_START_TIMEOUT).and_then(|line| {
+        serde_json::from_slice::<serde_json::Value>(&line).map_err(|error| {
+            AppError::BackgroundTask(format!("invalid yt-dlp worker startup: {error}"))
+        })
+    });
+    if !ready
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("ready"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        worker.stop();
+        return Err(ready.err().unwrap_or_else(|| {
+            AppError::BackgroundTask("yt-dlp worker did not become ready".into())
+        }));
+    }
+    Ok(worker)
+}
+
+fn spawn_worker_stdout_reader(stdout: ChildStdout) -> Receiver<io::Result<Vec<u8>>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            let mut line = Vec::new();
+            let result = reader
+                .by_ref()
+                .take(MAX_STDOUT_BYTES as u64 + 1)
+                .read_until(b'\n', &mut line);
+            match result {
+                Ok(0) => {
+                    let _ = sender.send(Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "yt-dlp worker stopped unexpectedly",
+                    )));
+                    break;
+                }
+                Ok(_) if line.len() > MAX_STDOUT_BYTES => {
+                    let _ = sender.send(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "yt-dlp worker output exceeded 512 KiB",
+                    )));
+                    break;
+                }
+                Ok(_) => {
+                    if sender.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = sender.send(Err(error));
+                    break;
+                }
+            }
+        }
+    });
+    receiver
+}
+
+fn receive_worker_line(
+    receiver: &Receiver<io::Result<Vec<u8>>>,
+    timeout: Duration,
+) -> Result<Vec<u8>, AppError> {
+    match receiver.recv_timeout(timeout) {
+        Ok(Ok(line)) => Ok(line),
+        Ok(Err(error)) => Err(AppError::BackgroundTask(error.to_string())),
+        Err(RecvTimeoutError::Timeout) => Err(AppError::BackgroundTask(format!(
+            "yt-dlp worker timed out after {} seconds",
+            timeout.as_secs()
+        ))),
+        Err(RecvTimeoutError::Disconnected) => Err(AppError::BackgroundTask(
+            "yt-dlp worker output is unavailable".into(),
+        )),
+    }
+}
+
+fn compact_entries_as_lines(entries: Vec<serde_json::Value>) -> Result<Vec<u8>, AppError> {
+    let mut output = Vec::new();
+    for entry in entries.into_iter().take(SEARCH_RESULT_COUNT) {
+        serde_json::to_writer(&mut output, &entry)
+            .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
+        output.push(b'\n');
+        if output.len() > MAX_STDOUT_BYTES {
+            return Err(AppError::BackgroundTask(
+                "yt-dlp worker output exceeded 512 KiB".into(),
+            ));
+        }
+    }
+    Ok(output)
 }
 
 fn wait_for_child(
@@ -542,6 +870,28 @@ fn levenshtein(left: &str, right: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resident_worker_entries_preserve_only_the_bounded_search_batch() {
+        let entries = (0..11)
+            .map(|index| {
+                serde_json::json!({
+                    "id": format!("video{index}"),
+                    "title": format!("Song {index}"),
+                    "channel": "Artist",
+                    "view_count": 42,
+                    "channel_is_verified": true,
+                })
+            })
+            .collect();
+        let output = compact_entries_as_lines(entries).unwrap();
+        let lines = String::from_utf8(output.clone()).unwrap();
+
+        assert_eq!(lines.lines().count(), SEARCH_RESULT_COUNT);
+        let candidates = parse_candidates(&output, "Artist Song");
+        assert_eq!(candidates.len(), PUBLISHED_RESULT_COUNT);
+        assert_eq!(candidates[0].detail, "Artist");
+    }
 
     #[test]
     fn parses_only_bounded_valid_video_results() {

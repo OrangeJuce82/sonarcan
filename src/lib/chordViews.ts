@@ -34,7 +34,7 @@ export function nextChordPanelView(view: ChordPanelView): ChordPanelView {
 
 export function chordsForMode(analysis: ChordAnalysis | null, mode: ChordMode): TimedChord[] {
   if (!analysis) return [];
-  return analysis.modes[mode];
+  return analysis.modes[mode] ?? [];
 }
 
 export function visibleChords(chords: readonly TimedChord[], minimumStrength: number): TimedChord[] {

@@ -1,9 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordStatistics, chordTimeline, chordViewportBlocks, isNoChordLabel, nextChordPanelView, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import { activeChordIndexAt, adjacentChordGridIndex, adjacentChordPosition, adjacentChordTransportPosition, chordBeatCounts, chordColor, chordDisplayLabel, chordRepertoire, chordStatistics, chordTimeline, chordViewportBlocks, chordsForMode, isNoChordLabel, nextChordPanelView, presentChordLabel, presentChordSequence, visibleChords } from "./chordViews.ts";
+import type { ChordAnalysis } from "./types.ts";
 
 const chord = (label: string, strength: number) => ({ label, strength, startSeconds: 0, endSeconds: 1 });
+
+test("an on-demand chord mode stays empty until it has been analyzed", () => {
+  const analysis = {
+    cacheVersion: 16,
+    trackId: "track",
+    modelVersion: "lv-chordia@test",
+    downbeatModelVersion: "beat-this@test",
+    bpm: null,
+    beats: [],
+    downbeats: [],
+    dbnBpm: null,
+    dbnBeats: [],
+    dbnDownbeats: [],
+    modes: { essential: [] },
+    warnings: [],
+  } satisfies ChordAnalysis;
+  assert.deepEqual(chordsForMode(analysis, "complete"), []);
+});
 
 test("the chord view button cycles through grid, repertoire, and statistics", () => {
   assert.equal(nextChordPanelView("grid"), "repertoire");

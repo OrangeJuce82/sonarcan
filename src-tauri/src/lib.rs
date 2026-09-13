@@ -880,6 +880,7 @@ async fn analyze_chords(
     app: AppHandle,
     package_path: PathBuf,
     track_id: uuid::Uuid,
+    mode: chord_contract::ChordMode,
     capability: State<'_, AnalysisCapabilityState>,
 ) -> Result<chord_contract::ChordAnalysis, AppError> {
     require_accelerated_analysis(&capability)?;
@@ -893,6 +894,7 @@ async fn analyze_chords(
             track_id,
             &media_path,
             generation,
+            mode,
         )
     })
     .await
@@ -924,7 +926,13 @@ async fn analysis_capabilities(
     let build_qualified = accelerated_analysis_available();
     let probe_succeeded = if build_qualified {
         tauri::async_runtime::spawn_blocking(move || {
-            chord_analysis::accelerator_self_test(&app) && stems::accelerator_self_test(&app)
+            let chord_service = app.state::<chord_analysis::ChordAnalysisService>();
+            let chord_ready = chord_service.accelerator_self_test(&app);
+            let accelerated = chord_ready && stems::accelerator_self_test(&app);
+            if !accelerated {
+                chord_service.shutdown();
+            }
+            accelerated
         })
         .await
         .unwrap_or(false)

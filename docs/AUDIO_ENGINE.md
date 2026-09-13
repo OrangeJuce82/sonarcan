@@ -9,14 +9,21 @@ Development builds use light optimization for SonArcan and full optimization for
 Chord and downbeat recognition are not part of playback or decoded-audio
 ownership. Startup first repairs and verifies their disposable model cache, and
 they are available only after the once-per-launch accelerator probe
-succeeds; otherwise no inference process is started. After the selected track is ready, one supervised process runs
-LV-Chordia first and Beat This! second. This avoids simultaneous pressure on the
-same CPU or accelerator while retaining both outputs for downstream features.
+succeeds; otherwise no inference process is retained. The probe starts one supervised
+resident process and warms both model families. After the selected track is ready,
+that process runs the requested LV-Chordia vocabulary first and Beat This! second.
+This avoids simultaneous pressure on the same CPU or accelerator while retaining
+both outputs for downstream features. Only the active chord vocabulary is decoded;
+another vocabulary is decoded on demand and merged into the source-aware cache.
+Beat This! is not repeated for those later requests, and the worker reuses its
+current source probabilities while they remain resident.
 Failure of one model retains the other model's result and emits a bounded warning.
 These partial results are used for the current selection but not cached, allowing
 the failed model to be retried later. The request fails only if both models fail.
 Beat This! output never changes or splits the chord timeline. The
-process can be killed when track selection changes. Model inference and official
+active request and process can be killed when track selection changes; an idle
+qualified worker stays resident, while a cancelled worker is restarted safely on
+the next request. Model inference and official
 decoding never execute on the CPAL callback. The worker reads the canonical
 original media directly; it does not depend on stems, UI beat visualization,
 or decoded playback PCM. The webview receives only the final bounded timed-chord
@@ -36,6 +43,15 @@ serialized, the warmed concurrent LV-Chordia and Beat This! worker completed the
 same track in 9.27 seconds. That number remains a historical contention baseline,
 not a measurement of the sequential worker, which must be benchmarked on the same
 media before making a wall-clock performance claim.
+
+On the September 13, 2026 resident-worker integration check, a synthetic
+240-second MP3 took 7.42 seconds for the first Essentiel plus Beat This!
+request after the startup probe. A second source in the same process took
+4.55 seconds after the full-length graphs and CQT path were warm. Requesting
+the Complet dictionary for the still-resident first source took 0.93 seconds
+and emitted no repeated rhythm result. These synthetic measurements validate
+the orchestration gain; they are not an accuracy or representative-corpus
+latency claim.
 
 Every in-flight decode is removed from the coordination set on both success and failure before waiting callers are notified. A damaged or unreadable media file therefore cannot leave waveform, playback, or tempo requests waiting permanently.
 

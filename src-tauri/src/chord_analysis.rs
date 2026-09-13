@@ -2,14 +2,14 @@
 
 use std::{
     fs,
-    io::{self, Read, Write},
+    io::{self, BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, Instant, UNIX_EPOCH},
+    time::{Duration, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -19,19 +19,19 @@ use uuid::Uuid;
 #[cfg(not(debug_assertions))]
 use crate::python_runtime;
 use crate::{
-    chord_contract::{ChordAnalysis, WorkerAnalysis},
+    chord_contract::{ChordAnalysis, ChordMode, WorkerAnalysis},
     error::AppError,
 };
 
-const CACHE_VERSION: u32 = 15;
+const CACHE_VERSION: u32 = 16;
 const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
-const MAX_STDERR_BYTES: usize = 32 * 1024;
 const MAX_CACHE_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct ChordAnalysisService {
     generation: AtomicU64,
-    child: Mutex<Option<Arc<Mutex<Child>>>>,
+    worker: Mutex<Option<ResidentWorker>>,
+    active_child: Mutex<Option<Arc<Mutex<Child>>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -48,6 +48,32 @@ struct WorkerCommand {
     prefix_arguments: Vec<String>,
 }
 
+struct ResidentWorker {
+    child: Arc<Mutex<Child>>,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "command", rename_all = "camelCase")]
+enum WorkerRequest<'a> {
+    Analyze {
+        audio: &'a Path,
+        mode: ChordMode,
+        #[serde(rename = "includeRhythm")]
+        include_rhythm: bool,
+    },
+    SelfTest,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WorkerResponse {
+    Analysis(WorkerAnalysis),
+    SelfTest { accelerated: bool, backend: String },
+    Error { error: String },
+}
+
 impl ChordAnalysisService {
     pub fn begin(&self) -> u64 {
         self.cancel();
@@ -56,7 +82,7 @@ impl ChordAnalysisService {
 
     pub fn cancel(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
-        if let Ok(mut slot) = self.child.lock() {
+        if let Ok(mut slot) = self.active_child.lock() {
             if let Some(child) = slot.take() {
                 if let Ok(mut child) = child.lock() {
                     let _ = child.kill();
@@ -72,104 +98,161 @@ impl ChordAnalysisService {
         track_id: Uuid,
         media_path: &Path,
         generation: u64,
+        requested_mode: ChordMode,
     ) -> Result<ChordAnalysis, AppError> {
         ensure_current(&self.generation, generation)?;
         let source = source_identity(media_path)?;
-        if let Some(cached) = load_cached(package_path, track_id, source)? {
-            return Ok(cached);
+        let cached = load_cached(package_path, track_id, source)?;
+        if cached
+            .as_ref()
+            .is_some_and(|analysis| analysis.modes.contains_key(requested_mode.as_str()))
+        {
+            return Ok(cached.unwrap());
         }
 
-        let worker = resolve_worker(app)?;
-        let downbeat_model = resolve_downbeat_model(app)?;
-        let mut child = Command::new(&worker.executable)
-            .args(&worker.prefix_arguments)
-            .arg("--device")
-            .arg("mps")
-            .arg("--downbeat-model")
-            .arg(downbeat_model)
-            .arg(media_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not start LV-Chordia worker: {error}"))
-            })?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stdout is unavailable".into()))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stderr is unavailable".into()))?;
-        let child = Arc::new(Mutex::new(child));
-        *self.child.lock().map_err(|_| {
-            AppError::ChordAnalysis("analysis process state is unavailable".into())
-        })? = Some(Arc::clone(&child));
-
-        let stdout_reader = std::thread::spawn(move || read_bounded(stdout, MAX_STDOUT_BYTES));
-        let stderr_reader = std::thread::spawn(move || read_bounded(stderr, MAX_STDERR_BYTES));
-        let status = wait_for_child(&child)?;
-        clear_child(&self.child, &child);
-        let stdout = stdout_reader
-            .join()
-            .map_err(|_| AppError::ChordAnalysis("LV-Chordia stdout reader failed".into()))?
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not read LV-Chordia stdout: {error}"))
-            })?;
-        let stderr = stderr_reader
-            .join()
-            .map_err(|_| AppError::ChordAnalysis("LV-Chordia stderr reader failed".into()))?
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not read LV-Chordia stderr: {error}"))
-            })?;
+        let response = self.request(
+            app,
+            &WorkerRequest::Analyze {
+                audio: media_path,
+                mode: requested_mode,
+                include_rhythm: cached.is_none(),
+            },
+        )?;
         ensure_current(&self.generation, generation)?;
-        if !status.success() {
-            return Err(AppError::ChordAnalysis(format!(
-                "LV-Chordia failed: {}",
-                String::from_utf8_lossy(&stderr.bytes).trim()
-            )));
-        }
-        if stdout.exceeded {
-            return Err(AppError::ChordAnalysis(
-                "LV-Chordia output exceeded 8 MiB".into(),
-            ));
-        }
-        let worker: WorkerAnalysis = serde_json::from_slice(&stdout.bytes).map_err(|error| {
-            AppError::ChordAnalysis(format!("invalid LV-Chordia JSON: {error}"))
-        })?;
-        let analysis = worker.validate(track_id, CACHE_VERSION)?;
+        let WorkerResponse::Analysis(worker) = response else {
+            return Err(invalid_worker_response(response));
+        };
+        let analysis =
+            worker.validate_and_merge(track_id, CACHE_VERSION, requested_mode, cached)?;
         ensure_current(&self.generation, generation)?;
         if analysis.warnings.is_empty() {
             store(package_path, source, &analysis)?;
         }
         Ok(analysis)
     }
-}
 
-struct BoundedOutput {
-    bytes: Vec<u8>,
-    exceeded: bool,
-}
-
-fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<BoundedOutput> {
-    let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
-    let mut exceeded = false;
-    let mut buffer = [0_u8; 8 * 1024];
-    loop {
-        let count = reader.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        let remaining = limit.saturating_sub(bytes.len());
-        bytes.extend_from_slice(&buffer[..count.min(remaining)]);
-        exceeded |= count > remaining;
+    fn request(
+        &self,
+        app: &AppHandle,
+        request: &WorkerRequest<'_>,
+    ) -> Result<WorkerResponse, AppError> {
+        self.request_with_timeout(app, request, None)
     }
-    Ok(BoundedOutput { bytes, exceeded })
+
+    fn request_with_timeout(
+        &self,
+        app: &AppHandle,
+        request: &WorkerRequest<'_>,
+        timeout: Option<Duration>,
+    ) -> Result<WorkerResponse, AppError> {
+        let mut slot = self
+            .worker
+            .lock()
+            .map_err(|_| AppError::ChordAnalysis("analysis worker state is unavailable".into()))?;
+        if slot.is_none() {
+            *slot = Some(spawn_worker(app)?);
+        }
+        let Some(worker) = slot.as_mut() else {
+            return Err(AppError::ChordAnalysis(
+                "analysis worker could not be initialized".into(),
+            ));
+        };
+        *self.active_child.lock().map_err(|_| {
+            AppError::ChordAnalysis("analysis process state is unavailable".into())
+        })? = Some(Arc::clone(&worker.child));
+        let completed = timeout.map(|duration| {
+            let completed = Arc::new(AtomicBool::new(false));
+            let watchdog_completed = Arc::clone(&completed);
+            let child = Arc::clone(&worker.child);
+            std::thread::spawn(move || {
+                std::thread::sleep(duration);
+                if !watchdog_completed.load(Ordering::Acquire) {
+                    if let Ok(mut child) = child.lock() {
+                        let _ = child.kill();
+                    }
+                }
+            });
+            completed
+        });
+        let result = worker.send(request);
+        if let Some(completed) = completed {
+            completed.store(true, Ordering::Release);
+        }
+        clear_active_child(&self.active_child, &worker.child);
+        if result.is_err() {
+            *slot = None;
+        }
+        result
+    }
+
+    pub fn accelerator_self_test(&self, app: &AppHandle) -> bool {
+        matches!(
+            self.request_with_timeout(
+                app,
+                &WorkerRequest::SelfTest,
+                Some(Duration::from_secs(30)),
+            ),
+            Ok(WorkerResponse::SelfTest { accelerated: true, backend }) if backend == "MPS"
+        )
+    }
+
+    pub fn shutdown(&self) {
+        self.cancel();
+        if let Ok(mut worker) = self.worker.lock() {
+            *worker = None;
+        }
+    }
 }
 
-fn clear_child(slot: &Mutex<Option<Arc<Mutex<Child>>>>, completed: &Arc<Mutex<Child>>) {
+impl ResidentWorker {
+    fn send(&mut self, request: &WorkerRequest<'_>) -> Result<WorkerResponse, AppError> {
+        serde_json::to_writer(&mut self.stdin, request)?;
+        self.stdin
+            .write_all(b"\n")
+            .and_then(|_| self.stdin.flush())
+            .map_err(|error| {
+                AppError::ChordAnalysis(format!("could not write to LV-Chordia worker: {error}"))
+            })?;
+        let bytes = read_bounded_line(&mut self.stdout, MAX_STDOUT_BYTES).map_err(|error| {
+            AppError::ChordAnalysis(format!("could not read LV-Chordia worker: {error}"))
+        })?;
+        if bytes.is_empty() {
+            return Err(AppError::ChordAnalysis(
+                "LV-Chordia worker stopped unexpectedly".into(),
+            ));
+        }
+        serde_json::from_slice(&bytes)
+            .map_err(|error| AppError::ChordAnalysis(format!("invalid LV-Chordia JSON: {error}")))
+    }
+}
+
+impl Drop for ResidentWorker {
+    fn drop(&mut self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn read_bounded_line(reader: &mut impl BufRead, limit: usize) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
+    let read = {
+        let mut limited = std::io::Read::take(&mut *reader, (limit + 1) as u64);
+        limited.read_until(b'\n', &mut bytes)?
+    };
+    if read > limit || (!bytes.ends_with(b"\n") && read != 0) {
+        let mut discarded = Vec::new();
+        reader.read_until(b'\n', &mut discarded)?;
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "worker response exceeded 8 MiB",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn clear_active_child(slot: &Mutex<Option<Arc<Mutex<Child>>>>, completed: &Arc<Mutex<Child>>) {
     if let Ok(mut slot) = slot.lock() {
         if slot
             .as_ref()
@@ -180,19 +263,14 @@ fn clear_child(slot: &Mutex<Option<Arc<Mutex<Child>>>>, completed: &Arc<Mutex<Ch
     }
 }
 
-fn wait_for_child(child: &Arc<Mutex<Child>>) -> Result<std::process::ExitStatus, AppError> {
-    loop {
-        let status = child
-            .lock()
-            .map_err(|_| AppError::ChordAnalysis("analysis process state is unavailable".into()))?
-            .try_wait()
-            .map_err(|error| {
-                AppError::ChordAnalysis(format!("could not wait for LV-Chordia: {error}"))
-            })?;
-        if let Some(status) = status {
-            return Ok(status);
+fn invalid_worker_response(response: WorkerResponse) -> AppError {
+    match response {
+        WorkerResponse::Error { error }
+            if error.len() <= 512 && !error.is_empty() && !error.chars().any(char::is_control) =>
+        {
+            AppError::ChordAnalysis(format!("LV-Chordia failed: {error}"))
         }
-        std::thread::sleep(std::time::Duration::from_millis(25));
+        _ => AppError::ChordAnalysis("invalid response from LV-Chordia worker".into()),
     }
 }
 
@@ -230,41 +308,36 @@ fn resolve_downbeat_model(app: &AppHandle) -> Result<PathBuf, AppError> {
     })
 }
 
-pub fn accelerator_self_test(app: &AppHandle) -> bool {
-    {
-        let Ok(worker) = resolve_worker(app) else {
-            return false;
-        };
-        let Ok(downbeat_model) = resolve_downbeat_model(app) else {
-            return false;
-        };
-        let Ok(mut child) = Command::new(&worker.executable)
-            .args(&worker.prefix_arguments)
-            .arg("--accelerator-self-test")
-            .arg("--downbeat-model")
-            .arg(downbeat_model)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        else {
-            return false;
-        };
-        let started = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => return status.success(),
-                Ok(None) if started.elapsed() < Duration::from_secs(30) => {
-                    std::thread::sleep(Duration::from_millis(25));
-                }
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return false;
-                }
-            }
-        }
-    }
+fn spawn_worker(app: &AppHandle) -> Result<ResidentWorker, AppError> {
+    let worker = resolve_worker(app)?;
+    let downbeat_model = resolve_downbeat_model(app)?;
+    let mut child = Command::new(&worker.executable)
+        .args(&worker.prefix_arguments)
+        .arg("--serve")
+        .arg("--device")
+        .arg("mps")
+        .arg("--downbeat-model")
+        .arg(downbeat_model)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| {
+            AppError::ChordAnalysis(format!("could not start LV-Chordia worker: {error}"))
+        })?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stdin is unavailable".into()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::ChordAnalysis("LV-Chordia stdout is unavailable".into()))?;
+    Ok(ResidentWorker {
+        child: Arc::new(Mutex::new(child)),
+        stdin,
+        stdout: BufReader::new(stdout),
+    })
 }
 
 #[cfg(debug_assertions)]
@@ -453,9 +526,9 @@ mod tests {
     }
 
     #[test]
-    fn bounded_reader_drains_but_retains_only_the_limit() {
-        let output = read_bounded(&b"abcdef"[..], 4).unwrap();
-        assert_eq!(output.bytes, b"abcd");
-        assert!(output.exceeded);
+    fn bounded_line_reader_rejects_an_oversized_message() {
+        let mut input = &b"abcdef\nnext\n"[..];
+        assert!(read_bounded_line(&mut input, 4).is_err());
+        assert_eq!(read_bounded_line(&mut input, 5).unwrap(), b"next\n");
     }
 }

@@ -205,7 +205,7 @@ export interface ChordAnalysis {
   dbnBpm: number | null;
   dbnBeats: number[];
   dbnDownbeats: number[];
-  modes: Record<ChordMode, TimedChord[]>;
+  modes: Partial<Record<ChordMode, TimedChord[]>>;
   warnings: string[];
 }
 

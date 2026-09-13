@@ -41,8 +41,8 @@ Raw audio buffers and full-resolution waveform data must not cross the JSON IPC 
 
 Timed chord analysis follows the same boundary through a pinned Python worker.
 The worker reads the canonical original media, runs the learned LV-Chordia
-five-model ensemble, and emits three bounded timed-label sequences using the
-official `ismir2017`, `submission`, and `full` dictionary decodes. A separate
+five-model ensemble, and emits only the requested bounded timed-label sequence
+using the official `ismir2017`, `submission`, or `full` dictionary decode. A separate
 pinned Beat This! `final0` model detects beats and downbeats. SonArcan retains
 its official minimal timeline and the optional Beat This! madmom DBN timeline.
 Only these two bounded timestamp sequences cross IPC; frame-level predictions
@@ -55,9 +55,12 @@ default. The BPM display estimates the tempo around the
 playhead with a robust local median, refreshes twice per second, and applies
 playback speed so it represents the tempo currently heard without display
 jitter. Downbeats only accent those rhythmic
-views. The worker runs LV-Chordia first,
+views. On the first request for a source, the worker runs LV-Chordia first,
 then Beat This!, so the two models do not compete for the same CPU or accelerator
-and both results remain available downstream. If either model fails, the worker
+and both results remain available downstream. Later vocabulary requests reuse
+the resident worker's current LV-Chordia probabilities when possible and never
+repeat Beat This!. Rust merges each requested mode into the source-aware cache.
+If either model fails, the worker
 retains the other model's bounded result and reports a partial-analysis warning;
 partial results are not cached so selecting the track later retries the failed
 model. The combined request fails only when neither model produces a result.
@@ -76,7 +79,9 @@ It verifies their sizes and SHA-256 digests and reports bounded
 progress while the welcome screen remains responsive. Interrupted downloads use adjacent
 temporary files and resume as a clean retry; subsequent launches verify the cache. LV-Chordia's
 five pinned weights remain part of the shared runtime and are verified in the same startup flow.
-Installation never constructs an inference model or keeps weights resident in memory.
+Installation never constructs an inference model. The bounded accelerator probe
+starts the supervised chord/rhythm worker, exercises its loaded models, and keeps
+that qualified process resident for later analysis requests.
 SonArcan enables
 Beat This!, LV-Chordia, and four-stem separation only after the platform backend
 has been release-qualified and a bounded on-device inference probe succeeds.
@@ -402,9 +407,14 @@ No download begins until the user confirms the current selection. The eventual
 Text edits are debounced, and normalized query results plus in-flight requests
 are reused from a bounded session cache. Reordering an unchanged line therefore
 performs no network request, and selections that still exist are preserved.
-Uncached searches run with a strict concurrency limit of two. Starting a new
-text analysis invalidates its generation and terminates obsolete `yt-dlp`
-processes rather than merely ignoring their late results. The Import Center
+Uncached searches run through a bounded pool of two resident Python workers.
+Each worker imports the pinned `yt-dlp` archive once, skips YouTube's preliminary
+webpage request, and returns only the identifier, title, channel, popularity,
+verification, and provider URL fields consumed by the application. Starting a
+new text analysis invalidates its generation and terminates a worker only when
+it is executing an obsolete request; idle workers remain warm. If the resident
+runtime is unavailable, the bounded CLI path uses the same reduced metadata and
+webpage-skip options. The Import Center
 creates every query group immediately, reports indexed completed/total progress,
 and publishes each group's candidates as soon as that query finishes. A failed
 query remains isolated in its group and does not hide completed results or stop
@@ -421,6 +431,14 @@ macOS executable took 8.85 seconds for `--version` and 9.62 seconds for a
 five-result search. The verified 3 MiB zipimport artifact took 0.51 seconds and
 1.47 seconds respectively for the same operations. Search logs retain only
 elapsed time and result count; the private query is never logged.
+
+On the September 13, 2026 Apple-silicon follow-up, three ten-result YouTube
+queries took 1.53–1.65 seconds each through the previous fresh-process command
+(1.63-second median). The warm resident worker completed the same queries in
+0.59–0.75 seconds (0.70-second median), a 57% median reduction under the same
+network conditions. Its measured cold startup was 0.44 seconds. The optimized
+CLI fallback measured 1.04–1.32 seconds (1.28-second median). These network-bound
+figures are reference measurements rather than latency guarantees.
 
 Duplicate prevention has two deliberately separate layers. Text analysis removes
 obvious repeats by normalized URL, search text, or case-insensitive local

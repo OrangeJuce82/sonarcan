@@ -124,6 +124,7 @@
   let beatModesAvailable = false;
   let chordAnalysis: ChordAnalysis | null = null;
   let chordsLoading = false;
+  let chordRequestGeneration = 0;
   let chordAnalysisError = "";
   let chordAutoScrollEnabled = true;
   let chordScrollSuspended = false;
@@ -1154,6 +1155,11 @@
     selectedChordKey = null;
     cancelChordEdit();
     lastFollowedChordIndex = -1;
+    if (chordAnalysis?.modes[mode]) {
+      chordAnalysisError = "";
+    } else if (analysisFeaturesAvailable && project && currentTrack && !audioLoading) {
+      void loadTrackChords(currentTrack, project.packagePath, trackSelectionGeneration, mode);
+    }
   }
 
   function changeChordMode(mode: ChordMode): void {
@@ -1653,6 +1659,7 @@
 
   async function resetTrackState(): Promise<void> {
     ++trackSelectionGeneration;
+    ++chordRequestGeneration;
     backgroundTaskScheduler.cancelAll();
     await cancelChordAnalysis();
     cancelPendingSeek();
@@ -2330,6 +2337,7 @@
     cancelPendingSeek();
     const packagePath = project.packagePath;
     const selectionGeneration = ++trackSelectionGeneration;
+    ++chordRequestGeneration;
     window.clearTimeout(playbackRateTimer);
     window.clearTimeout(pitchTimer);
     playbackRateTimer = undefined;
@@ -2853,19 +2861,23 @@
     });
   }
 
-  async function loadTrackChords(track: TrackSummary, packagePath: string, selectionGeneration: number): Promise<void> {
+  async function loadTrackChords(track: TrackSummary, packagePath: string, selectionGeneration: number, requestedMode: ChordMode = chordMode): Promise<void> {
     if (!analysisFeaturesAvailable) return;
+    if (chordAnalysis?.trackId === track.id && chordAnalysis.modes[requestedMode]) return;
+    const requestGeneration = ++chordRequestGeneration;
+    const hadAnalysis = chordAnalysis?.trackId === track.id;
     chordsLoading = true;
-    tempoLoading = true;
+    if (!hadAnalysis) tempoLoading = true;
     chordAnalysisError = "";
     const stillSelected = (): boolean => selectionGeneration === trackSelectionGeneration
+      && requestGeneration === chordRequestGeneration
       && project?.packagePath === packagePath
       && currentTrack?.id === track.id;
     try {
       // Rust owns the versioned, source-aware cache. Always cross that boundary
       // so a newly available stem cache cannot be hidden by an older in-memory
       // mix result retained by the webview.
-      const analysis = await analyzeChords(packagePath, track.id);
+      const analysis = await analyzeChords(packagePath, track.id, requestedMode);
       if (stillSelected()) {
         chordAnalysis = analysis;
         const timeline = beatTimelineFor(analysis, { beatThisDbn, subdivision: beatSubdivisionMode });
@@ -2877,14 +2889,16 @@
     } catch (error) {
       if (stillSelected()) {
         chordAnalysisError = errorText(error);
-        chordAnalysis = null;
-        await audioSetBeatTimeline([], []);
+        if (!hadAnalysis) {
+          chordAnalysis = null;
+          await audioSetBeatTimeline([], []);
+        }
         notify("error", t("chordAnalysisFailed"), chordAnalysisError);
       }
     } finally {
       if (stillSelected()) {
         chordsLoading = false;
-        tempoLoading = false;
+        if (!hadAnalysis) tempoLoading = false;
       }
     }
   }
@@ -4607,7 +4621,7 @@
           </div>
           {#if chordAnalysisError}
             <p class="chord-state failed">{t("chordAnalysisFailed")}</p>
-          {:else if !chordAnalysis || !chordAnalysis.modes.standard.length}
+          {:else if !chordAnalysis || !decodedChords.length}
             <p class="chord-state">{chordsLoading ? t("analyzingChords") : t("noChords")}</p>
           {:else}
             {#if chordView === "grid"}

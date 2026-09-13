@@ -59,7 +59,7 @@ impl YtDlpCommand {
     }
 }
 
-fn suppress_console_window(command: &mut Command) {
+pub(crate) fn suppress_console_window(command: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
