@@ -40,7 +40,7 @@
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, zoomWaveformViewportAroundCenter, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
   import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, shouldRestartCurrentTrack, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
-  import { projectStartupAction, shouldProcessProjectOpenRequest, type ProjectStartupAction } from "./lib/projectStartup";
+  import { prepareAnalysisForStartup, projectStartupAction, shouldProcessProjectOpenRequest, type ProjectStartupAction } from "./lib/projectStartup";
   import { shouldResumeStemPlayback, stemPlaybackResumeRequest, type StemPlaybackResumeRequest } from "./lib/stemPlayback";
   import { formatStemEta, startStemEta, stemRemainingSeconds, updateStemEta, type StemEtaState } from "./lib/stemEta";
   import { preferredStemProfile } from "./lib/stemProfiles";
@@ -1464,9 +1464,7 @@
     modelInstallRunning = true;
     modelInstallError = "";
     try {
-      const capabilities = await getAnalysisCapabilities();
-      analysisFeaturesAvailable = capabilities.accelerated;
-      if (analysisFeaturesAvailable) await prepareModels();
+      analysisFeaturesAvailable = await prepareAnalysisForStartup(prepareModels, getAnalysisCapabilities);
       if (!analysisFeaturesAvailable && !preferences.degradedAnalysisNoticeSeen) {
         degradedAnalysisNoticeVisible = true;
         preferences = { ...preferences, degradedAnalysisNoticeSeen: true };

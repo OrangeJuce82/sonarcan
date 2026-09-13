@@ -941,11 +941,7 @@ async fn analysis_capabilities(
 }
 
 #[tauri::command]
-async fn prepare_models(
-    app: AppHandle,
-    capability: State<'_, AnalysisCapabilityState>,
-) -> Result<model_install::ModelInstallResult, AppError> {
-    require_accelerated_analysis(&capability)?;
+async fn prepare_models(app: AppHandle) -> Result<model_install::ModelInstallResult, AppError> {
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || model_install::prepare(&worker_app))
         .await

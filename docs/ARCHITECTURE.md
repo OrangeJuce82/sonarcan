@@ -69,9 +69,10 @@ rejects stale generations, and stores a source-identity-checked disposable
 cache under `Analysis/chords`. Rust never changes an LV-Chordia chord decision.
 No PCM or frame-level probabilities cross JSON IPC.
 
-Heavy analysis is capability-gated once per application launch. On the first qualified launch,
-SonArcan installs the pinned SCNet-large, HTDemucs, and Beat This! checkpoints sequentially
-into the application-data cache, verifies their sizes and SHA-256 digests, and reports bounded
+Heavy analysis is capability-gated once per application launch. On every qualified launch,
+SonArcan verifies the pinned SCNet-large, HTDemucs, and Beat This! checkpoints sequentially,
+downloading any missing or invalid disposable cache entry into the application-data cache.
+It verifies their sizes and SHA-256 digests and reports bounded
 progress while the welcome screen remains responsive. Interrupted downloads use adjacent
 temporary files and resume as a clean retry; subsequent launches verify the cache. LV-Chordia's
 five pinned weights remain part of the shared runtime and are verified in the same startup flow.
@@ -88,8 +89,11 @@ Time or Lyrics when synchronized lyric lines are available, while playback,
 lyrics, spectrum, and the stereo meter remain available. Loop snapping follows
 those synchronized lines in Lyrics mode. The explanation is persisted as a
 once-per-user-profile notice.
-The startup probe runs before model preparation. A missing or rejected GPU
-therefore enters simplified mode without downloading analysis checkpoints.
+Model preparation runs before the startup probe because the chord probe exercises
+the pinned Beat This! checkpoint. Removing the application-data model cache therefore
+causes the missing checkpoints to be downloaded again instead of being mistaken for
+an unavailable accelerator. A rejected GPU still enters simplified mode after the
+bounded probe.
 SonArcan builds only on Apple Silicon: MLX runs stems and MPS runs chord/rhythm
 analysis. Both model probes execute on the Apple GPU before Rust opens the
 analysis IPC gate. Neither worker may silently select CPU inference.
