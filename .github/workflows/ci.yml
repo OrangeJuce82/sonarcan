@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -33,20 +33,8 @@ jobs:
       - run: npm run build
 
   native:
-    name: Native (${{ matrix.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Linux x64
-            os: ubuntu-22.04
-          - name: Windows x64
-            os: windows-2025
-          - name: macOS Apple Silicon
-            os: macos-15
-          - name: macOS Intel
-            os: macos-15-intel
-    runs-on: ${{ matrix.os }}
+    name: Native (macOS Apple Silicon)
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -58,17 +46,8 @@ jobs:
           python-version: "3.13"
       - uses: dtolnay/rust-toolchain@stable
         with:
+          targets: aarch64-apple-darwin
           components: rustfmt, clippy
-      - name: Install Tauri Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
       - run: npm ci
       - name: Run shared application quality gate
         run: npm run quality:shared

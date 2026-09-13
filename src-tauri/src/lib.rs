@@ -1,3 +1,6 @@
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+compile_error!("SonArcan supports only macOS on Apple Silicon");
+
 mod app_log;
 mod audio;
 mod audio_engine;
@@ -62,22 +65,7 @@ struct AnalysisCapabilities {
 struct AnalysisCapabilityState(AtomicBool);
 
 fn accelerated_analysis_available() -> bool {
-    qualified_analysis_build(
-        cfg!(all(target_os = "macos", target_arch = "aarch64")),
-        cfg!(all(
-            any(target_os = "windows", target_os = "linux"),
-            target_arch = "x86_64"
-        )),
-        option_env!("SONARCAN_GPU_BACKEND"),
-    )
-}
-
-fn qualified_analysis_build(
-    apple_silicon: bool,
-    windows_or_linux_x64: bool,
-    gpu_backend: Option<&str>,
-) -> bool {
-    apple_silicon || (windows_or_linux_x64 && matches!(gpu_backend, Some("nvidia" | "amd")))
+    true
 }
 
 fn analysis_enabled_after_probe(build_qualified: bool, probe_succeeded: bool) -> bool {
@@ -85,15 +73,7 @@ fn analysis_enabled_after_probe(build_qualified: bool, probe_succeeded: bool) ->
 }
 
 fn accelerated_analysis_backend() -> Option<&'static str> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("MLX / MPS")
-    } else {
-        match option_env!("SONARCAN_GPU_BACKEND") {
-            Some("nvidia") => Some("NVIDIA CUDA"),
-            Some("amd") => Some("AMD ROCm"),
-            _ => None,
-        }
-    }
+    Some("MLX / MPS")
 }
 
 fn require_accelerated_analysis(state: &AnalysisCapabilityState) -> Result<(), AppError> {
@@ -1133,33 +1113,9 @@ mod tests {
     }
 
     #[test]
-    fn analysis_availability_matches_the_qualified_build_backend() {
-        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            assert!(accelerated_analysis_available());
-        } else if !cfg!(all(
-            any(target_os = "windows", target_os = "linux"),
-            target_arch = "x86_64"
-        )) || !matches!(option_env!("SONARCAN_GPU_BACKEND"), Some("nvidia" | "amd"))
-        {
-            assert!(!accelerated_analysis_available());
-        }
-    }
-
-    #[test]
-    fn build_without_a_qualified_gpu_uses_simplified_mode() {
-        assert!(!qualified_analysis_build(false, true, None));
-        assert!(!qualified_analysis_build(false, true, Some("intel")));
-        assert!(!qualified_analysis_build(false, false, Some("nvidia")));
-
-        let capability = AnalysisCapabilityState::default();
-        assert!(require_accelerated_analysis(&capability).is_err());
-    }
-
-    #[test]
-    fn supported_accelerator_builds_can_probe_analysis() {
-        assert!(qualified_analysis_build(true, false, None));
-        assert!(qualified_analysis_build(false, true, Some("nvidia")));
-        assert!(qualified_analysis_build(false, true, Some("amd")));
+    fn apple_silicon_build_can_probe_analysis() {
+        assert!(accelerated_analysis_available());
+        assert_eq!(accelerated_analysis_backend(), Some("MLX / MPS"));
     }
 
     #[test]

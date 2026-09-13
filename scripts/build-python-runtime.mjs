@@ -2,28 +2,19 @@ import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { madmomBuildDependencies, runtimePipArguments } from "./python-runtime-install.mjs";
+import { madmomBuildDependencies } from "./python-runtime-install.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const gpuBackend = process.env.SONARCAN_GPU_BACKEND;
-if (gpuBackend && !["nvidia", "amd"].includes(gpuBackend)) {
-  throw new Error(`unsupported SONARCAN_GPU_BACKEND: ${gpuBackend}`);
+const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
+if (!appleSilicon) {
+  throw new Error("The SonArcan release runtime requires macOS on Apple Silicon");
 }
-if (gpuBackend && process.platform === "darwin") {
-  throw new Error("SONARCAN_GPU_BACKEND is only valid for Windows and Linux runtimes");
-}
-const runtimeProject = gpuBackend === "nvidia"
-  ? "sonarcan-python-runtime-cuda"
-  : gpuBackend === "amd"
-    ? "sonarcan-python-runtime-rocm"
-    : "sonarcan-python-runtime";
-const project = join(repositoryRoot, `tools/${runtimeProject}`);
+const project = join(repositoryRoot, "tools/sonarcan-python-runtime");
 const runtime = join(repositoryRoot, "src-tauri/resources/python-runtime/runtime");
 const requirements = join(runtime, "requirements.lock.txt");
 const beatModel = join(repositoryRoot, "src-tauri/resources/models/beat-this/final0.ckpt");
-const appleSilicon = process.platform === "darwin" && process.arch === "arm64";
-const stemPackage = appleSilicon ? "sonarcan-mlx-worker" : "sonarcan-torch-worker";
-const stemModule = appleSilicon ? "sonarcan_mlx_worker" : "sonarcan_torch_worker.worker";
+const stemPackage = "sonarcan-mlx-worker";
+const stemModule = "sonarcan_mlx_worker";
 
 function run(command, commandArguments, options = {}) {
   const result = spawnSync(command, commandArguments, {
@@ -62,19 +53,17 @@ run("uv", [
 ]);
 run("uv", [
   "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
-  // The pinned Cython Git build exceeds Windows' linker path limits when uv
-  // recreates it below a fresh temporary cache. Reuse its prepared wheel; only
-  // the accelerator runtime download below needs to bypass stale wheel caches.
+  // madmom does not declare these build requirements; install their pinned
+  // versions before resolving the release environment.
   ...madmomBuildDependencies,
 ]);
 run("uv", [
   "pip", "install", "--system", "--break-system-packages", "--python", runtimePython,
-  ...(gpuBackend ? ["--no-cache"] : []),
   "--no-build-isolation-package", "madmom",
   "--reinstall-package", "sonarcan-lv-chordia-worker",
   "--reinstall-package", "sonarcan-scnet-infer",
   "--reinstall-package", stemPackage,
-  ...runtimePipArguments(process.platform, gpuBackend), "--requirement", requirements,
+  "--requirement", requirements,
 ], { cwd: project });
 
 const sitePackages = process.platform === "win32"
@@ -91,12 +80,4 @@ run(runtimePython, [
 run(runtimePython, [
   "-m", stemModule, "self-test",
 ]);
-if (gpuBackend) {
-  const expected = gpuBackend === "nvidia" ? "CUDA" : "ROCm";
-  run(runtimePython, [
-    "-c",
-    `import torch; assert torch.version.cuda if ${JSON.stringify(gpuBackend)} == 'nvidia' else torch.version.hip; print('${expected} runtime present')`,
-  ]);
-}
-
-console.log(`Pinned ${gpuBackend ?? (appleSilicon ? "apple" : "cpu")} Python 3.13 runtime assembled in ${runtime}`);
+console.log(`Pinned Apple Silicon Python 3.13 runtime assembled in ${runtime}`);

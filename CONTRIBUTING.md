@@ -74,11 +74,9 @@ never silence an advisory without a written reason, owner, and review date.
 
 ## Validation
 
-`npm run tauri dev` prepares the pinned analysis environments required by the
-current platform before Tauri, Rust, or Vite starts. On Apple silicon it selects MLX. On
-Windows/Linux x64, set `SONARCAN_GPU_BACKEND=nvidia` or
-`SONARCAN_GPU_BACKEND=amd` so the matching Torch backend is compiled and
-prepared. The first full development launch may download Python dependencies
+`npm run tauri dev` prepares the pinned analysis environments before Tauri,
+Rust, or Vite starts. Development requires macOS on Apple Silicon and selects
+MLX/MPS. The first full development launch may download Python dependencies
 and the pinned Beat This! checkpoint; later launches only synchronize the
 locked environments.
 
@@ -91,10 +89,9 @@ npm run quality
 This runs Svelte/TypeScript diagnostics, frontend unit tests, the production
 bundle, Rust formatting, Clippy with warnings denied, and all Rust tests.
 Worker protocol and checkpoint-contract tests must remain runnable with a clean
-system Python and no inference packages. CI runs that lightweight contract suite
-once in its dedicated frontend job. Source builds exercise the shared
-application gate; hardware release builds additionally qualify their MLX or
-Torch runtime and model contracts.
+system Python and no inference packages. CI runs that lightweight contract
+suite in its dedicated frontend job. The release build additionally qualifies
+its MLX/MPS runtime and model contracts.
 
 Only when adding a new library or package:
 

@@ -3,31 +3,7 @@ import test from "node:test";
 
 import {
   madmomBuildDependencies,
-  runtimePipArguments,
 } from "../../scripts/python-runtime-install.mjs";
-
-test("portable shared runtimes resolve PyTorch from the CPU wheel index", () => {
-  assert.deepEqual(runtimePipArguments("linux"), ["--torch-backend", "cpu"]);
-  assert.deepEqual(runtimePipArguments("win32"), ["--torch-backend", "cpu"]);
-});
-
-test("Apple Silicon keeps its locked default index", () => {
-  assert.deepEqual(runtimePipArguments("darwin"), []);
-});
-
-test("NVIDIA releases select the pinned CUDA 12.6 wheel index", () => {
-  assert.deepEqual(runtimePipArguments("linux", "nvidia"), ["--torch-backend", "cu126"]);
-  assert.deepEqual(runtimePipArguments("win32", "nvidia"), ["--torch-backend", "cu126"]);
-});
-
-test("AMD releases combine the pinned ROCm and PyPI indexes", () => {
-  assert.deepEqual(runtimePipArguments("linux", "amd"), [
-    "--index",
-    "https://download.pytorch.org/whl/rocm7.2",
-    "--index-strategy",
-    "unsafe-best-match",
-  ]);
-});
 
 test("madmom's undeclared build dependencies are bootstrapped explicitly", () => {
   assert.deepEqual(madmomBuildDependencies, [

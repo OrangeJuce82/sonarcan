@@ -44,15 +44,13 @@ Rapid selections use monotonically increasing load generations. A slow, obsolete
 
 The real-time callback never locks or reads this cache. It only sees the selected immutable audio buffer through `ArcSwap`.
 
-## Optional cross-platform four-stem Fast and HQ modes
+## Optional four-stem Fast and HQ modes
 
 Stem mode is disabled by default and never delays ordinary track loading. After
 the startup accelerator probe succeeds, an Apple-silicon Mac starts
-`sonarcan-mlx-worker` with the pinned MLX environment. NVIDIA
-Windows/Linux releases start the pinned CUDA 12.6 Torch worker; AMD Linux
-releases start the pinned ROCm 7.2 worker. A GPU release whose on-device graph
-probe fails does not start separation and never falls back to CPU. Both worker
-implementations use one four-stem protocol and profile-specific caches.
+`sonarcan-mlx-worker` with the pinned MLX environment. A release whose on-device
+graph probe fails does not start separation and never falls back to CPU. The
+worker uses one four-stem protocol and profile-specific caches.
 Release assembly copies a complete standalone CPython distribution; uv is never
 installed or executed on an end-user machine.
 

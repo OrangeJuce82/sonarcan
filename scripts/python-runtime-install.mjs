@@ -1,22 +1,3 @@
-/**
- * @param {NodeJS.Platform} platform
- * @param {"nvidia" | "amd" | undefined} [gpuBackend]
- */
-export function runtimePipArguments(platform, gpuBackend) {
-  if (gpuBackend === "nvidia") return ["--torch-backend", "cu126"];
-  if (gpuBackend === "amd") {
-    return [
-      "--index",
-      "https://download.pytorch.org/whl/rocm7.2",
-      // ROCm hosts Torch while the remaining pinned packages live on PyPI.
-      // Considering both indexes avoids selecting an incomplete ROCm mirror.
-      "--index-strategy",
-      "unsafe-best-match",
-    ];
-  }
-  return platform !== "darwin" ? ["--torch-backend", "cpu"] : [];
-}
-
 export const madmomBuildDependencies = [
   "setuptools==80.9.0",
   "numpy==2.3.5",

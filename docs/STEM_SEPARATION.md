@@ -7,10 +7,8 @@ practice mixer:
   random shift;
 - **HQ** uses SCNet Large by starrytong with four-way overlap-add.
 
-Apple Silicon executes both profiles with MLX. NVIDIA Windows/Linux and AMD
-Linux execute the equivalent graphs with Torch through CUDA or ROCm. Builds
-without a qualified GPU backend keep the mixer disabled. CPU-only separation is
-not exposed as a supported user experience.
+Apple Silicon executes both profiles with MLX. Builds are rejected on every
+other platform, and CPU-only separation is never exposed.
 
 ## User workflow
 
@@ -37,11 +35,8 @@ remain global and are applied after stem summing.
 
 Checkpoints are not embedded in the installer. The first-run model installation downloads them before opening the workspace. Tauri's
 application-data directory contains `models/stem-separation/`, with
-`htdemucs-v4/` and `scnet-large-starrytong-v1.0.9/` below it. This resolves to:
-
-- macOS: `~/Library/Application Support/music.sonarcan.desktop/`;
-- Windows: `%APPDATA%\music.sonarcan.desktop\`;
-- Linux: `~/.local/share/music.sonarcan.desktop/`.
+`htdemucs-v4/` and `scnet-large-starrytong-v1.0.9/` below it. This resolves to
+`~/Library/Application Support/music.sonarcan.desktop/`.
 
 Downloads use an adjacent temporary file, exact byte length and full SHA-256,
 then atomic rename. Cached checkpoints are checked before every load. Symlinks,
@@ -55,9 +50,8 @@ Fast uses the official Demucs artifact:
 - exact size: 84,141,911 bytes;
 - SHA-256: `8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4`.
 
-On Apple Silicon, the verified Torch artifact is converted once to the safe MLX
-safetensors cache. Other supported systems load the same verified weights in
-Torch. No unofficial GitHub mirror is used because the upstream weight
+The verified Torch artifact is converted once to the safe MLX safetensors
+cache. No unofficial GitHub mirror is used because the upstream weight
 redistribution terms have not been established.
 
 HQ uses SCNet Large by starrytong from the v1.0.9 GitHub release:
@@ -77,9 +71,8 @@ publisher rather than redistributing them.
 
 ## Runtime and project caches
 
-All release workers share one target-native Python 3.13.5 runtime. Apple
-Silicon uses MLX; NVIDIA releases resolve pinned CUDA builds; AMD Linux resolves
-pinned ROCm builds. uv runs only on development/build machines.
+The release worker uses one Apple-Silicon Python 3.13.5 runtime with MLX. uv
+runs only on development and build machines.
 
 Project results are independent per profile:
 `Stems/<track-id>/<fast|hq>/`. Each cache manifest fingerprints the source size,
@@ -96,12 +89,11 @@ On 7 September 2026, SCNet Large was measured on a 16 GB MacBook Air M3 with a
 and 68.22 s end to end. Batch 2 took 30.30 s for inference and 41.69 s end to
 end, while producing all four valid stems. Batch 4 exhausted Metal memory on
 GitHub's `macos-15` Apple Silicon release runner. The shared SCNet plan is
-therefore batch 2 on MLX, CUDA, and ROCm; MLX also materializes overlap-add and
+therefore batch 2 on MLX; MLX also materializes overlap-add and
 clears unused allocations between forwards. Representative full-song
 benchmarks are still required on every supported accelerator.
 
-The HTDemucs Fast protocol has been exercised end-to-end with both its MLX and
-Torch paths, including safe loading and four output files. Representative
-full-song cold/warm benchmarks are still required on every supported
-accelerator. These figures are regression baselines, not universal speed
-promises.
+The HTDemucs Fast protocol has been exercised end-to-end through MLX, including
+safe loading and four output files. Representative full-song cold/warm
+benchmarks remain required. These figures are regression baselines, not
+universal speed promises.

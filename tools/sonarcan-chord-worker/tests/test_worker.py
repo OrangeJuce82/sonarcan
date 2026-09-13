@@ -7,6 +7,12 @@ from sonarcan_chord_worker.worker import analyze
 
 
 class WorkerTests(unittest.TestCase):
+    def test_auto_device_never_falls_back_to_cpu(self):
+        with tempfile.NamedTemporaryFile() as audio_file:
+            with patch("torch.backends.mps.is_available", return_value=False):
+                with self.assertRaisesRegex(RuntimeError, "required MPS accelerator"):
+                    analyze(Path(audio_file.name), Path("beat-this.ckpt"))
+
     def test_runs_lv_chordia_before_beat_this(self):
         calls = []
 

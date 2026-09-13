@@ -83,6 +83,8 @@ impl ChordAnalysisService {
         let downbeat_model = resolve_downbeat_model(app)?;
         let mut child = Command::new(&worker.executable)
             .args(&worker.prefix_arguments)
+            .arg("--device")
+            .arg("mps")
             .arg("--downbeat-model")
             .arg(downbeat_model)
             .arg(media_path)

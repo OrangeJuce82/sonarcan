@@ -1,8 +1,8 @@
 # Shared Python runtime
 
-Release assembly installs one target-native CPython 3.13 runtime here. It
-contains the chord/downbeat worker on every platform, plus the MLX stem worker
-on Apple Silicon or the CPU-only Torch stem worker on Linux and Windows.
+Release assembly installs one Apple-Silicon CPython 3.13 runtime here. It
+contains the MPS chord/downbeat worker and the MLX stem worker. Production
+analysis never falls back to CPU inference.
 
 Generate and verify the ignored runtime with:
 
@@ -12,5 +12,4 @@ npm run verify:chord-release
 npm run verify:stem-release
 ```
 
-The runtime is rebuilt independently on each target and uv is not shipped in
-the application.
+uv is not shipped in the application.

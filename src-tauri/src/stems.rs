@@ -146,29 +146,22 @@ struct WorkerCommand {
 #[derive(Debug, Clone, Copy)]
 enum StemBackend {
     Mlx,
-    Torch,
 }
 
 impl StemBackend {
     fn preferred() -> Self {
-        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            Self::Mlx
-        } else {
-            Self::Torch
-        }
+        Self::Mlx
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Mlx => "MLX",
-            Self::Torch => "Torch",
         }
     }
 
     fn log_source(self) -> &'static str {
         match self {
             Self::Mlx => "mlx",
-            Self::Torch => "torch",
         }
     }
 }
@@ -974,18 +967,9 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .ok_or_else(|| AppError::StemSeparation("repository root is unavailable".into()))?;
-        let (worker_root, environment_name, module) = match backend {
-            StemBackend::Mlx => (
-                root.join("tools/sonarcan-mlx-worker"),
-                "SONARCAN_MLX_PYTHON",
-                "sonarcan_mlx_worker",
-            ),
-            StemBackend::Torch => (
-                root.join("tools/sonarcan-torch-worker"),
-                "SONARCAN_TORCH_PYTHON",
-                "sonarcan_torch_worker",
-            ),
-        };
+        let worker_root = root.join("tools/sonarcan-mlx-worker");
+        let environment_name = "SONARCAN_MLX_PYTHON";
+        let module = "sonarcan_mlx_worker";
         let executable = std::env::var_os(environment_name)
             .map(PathBuf::from)
             .unwrap_or_else(|| development_python(&worker_root));
@@ -1008,10 +992,7 @@ fn resolve_worker(app: &AppHandle) -> Result<WorkerCommand, AppError> {
             .path()
             .resource_dir()
             .map_err(|error| AppError::StemSeparation(error.to_string()))?;
-        let module = match backend {
-            StemBackend::Mlx => "sonarcan_mlx_worker",
-            StemBackend::Torch => "sonarcan_torch_worker",
-        };
+        let module = "sonarcan_mlx_worker";
         validated_worker(
             bundled_python(&resources.join("python-runtime").join("runtime")),
             vec!["-m".into(), module.into()],

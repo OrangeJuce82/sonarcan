@@ -7,15 +7,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const worker = process.argv[2];
 const configurations = {
   mlx: { root: "tools/sonarcan-mlx-worker", sharedTests: true },
-  torch: { root: "tools/sonarcan-torch-worker", sharedTests: false },
 };
 const configuration = configurations[worker];
-if (!configuration) throw new Error("usage: node scripts/test-python-worker.mjs <mlx|torch>");
+if (!configuration) throw new Error("usage: node scripts/test-python-worker.mjs mlx");
 const workerRoot = join(root, configuration.root);
-const virtualPython = process.platform === "win32"
-  ? join(workerRoot, ".venv/Scripts/python.exe")
-  : join(workerRoot, ".venv/bin/python");
-const runtimeExecutable = process.platform === "win32" ? "python.exe" : "bin/python3.13";
+const virtualPython = join(workerRoot, ".venv/bin/python");
+const runtimeExecutable = "bin/python3.13";
 const runtimePython = [
   process.env.SONARCAN_PYTHON_RUNTIME_DIR,
   join(root, "src-tauri/resources/python-runtime/runtime"),
@@ -27,9 +24,7 @@ const python = existsSync(virtualPython)
   ? virtualPython
   : runtimePython
     ? runtimePython
-    : process.platform === "win32"
-      ? "python"
-      : "python3.13";
+    : "python3.13";
 const environment = {
   ...process.env,
   PYTHONPATH: [

@@ -30,11 +30,9 @@ def analyze(audio_path: Path, downbeat_model: Path, requested_device: str = "aut
     if not audio_path.is_file():
         raise ValueError("audio path must be an absolute regular file")
     if requested_device == "auto":
-        requested_device = (
-            "cuda" if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available()
-            else "cpu"
-        )
+        if not torch.backends.mps.is_available():
+            raise RuntimeError("the required MPS accelerator is unavailable")
+        requested_device = "mps"
     device = resolve_device(requested_device)
     warnings: list[str] = []
     try:
@@ -111,14 +109,10 @@ def accelerator_self_test(downbeat_model: Path) -> dict:
     from beat_this.inference import load_model
     from lv_chordia.chord_recognition import load_ensemble
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        backend = "ROCm" if torch.version.hip else "CUDA"
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-        backend = "MPS"
-    else:
-        raise RuntimeError("no qualified CUDA, ROCm, or MPS accelerator is available")
+    if not torch.backends.mps.is_available():
+        raise RuntimeError("the required MPS accelerator is unavailable")
+    device = torch.device("mps")
+    backend = "MPS"
     with torch.inference_mode():
         chord_input = torch.zeros((1, 16, 252), dtype=torch.float32, device=device)
         for member in load_ensemble(False, device=device):
@@ -129,10 +123,7 @@ def accelerator_self_test(downbeat_model: Path) -> dict:
         beat_outputs = beat_model(torch.zeros((1, 16, 128), dtype=torch.float32, device=device))
         if not all(torch.isfinite(output).all().item() for output in beat_outputs.values()):
             raise RuntimeError("Beat This! accelerator self-test produced invalid values")
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        else:
-            torch.mps.synchronize()
+        torch.mps.synchronize()
 
     return {"accelerated": True, "backend": backend}
 

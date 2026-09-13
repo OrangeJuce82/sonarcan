@@ -289,7 +289,7 @@ La V1 est acceptable lorsque :
 - un échec de modèle, de fichier ou de téléchargement ne fait pas planter l’application ;
 - les diagnostics permettent de reproduire et d’identifier les incidents importants ;
 - les tests automatisés et les builds de distribution passent sur macOS Apple Silicon ;
-- la compatibilité Windows/Linux est préparée et testée sur un périmètre défini ;
+- la distribution V1 est qualifiée exclusivement sur macOS Apple Silicon ;
 - la grille d’accords peut être corrigée et exportée en PDF ;
 - aucune fonctionnalité V1 ne dépend d’un état implicite non sauvegardé.
 

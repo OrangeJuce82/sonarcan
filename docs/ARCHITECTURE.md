@@ -90,16 +90,9 @@ those synchronized lines in Lyrics mode. The explanation is persisted as a
 once-per-user-profile notice.
 The startup probe runs before model preparation. A missing or rejected GPU
 therefore enters simplified mode without downloading analysis checkpoints.
-Windows/Linux accelerator release builds pin `SONARCAN_GPU_BACKEND` to `nvidia`
-or `amd`; source builds without that explicit qualification cannot accidentally
-enable GPU analysis. The same application therefore enters
-simplified mode without running an accelerator probe, downloading analysis
-checkpoints, or exposing analysis commands. It preserves project analysis caches
-for later use on qualified hardware.
-Apple Silicon uses MLX for stems and MPS for chord/rhythm analysis. NVIDIA
-Windows/Linux releases use CUDA 12.6, while AMD Linux releases use ROCm 7.2
-through PyTorch's CUDA-compatible device API. All backends execute both model
-probes on the end-user accelerator before Rust opens the analysis IPC gate.
+SonArcan builds only on Apple Silicon: MLX runs stems and MPS runs chord/rhythm
+analysis. Both model probes execute on the Apple GPU before Rust opens the
+analysis IPC gate. Neither worker may silently select CPU inference.
 
 In qualified GPU mode, the analysis workspace first places the chord grid beside a
 multi-view harmony panel using a 40/60 split. Beneath it, the four-stem mixer sits
@@ -345,19 +338,18 @@ The application console is a bounded diagnostic view, not a real-time sink. Rust
 
 The header resource indicator measures system-wide CPU and used physical memory,
 so Python inference descendants and media tools remain included regardless of
-their process topology. GPU utilization comes from the platform driver (Apple AGX,
-`nvidia-smi`, or `rocm-smi`); all three meters therefore represent machine-wide pressure.
+their process topology. GPU utilization comes from the Apple AGX platform
+driver; all three meters therefore represent machine-wide pressure.
 For RAM, the detail also reports the used amount in megabytes. Unsupported or
 unavailable GPU telemetry is shown as unavailable rather than estimated. Sampling
 stays outside the audio callback.
 
 Four-stem inference is an implementation detail behind one Rust stem service.
 After the startup capability probe succeeds, Apple Silicon selects the MLX
-worker. NVIDIA Windows/Linux select the CUDA worker and AMD Linux selects the
-ROCm worker. CPU-only heavy analysis is not an accepted user experience, so a
-failed accelerator probe closes the service gate. Both workers receive only canonical project media/model paths
-through direct argument arrays and return the same bounded NDJSON protocol.
-Both expose Fast HTDemucs and HQ SCNet Large by starrytong behind the same four-output
+worker. CPU-only heavy analysis is not accepted, so a failed accelerator probe
+closes the service gate. The worker receives only canonical project media/model
+paths through direct argument arrays and returns the bounded NDJSON protocol.
+It exposes Fast HTDemucs and HQ SCNet Large by starrytong behind the same four-output
 contract. No profile is preselected or stored as a user preference. On first
 use, the worker downloads the selected upstream checkpoint into the shared
 application-data model cache, then accepts it only when its exact byte length

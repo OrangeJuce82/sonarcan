@@ -16,11 +16,9 @@ dependency gate with `npm run security` only when adding a new library or packag
 Use focused validation for trust-boundary changes. See `CONTRIBUTING.md` and
 `SECURITY.md` for the exact policy.
 
-`npm run quality` is the single complete gate and includes the MLX, Torch, and
-chord-worker contract suites plus all shared application checks. Cross-platform
-CI also runs `quality:shared` on builds without a qualified GPU backend, which
-exercises the simplified-mode native contract without requiring accelerator
-hardware.
+`npm run quality` is the single complete gate and includes the MLX and
+chord-worker contract suites plus all shared application checks. CI and release
+jobs run only on macOS Apple Silicon.
 
 ## Debugging workflow
 

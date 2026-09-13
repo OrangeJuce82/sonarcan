@@ -1,8 +1,8 @@
 # Development roadmap
 
-**Current focus:** harden release qualification, background-task lifecycle,
-project recovery, and cross-platform GPU editions.
-**Last updated:** 2026-09-06
+**Current focus:** harden Apple-Silicon release qualification,
+background-task lifecycle, and project recovery.
+**Last updated:** 2026-09-13
 
 **Architecture invariant:** playback and every DSP operation run in the Rust real-time engine. TypeScript/Svelte is only a control surface and must never process audio.
 
@@ -52,8 +52,8 @@ project recovery, and cross-platform GPU editions.
 - [x] Rust real-time metronome synchronized to detected beats, speed changes, seeks, and loops
 - [x] bounded concurrent background import queue with progress and error diagnostics
 - [x] user cancellation for imports plus supervised chord and stem worker termination
-- [x] explicit Fast HTDemucs and HQ SCNet Large four-stem separation through supervised MLX and portable Torch workers
-- [x] pinned target-native CPython, MLX/CUDA/ROCm dependencies, uv lockfile, inference source, and release runtimes
+- [x] explicit Fast HTDemucs and HQ SCNet Large four-stem separation through the supervised MLX worker
+- [x] pinned Apple-Silicon CPython, MLX/MPS dependencies, uv lockfile, inference source, and release runtime
 - [x] versioned, source-fingerprinted per-track stem cache
 - [x] sample-synchronous vocals/drums/bass/other real-time mixer
 - [x] structured worker logs, segment progress, smoothed remaining-time estimate, failure reporting, and process cancellation
@@ -72,7 +72,7 @@ project recovery, and cross-platform GPU editions.
 - [x] playlist reordering and deletion with project-owned media/cache cleanup
 - [ ] crash-safe recovery and backups
 - [ ] audio-device diagnostics
-- [x] CI native builds on macOS ARM64, Linux x64, and Windows x64
+- [x] CI native build on macOS ARM64
 
 ## Phase 2 — learning workflow
 
@@ -115,5 +115,4 @@ project recovery, and cross-platform GPU editions.
 - [x] import cancellation and automatic completed-job pruning
 - [ ] import retry controls
 - [x] macOS Apple Silicon packaging with MLX
-- [x] Linux x64 NVIDIA CUDA and AMD ROCm packaging with automatic simplified mode
-- [x] Windows x64 NVIDIA CUDA packaging with automatic simplified mode
+- [ ] Reconsider Windows and Linux only after the Apple-Silicon release is dependable

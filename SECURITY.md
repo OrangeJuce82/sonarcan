@@ -59,28 +59,20 @@ trust boundary instead.
 
 Review deadline: **2026-11-30**.
 
-- Tauri's Linux GTK3 graph carries ten unmaintained GTK binding notices and the
-  `glib 0.18` iterator advisory. The GTK path is required by Tauri's supported
-  Linux WebView and is reviewed as a maintenance risk through the deadline
-  above; none of these notices currently reports an exploitable vulnerability.
-  A reachable memory-safety or code-execution advisory blocks Linux releases.
 - Tauri's `urlpattern` graph carries five unmaintained `unic` crates.
 - A build-time `proc-macro-error` maintenance notice is inherited transitively.
-- PyTorch no longer publishes current Intel macOS wheels, while LV-Chordia
-  requires Torch 2.13 or newer. Intel macOS release bundles are therefore not
-  currently published. NVIDIA Windows/Linux GPU releases pin Torch 2.13.0 CUDA 12.6; AMD Linux pins
-  Torch 2.13.0 ROCm 7.2. AMD Windows and Intel GPU builds are not produced.
+- The sole supported target is macOS on Apple Silicon. Heavy analysis uses
+  MPS/MLX and never falls back to CPU inference.
 
 These are maintenance advisories, not permission to ignore a vulnerability.
 Any advisory reporting memory safety, code execution, path escape, data loss, or
 denial of service in a reachable supported-target path blocks release.
 
-The MLX and portable Torch workers, Python interpreters, packages, and shared
-model are fixed release inputs. Release assembly validates each target lockfile
-and model checksum; the application does not install uv or resolve Python
-packages at runtime. Linux and Windows FFmpeg archives are accepted only after
-validating a checksum manifest whose own SHA-256 is pinned in source. Dependency
-and model updates require a fresh audit and regenerated release resources.
+The MLX worker, Python interpreter, packages, and shared models are fixed
+release inputs. Release assembly validates the Apple Silicon lockfile and model
+checksums; the application does not install uv or resolve Python packages at
+runtime. FFmpeg is built from pinned source archives. Dependency and model
+updates require a fresh audit and regenerated release resources.
 
 ## Reporting and response
 

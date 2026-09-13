@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const arguments_ = process.argv.slice(2);
 
+if (process.platform !== "darwin" || process.arch !== "arm64") {
+  throw new Error("SonArcan builds and development require macOS on Apple Silicon");
+}
+
 function run(script, scriptArguments) {
   const result = spawnSync(process.execPath, [script, ...scriptArguments], {
     cwd: repositoryRoot,
