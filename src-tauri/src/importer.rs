@@ -27,6 +27,7 @@ use crate::{
 
 const YOUTUBE_OUTPUT_TEMPLATE: &str = "%(playlist_index&{} - |)s%(title).180B.%(ext)s";
 const MAX_YTDLP_INFO_BYTES: u64 = 1024 * 1024;
+const MAX_REMOTE_AUDIO_FILES: usize = 10;
 
 #[derive(Debug, Deserialize)]
 struct YtDlpInfo {
@@ -645,14 +646,7 @@ fn download_remote(
         return Err(AppError::BackgroundTask(message));
     }
     update(inner, id, JobState::Importing, 0.9, None);
-    if files.is_empty() {
-        files = fs::read_dir(&staging)
-            .map_err(|error| AppError::io(&staging, error))?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| project::AudioFormat::from_path(path).is_ok())
-            .collect();
-    }
+    files = validated_downloaded_audio_files(&staging, files)?;
     if is_cancelled(cancelled) {
         let _ = fs::remove_dir_all(&staging);
         return Ok(());
@@ -679,6 +673,63 @@ fn download_remote(
         import_project_audio_with_metadata(cancelled, project_write, package, &files, &metadata);
     let _ = fs::remove_dir_all(staging);
     imported.map(|_| ())
+}
+
+fn validated_downloaded_audio_files(
+    staging: &Path,
+    reported: Vec<PathBuf>,
+) -> Result<Vec<PathBuf>, AppError> {
+    if reported.len() > MAX_REMOTE_AUDIO_FILES {
+        return Err(AppError::BackgroundTask(
+            "yt-dlp reported too many downloaded audio files".into(),
+        ));
+    }
+    let canonical_staging = staging
+        .canonicalize()
+        .map_err(|error| AppError::io(staging, error))?;
+    let candidates = if reported.is_empty() {
+        fs::read_dir(staging)
+            .map_err(|error| AppError::io(staging, error))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .collect()
+    } else {
+        reported
+    };
+    let mut files = Vec::new();
+    for candidate in candidates {
+        if project::AudioFormat::from_path(&candidate).is_err() {
+            continue;
+        }
+        let metadata = match fs::symlink_metadata(&candidate) {
+            Ok(metadata)
+                if metadata.file_type().is_file() && !metadata.file_type().is_symlink() =>
+            {
+                metadata
+            }
+            _ => continue,
+        };
+        if metadata.len() == 0 {
+            continue;
+        }
+        let canonical = candidate
+            .canonicalize()
+            .map_err(|error| AppError::io(&candidate, error))?;
+        if canonical.parent() != Some(canonical_staging.as_path()) {
+            return Err(AppError::BackgroundTask(
+                "yt-dlp reported an audio file outside its download directory".into(),
+            ));
+        }
+        if !files.contains(&canonical) {
+            files.push(canonical);
+        }
+    }
+    if files.is_empty() {
+        return Err(AppError::BackgroundTask(
+            "the remote source completed without producing a supported audio file".into(),
+        ));
+    }
+    Ok(files)
 }
 
 fn youtube_download_target(input: &str) -> String {
@@ -1269,6 +1320,30 @@ pub fn preferences_from_store(store: &PreferencesStore) -> UserPreferences {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn remote_download_requires_a_real_supported_audio_file() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(validated_downloaded_audio_files(directory.path(), Vec::new()).is_err());
+
+        let audio = directory.path().join("soundcloud.mp3");
+        fs::write(&audio, b"audio").unwrap();
+        assert_eq!(
+            validated_downloaded_audio_files(directory.path(), Vec::new()).unwrap(),
+            vec![audio.canonicalize().unwrap()]
+        );
+    }
+
+    #[test]
+    fn remote_download_rejects_a_reported_file_outside_its_staging_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let staging = directory.path().join("download");
+        fs::create_dir(&staging).unwrap();
+        let outside = directory.path().join("outside.mp3");
+        fs::write(&outside, b"audio").unwrap();
+
+        assert!(validated_downloaded_audio_files(&staging, vec![outside]).is_err());
+    }
 
     #[test]
     fn unresolved_youtube_searches_use_one_result() {

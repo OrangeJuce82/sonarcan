@@ -411,6 +411,10 @@ query remains isolated in its group and does not hide completed results or stop
 later searches.
 
 Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Public remote media supported by `yt-dlp`, including YouTube, SoundCloud, Bandcamp, and Mixcloud URLs, is extracted directly into the selected final audio format, avoiding a second conversion pass. Authenticated, live, and upcoming content is intentionally excluded. Bounded clean info JSON is retained only inside the temporary download directory long enough to turn provider chapters into persisted source markers, then deleted with the staging directory. Text search offers the two native, reliable yt-dlp engines in scope: YouTube and SoundCloud; Bandcamp and Mixcloud remain direct-link providers. Every recognized provider candidate carries a bounded source URL and provider identity so the frontend can render its local logo and ask Rust to open only an allowlisted HTTPS provider URL. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.13 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
+Remote jobs become complete only after at least one non-empty supported audio file
+has been validated inside their bounded staging directory and committed to the
+project. A provider process that exits successfully without producing audio is
+reported as a failed import rather than a successful empty playlist update.
 
 On the August 30, 2026 Apple-silicon benchmark, the former 35 MiB standalone
 macOS executable took 8.85 seconds for `--version` and 9.62 seconds for a
