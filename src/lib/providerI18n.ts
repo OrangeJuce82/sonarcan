@@ -1,19 +1,19 @@
 import type { Language } from "./i18n";
 
-const en = { searchProvider: "Search provider", openSource: "Open on provider", directOnly: "Direct links", autoBest: "Automatically select the most relevant search result" } as const;
+const en = { searchProvider: "Search provider", openSource: "Open on provider", directOnly: "Direct links", autoBest: "Automatically select the most relevant search result", importHelp: "Add WAV/MP3/FLAC files, paste track or playlist links, or enter one artist/title search per line.", poweredByYtDlp: "Powered by yt-dlp", musicSources: "Find music", allYtDlpSites: "All sites supported by yt-dlp", noPublicFormat: "No public audio stream is available (DRM-protected or restricted content)." } as const;
 type Key = keyof typeof en;
 type Catalog = Record<Key, string>;
-const fr: Catalog = { searchProvider: "Fournisseur de recherche", openSource: "Ouvrir chez le fournisseur", directOnly: "Liens directs", autoBest: "Sélectionner automatiquement le résultat le plus pertinent" };
+const fr: Catalog = { searchProvider: "Fournisseur de recherche", openSource: "Ouvrir chez le fournisseur", directOnly: "Liens directs", autoBest: "Sélectionner automatiquement le résultat le plus pertinent", importHelp: "Ajoutez des fichiers WAV/MP3/FLAC, collez des liens de morceaux ou de playlists, ou saisissez une recherche artiste/titre par ligne.", poweredByYtDlp: "Propulsé par yt-dlp", musicSources: "Trouver de la musique", allYtDlpSites: "Tous les sites compatibles avec yt-dlp", noPublicFormat: "Aucun flux audio public n’est disponible (contenu protégé par DRM ou restreint)." };
 const overrides: Partial<Record<Language, Partial<Catalog>>> = {
-  es: { searchProvider: "Proveedor de búsqueda", openSource: "Abrir en el proveedor", directOnly: "Enlaces directos" },
-  de: { searchProvider: "Suchanbieter", openSource: "Beim Anbieter öffnen", directOnly: "Direktlinks" },
-  pt: { searchProvider: "Provedor de pesquisa", openSource: "Abrir no provedor", directOnly: "Links diretos" },
-  it: { searchProvider: "Fornitore di ricerca", openSource: "Apri nel fornitore", directOnly: "Link diretti" },
-  zh: { searchProvider: "搜索提供商", openSource: "在提供商中打开", directOnly: "直接链接" },
-  ja: { searchProvider: "検索プロバイダー", openSource: "プロバイダーで開く", directOnly: "直接リンク" },
-  ko: { searchProvider: "검색 제공자", openSource: "제공자에서 열기", directOnly: "직접 링크" },
-  ar: { searchProvider: "مزود البحث", openSource: "فتح لدى المزود", directOnly: "روابط مباشرة" },
-  hi: { searchProvider: "खोज प्रदाता", openSource: "प्रदाता पर खोलें", directOnly: "सीधे लिंक" },
-  id: { searchProvider: "Penyedia pencarian", openSource: "Buka di penyedia", directOnly: "Tautan langsung" },
+  es: { searchProvider: "Proveedor de búsqueda", openSource: "Abrir en el proveedor", directOnly: "Enlaces directos", importHelp: "Añade archivos WAV/MP3/FLAC, pega enlaces de pistas o listas de reproducción, o escribe una búsqueda de artista/título por línea.", poweredByYtDlp: "Con tecnología de yt-dlp", musicSources: "Buscar música", allYtDlpSites: "Todos los sitios compatibles con yt-dlp" },
+  de: { searchProvider: "Suchanbieter", openSource: "Beim Anbieter öffnen", directOnly: "Direktlinks", importHelp: "Füge WAV-/MP3-/FLAC-Dateien hinzu, füge Titel- oder Playlist-Links ein oder gib pro Zeile eine Künstler-/Titelsuche ein.", poweredByYtDlp: "Unterstützt von yt-dlp", musicSources: "Musik finden", allYtDlpSites: "Alle von yt-dlp unterstützten Websites" },
+  pt: { searchProvider: "Provedor de pesquisa", openSource: "Abrir no provedor", directOnly: "Links diretos", importHelp: "Adicione ficheiros WAV/MP3/FLAC, cole links de faixas ou playlists, ou introduza uma pesquisa por artista/título em cada linha.", poweredByYtDlp: "Com tecnologia yt-dlp", musicSources: "Encontrar música", allYtDlpSites: "Todos os sites compatíveis com yt-dlp" },
+  it: { searchProvider: "Fornitore di ricerca", openSource: "Apri nel fornitore", directOnly: "Link diretti", importHelp: "Aggiungi file WAV/MP3/FLAC, incolla link di brani o playlist oppure inserisci una ricerca artista/titolo per riga.", poweredByYtDlp: "Basato su yt-dlp", musicSources: "Trova musica", allYtDlpSites: "Tutti i siti supportati da yt-dlp" },
+  zh: { searchProvider: "搜索提供商", openSource: "在提供商中打开", directOnly: "直接链接", importHelp: "添加 WAV/MP3/FLAC 文件，粘贴单曲或播放列表链接，或每行输入一个艺人/曲名搜索。", poweredByYtDlp: "由 yt-dlp 提供支持", musicSources: "查找音乐", allYtDlpSites: "yt-dlp 支持的所有网站" },
+  ja: { searchProvider: "検索プロバイダー", openSource: "プロバイダーで開く", directOnly: "直接リンク", importHelp: "WAV/MP3/FLAC ファイルを追加し、曲やプレイリストのリンクを貼り付けるか、1 行に 1 件ずつアーティスト名と曲名を入力します。", poweredByYtDlp: "yt-dlp を使用", musicSources: "音楽を探す", allYtDlpSites: "yt-dlp が対応するすべてのサイト" },
+  ko: { searchProvider: "검색 제공자", openSource: "제공자에서 열기", directOnly: "직접 링크", importHelp: "WAV/MP3/FLAC 파일을 추가하거나 곡 또는 재생목록 링크를 붙여넣고, 줄마다 아티스트/제목 검색어 하나를 입력하세요.", poweredByYtDlp: "yt-dlp 제공", musicSources: "음악 찾기", allYtDlpSites: "yt-dlp가 지원하는 모든 사이트" },
+  ar: { searchProvider: "مزود البحث", openSource: "فتح لدى المزود", directOnly: "روابط مباشرة", importHelp: "أضف ملفات WAV/MP3/FLAC، أو الصق روابط المقاطع أو قوائم التشغيل، أو أدخل بحثًا واحدًا عن الفنان/العنوان في كل سطر.", poweredByYtDlp: "مدعوم بواسطة yt-dlp", musicSources: "العثور على موسيقى", allYtDlpSites: "جميع المواقع التي يدعمها yt-dlp" },
+  hi: { searchProvider: "खोज प्रदाता", openSource: "प्रदाता पर खोलें", directOnly: "सीधे लिंक", importHelp: "WAV/MP3/FLAC फ़ाइलें जोड़ें, ट्रैक या प्लेलिस्ट लिंक चिपकाएँ, या हर पंक्ति में एक कलाकार/शीर्षक खोज लिखें।", poweredByYtDlp: "yt-dlp द्वारा संचालित", musicSources: "संगीत खोजें", allYtDlpSites: "yt-dlp द्वारा समर्थित सभी साइटें" },
+  id: { searchProvider: "Penyedia pencarian", openSource: "Buka di penyedia", directOnly: "Tautan langsung", importHelp: "Tambahkan file WAV/MP3/FLAC, tempel tautan lagu atau daftar putar, atau masukkan satu pencarian artis/judul per baris.", poweredByYtDlp: "Didukung oleh yt-dlp", musicSources: "Cari musik", allYtDlpSites: "Semua situs yang didukung yt-dlp" },
 };
 export const providerTranslate = (language: Language, key: Key): string => language === "fr" ? fr[key] : overrides[language]?.[key] ?? en[key];

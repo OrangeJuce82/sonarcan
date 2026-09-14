@@ -26,6 +26,10 @@ use crate::{
 };
 
 const YOUTUBE_OUTPUT_TEMPLATE: &str = "%(playlist_index&{} - |)s%(title).180B.%(ext)s";
+// Some extractors, including SoundCloud, do not expose `live_status`. The `?`
+// keeps those ordinary recordings eligible while still rejecting an explicit
+// `is_upcoming` value.
+const REMOTE_MATCH_FILTER: &str = "!is_live & live_status !=? is_upcoming";
 const MAX_YTDLP_INFO_BYTES: u64 = 1024 * 1024;
 const MAX_REMOTE_AUDIO_FILES: usize = 10;
 
@@ -118,8 +122,9 @@ pub struct ImportCandidate {
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
+    pub blocked: bool,
 }
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CandidateKind {
     Local,
@@ -148,6 +153,18 @@ struct ImportWork {
 }
 
 impl ImportService {
+    pub fn with_project_write<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
+        let _guard = self
+            .inner
+            .project_write
+            .lock()
+            .map_err(|_| AppError::BackgroundTask("project writes are unavailable".into()))?;
+        operation()
+    }
+
     pub fn jobs(&self) -> Vec<ImportJob> {
         self.inner
             .jobs
@@ -540,7 +557,7 @@ fn download_remote(
             "--playlist-end",
             "10",
             "--match-filter",
-            "!is_live & live_status != is_upcoming",
+            REMOTE_MATCH_FILTER,
             "--write-info-json",
             "--clean-info-json",
             "--no-write-playlist-metafiles",
@@ -963,64 +980,80 @@ fn fail(inner: &Arc<ImportInner>, id: Uuid, message: &str, details: Option<(&str
         }
     }
 }
-fn classify_ytdlp_error(log: &str) -> (String, String) {
+pub(crate) fn classify_known_ytdlp_error(log: &str) -> Option<(String, String)> {
     let lower = log.to_ascii_lowercase();
     if lower.contains("does not pass filter")
         && (lower.contains("is_live") || lower.contains("is_upcoming"))
     {
-        return (
+        return Some((
             "Live and upcoming streams are not supported.".into(),
             "Choose a finished, publicly available recording.".into(),
-        );
+        ));
     }
     if lower.contains("ffmpeg") && (lower.contains("not found") || lower.contains("not installed"))
     {
-        return (
+        return Some((
             "FFmpeg is required to convert this audio.".into(),
             "Install FFmpeg or select a format that does not require conversion, then retry."
                 .into(),
-        );
+        ));
     }
     if lower.contains("sign in") || lower.contains("cookies") || lower.contains("authentication") {
-        return (
+        return Some((
             "This content requires authentication, which SonArcan does not support.".into(),
             "Choose a public source that you are authorized to use.".into(),
-        );
+        ));
+    }
+    if lower.contains("drm protected") || lower.contains("drm-protected") {
+        return Some((
+            "This content is protected by DRM and cannot be imported.".into(),
+            "Choose another public, DRM-free source.".into(),
+        ));
     }
     if lower.contains("private video")
         || lower.contains("video unavailable")
+        || lower.contains("video is not available")
         || lower.contains("has been removed")
     {
-        return (
+        return Some((
             "This video is private, removed, or unavailable.".into(),
             "Check the source URL and choose another public item.".into(),
-        );
+        ));
     }
     if lower.contains("not available in your country") || lower.contains("geo") {
-        return (
+        return Some((
             "This content is not available in the current region.".into(),
             "Choose another authorized source available in your region.".into(),
-        );
+        ));
     }
     if lower.contains("javascript runtime") || lower.contains("ejs") || lower.contains("deno") {
-        return (
+        return Some((
             "This extraction needs an updated JavaScript runtime.".into(),
             "Update yt-dlp from SonArcan's tool manager and retry.".into(),
-        );
+        ));
     }
     if lower.contains("http error 403") || lower.contains("forbidden") {
-        return (
+        return Some((
             "The source refused the download request.".into(),
             "Retry later, update yt-dlp, or verify the video in your browser.".into(),
-        );
+        ));
     }
     if lower.contains("timed out") || lower.contains("network") || lower.contains("connection") {
-        return (
+        return Some((
             "The download was interrupted by a network error.".into(),
             "Check the connection and retry; completed project imports are preserved.".into(),
-        );
+        ));
     }
-    ("yt-dlp could not import this item.".into(), "Open the technical details for the exact yt-dlp output, then retry after updating the tool.".into())
+    None
+}
+
+fn classify_ytdlp_error(log: &str) -> (String, String) {
+    classify_known_ytdlp_error(log).unwrap_or_else(|| {
+        (
+            "yt-dlp could not import this item.".into(),
+            "Open the technical details for the exact yt-dlp output, then retry after updating the tool.".into(),
+        )
+    })
 }
 
 pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
@@ -1056,6 +1089,7 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                 video_id: None,
                 provider: Some(provider.to_ascii_lowercase()),
                 source_url: Some(clean.into()),
+                blocked: false,
             };
             if seen.insert(analysis_candidate_key(&candidate)) {
                 candidates.push(candidate);
@@ -1088,6 +1122,7 @@ pub fn parse_text(text: &str) -> Vec<ImportCandidate> {
                     video_id: None,
                     provider: Some(if path.is_some() { "local" } else { "youtube" }.into()),
                     source_url: None,
+                    blocked: false,
                 };
                 if seen.insert(analysis_candidate_key(&candidate)) {
                     candidates.push(candidate);
@@ -1122,6 +1157,16 @@ pub(crate) fn remote_provider_name(value: &str) -> &'static str {
         "Bandcamp"
     } else if authority == "mixcloud.com" || authority.ends_with(".mixcloud.com") {
         "Mixcloud"
+    } else if authority == "audiomack.com" || authority.ends_with(".audiomack.com") {
+        "Audiomack"
+    } else if authority == "beatport.com" || authority.ends_with(".beatport.com") {
+        "Beatport"
+    } else if authority == "hearthis.at" || authority.ends_with(".hearthis.at") {
+        "hearthis.at"
+    } else if authority == "jamendo.com" || authority.ends_with(".jamendo.com") {
+        "Jamendo"
+    } else if authority == "reverbnation.com" || authority.ends_with(".reverbnation.com") {
+        "ReverbNation"
     } else {
         "Web"
     }
@@ -1335,6 +1380,14 @@ mod tests {
     }
 
     #[test]
+    fn remote_filter_accepts_sources_without_live_metadata() {
+        assert_eq!(
+            REMOTE_MATCH_FILTER,
+            "!is_live & live_status !=? is_upcoming"
+        );
+    }
+
+    #[test]
     fn remote_download_rejects_a_reported_file_outside_its_staging_directory() {
         let directory = tempfile::tempdir().unwrap();
         let staging = directory.path().join("download");
@@ -1380,6 +1433,26 @@ mod tests {
             remote_provider_name("https://www.mixcloud.com/dj/show/"),
             "Mixcloud"
         );
+        assert_eq!(
+            remote_provider_name("https://audiomack.com/artist/song/title"),
+            "Audiomack"
+        );
+        assert_eq!(
+            remote_provider_name("https://www.beatport.com/track/title/123"),
+            "Beatport"
+        );
+        assert_eq!(
+            remote_provider_name("https://hearthis.at/artist/title/"),
+            "hearthis.at"
+        );
+        assert_eq!(
+            remote_provider_name("https://www.jamendo.com/track/1"),
+            "Jamendo"
+        );
+        assert_eq!(
+            remote_provider_name("https://www.reverbnation.com/artist/song/title"),
+            "ReverbNation"
+        );
         assert_eq!(remote_provider_name("https://vimeo.com/123"), "Web");
 
         let candidates = parse_text(
@@ -1395,6 +1468,22 @@ mod tests {
             classify_ytdlp_error("Video does not pass filter (!is_live & is_upcoming)");
         assert_eq!(message, "Live and upcoming streams are not supported.");
         assert!(suggestion.contains("finished"));
+    }
+
+    #[test]
+    fn drm_and_unavailable_sources_have_clear_product_messages() {
+        let (message, suggestion) =
+            classify_ytdlp_error("ERROR: [soundcloud] 224371784: This video is DRM protected");
+        assert_eq!(
+            message,
+            "This content is protected by DRM and cannot be imported."
+        );
+        assert!(suggestion.contains("DRM-free"));
+
+        let (message, suggestion) =
+            classify_ytdlp_error("ERROR: [youtube] 3URh7kJ6dtQ: This video is not available");
+        assert_eq!(message, "This video is private, removed, or unavailable.");
+        assert!(suggestion.contains("another public item"));
     }
 
     #[test]

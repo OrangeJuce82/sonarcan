@@ -158,6 +158,7 @@ export const savePreferences = (value: UserPreferences): Promise<UserPreferences
 export const analyzeImportText = (text: string): Promise<ImportCandidate[]> => invoke("analyze_import_text", { text });
 export const beginYoutubeSearches = (): Promise<number> => invoke("begin_youtube_searches");
 export const resolveYoutubeSearch = (query: string, generation: number, provider: SearchProvider): Promise<ImportCandidate[]> => invoke("resolve_youtube_search", { query, generation, provider });
+export const resolveImportPlaylist = (url: string, generation: number): Promise<ImportCandidate[]> => invoke("resolve_import_playlist", { url, generation });
 export const readImportTextFiles = (paths: string[]): Promise<string> => invoke("read_import_text_files", { paths });
 export const enqueueImports = (packagePath: string, inputs: string[]): Promise<ImportJob[]> => invoke("enqueue_imports", { request: { packagePath, inputs } });
 export const importJobs = (): Promise<ImportJob[]> => invoke("import_jobs");
@@ -166,7 +167,8 @@ export const removeImportJob = (jobId: string): Promise<void> => invoke("remove_
 export const logsSnapshot = (): Promise<AppLogEntry[]> => invoke("logs_snapshot");
 export const pushFrontendLog = (level: string, message: string): Promise<void> => invoke("push_frontend_log", { level, message });
 export const revealProject = (packagePath: string): Promise<void> => invoke("reveal_project", { packagePath });
-export const openExternalLink = (target: "github" | "donate"): Promise<void> => invoke("open_external_link", { target });
+export type ExternalLinkTarget = "github" | "github-issues" | "licenses" | "donate" | "ytdlp" | "ytdlp-sites" | "music-youtube" | "music-soundcloud" | "music-bandcamp" | "music-mixcloud" | "music-hearthis" | "music-jamendo" | "music-reverbnation";
+export const openExternalLink = (target: ExternalLinkTarget): Promise<void> => invoke("open_external_link", { target });
 export const openLrclibSearch = (query: string): Promise<void> => invoke("open_lrclib_search", { query });
 export const openYoutubeVideo = (videoId: string): Promise<void> => invoke("open_youtube_video", { videoId });
 export const openImportSource = (url: string): Promise<void> => invoke("open_import_source", { url });

@@ -54,6 +54,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )
     .accelerator("CmdOrCtrl+,")
     .build(app)?;
+    let about = MenuItemBuilder::with_id(
+        "app:about",
+        tr(selected_language, "About SonArcan", "À propos de SonArcan"),
+    )
+    .build(app)?;
     let new_project = MenuItemBuilder::with_id(
         "file:new",
         tr(selected_language, "New Project", "Nouveau projet"),
@@ -88,10 +93,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     .build(app)?;
 
     let app_menu = SubmenuBuilder::new(app, "SonArcan")
-        .about_with_text(
-            tr(selected_language, "About SonArcan", "À propos de SonArcan"),
-            None,
-        )
+        .item(&about)
         .separator()
         .item(&preferences)
         .separator()

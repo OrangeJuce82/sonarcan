@@ -1,4 +1,4 @@
-# SonArcan 0.1.7 beta 2
+# SonArcan 0.1.7 beta 3
 
 SonArcan now builds, tests, and releases exclusively for macOS on Apple
 Silicon. Windows, Linux, Intel macOS, CUDA, ROCm, portable Torch, and CPU
@@ -32,6 +32,17 @@ Anyway**.
 
 ## Included behavior
 
+- The Import Center now expands direct tracks and playlists through bounded
+  metadata probes, preserves real titles and artists, and blocks DRM-protected
+  or otherwise unavailable sources before they can be queued.
+- Music discovery links and the yt-dlp credit use a fixed Rust allowlist, while
+  bundled provider logos avoid third-party image requests.
+- Project mutations share one write coordinator, preventing background import
+  completion from restoring stale project state. Tracks whose packaged media is
+  already missing can still be removed safely.
+- A dedicated About view presents product identity, open-source tooling,
+  licenses, and acknowledgements. The bounded diagnostic console can copy only
+  the entries selected by its current severity and origin filters.
 - LV-Chordia and Beat This! stay resident after startup qualification; only the
   selected chord vocabulary is decoded initially, and additional vocabularies
   are calculated on demand without repeating rhythm analysis.

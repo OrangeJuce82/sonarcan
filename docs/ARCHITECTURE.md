@@ -243,7 +243,7 @@ User-facing interface, help text, accessibility labels, dialogs, and native menu
 
 ## Project format
 
-The package format starts at version `1`. Every manifest read validates the version before exposing the project to the application. Writes use a temporary sibling file followed by an atomic rename.
+The package format starts at version `1`. Every manifest read validates the version before exposing the project to the application. Writes use a temporary sibling file followed by an atomic rename. Manifest-changing commands and background import finalization share one project-write coordinator so concurrent imports cannot restore stale playlist state over a rename, reorder, practice update, or deletion. Deleting a track whose packaged media is already absent still removes the orphaned manifest entry and disposable caches after validating that the missing path belongs below the project `Audio` directory.
 
 Imported media is copied into the project `Audio/` directory and the original source path is retained for duplicate detection and future relinking. Relative manifest paths and rebasing after a package move will be implemented before the format is considered stable.
 
@@ -343,7 +343,7 @@ specific panel remain inline, while decisions
 that can lose data remain modal. Import batches emit one terminal summary rather
 than one notification per track.
 
-The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. External-tool failures retain both a concise user-facing explanation and their bounded technical output.
+The application console is a bounded diagnostic view, not a real-time sink. Rust `tracing` events and forwarded WebView `console.*` calls are retained in memory outside the audio callback. The native View menu exposes the hidden-by-default bottom panel. Its explicit clipboard action copies only the entries selected by the current severity and origin filters. External-tool failures retain both a concise user-facing explanation and their bounded technical output. Product identity, open-source tooling, licenses, links, and acknowledgements live in About; the separate Diagnostic view remains limited to runtime support information.
 
 The header resource indicator measures system-wide CPU and used physical memory,
 so Python inference descendants and media tools remain included regardless of
@@ -421,6 +421,32 @@ query remains isolated in its group and does not hide completed results or stop
 later searches.
 
 Supported local media is copied directly when it already matches the requested audio shape. Otherwise FFmpeg performs one conversion before project import. Public remote media supported by `yt-dlp`, including YouTube, SoundCloud, Bandcamp, and Mixcloud URLs, is extracted directly into the selected final audio format, avoiding a second conversion pass. Authenticated, live, and upcoming content is intentionally excluded. Bounded clean info JSON is retained only inside the temporary download directory long enough to turn provider chapters into persisted source markers, then deleted with the staging directory. Text search offers the two native, reliable yt-dlp engines in scope: YouTube and SoundCloud; Bandcamp and Mixcloud remain direct-link providers. Every recognized provider candidate carries a bounded source URL and provider identity so the frontend can render its local logo and ask Rust to open only an allowlisted HTTPS provider URL. Search and download both prefer the pinned official `yt-dlp` zipimport artifact through SonArcan's shared Python 3.13 resolver; this avoids the standalone macOS executable's per-process self-extraction cost. The standalone executable remains only a compatibility fallback when the fast runtime is unavailable. Release builds resolve the signed, pinned FFmpeg/FFprobe runtime from the application resources and pass its directory explicitly to `yt-dlp`; development builds may fall back to a system FFmpeg. Downloaded fallback releases are checked against the publisher's SHA-256 manifest before execution.
+Direct playlist URLs are expanded through bounded metadata extraction before
+the import is confirmed. YouTube uses flat playlist entries, while SoundCloud
+resolves each entry without downloading audio so its real title is available
+instead of the platform identifier. Direct SoundCloud tracks pass through the
+same metadata-only resolver instead of retaining their URL as a display title.
+The resolver is provider-neutral for direct URLs: every pasted remote source is
+probed through the bundled yt-dlp, with full metadata and a public-audio-format
+check for non-YouTube providers, before import. A source without a public format
+keeps its available title and artist metadata but is visibly blocked from selection
+and queuing. Known DRM and unavailable-source diagnostics are presented in the
+Import Center. Search remains limited to YouTube and SoundCloud because those
+are the music destinations in the bundled extractor set with native yt-dlp
+search support; results missing either a real title or artist are discarded.
+The empty Import Center offers fixed, allowlisted links to seven principal public
+music destinations verified without SonArcan API credentials, plus the
+exhaustive yt-dlp supported-sites catalog. Their brand glyphs are bundled so the
+discovery UI performs no third-party image request.
+The Import Center renders every returned entry as an
+individual candidate under a list-marked group and preselects all of them, so the
+user can exclude tracks before each selected entry becomes its own import job.
+Its compact translated hint summarizes files, direct links, playlists, and
+artist/title searches. A small translated “Powered by yt-dlp” badge opens the
+fixed official yt-dlp GitHub project URL.
+Playlist enumeration is bounded by a 30-second deadline and 512 KiB of metadata;
+an oversized or non-terminating playlist fails visibly instead of being silently
+truncated.
 Remote jobs become complete only after at least one non-empty supported audio file
 has been validated inside their bounded staging directory and committed to the
 project. A provider process that exits successfully without producing audio is

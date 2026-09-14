@@ -21,3 +21,9 @@ export function filterLogs(entries: AppLogEntry[], minimumLevel: LogLevel, origi
   const minimumRank = levelRanks[minimumLevel];
   return entries.filter((entry) => levelRank(entry.level) >= minimumRank && (origin === null || entry.origin === origin));
 }
+
+export function formatLogs(entries: AppLogEntry[]): string {
+  return entries.map((entry) =>
+    `${new Date(entry.timestampMs).toISOString()} [${entry.origin}] ${entry.level.toUpperCase()} ${entry.message}`,
+  ).join("\n");
+}

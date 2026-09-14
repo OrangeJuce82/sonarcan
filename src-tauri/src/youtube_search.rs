@@ -28,9 +28,14 @@ const MAX_QUERY_BYTES: usize = 180;
 const MAX_STDOUT_BYTES: usize = 512 * 1024;
 const MAX_STDERR_BYTES: usize = 32 * 1024;
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
+const PLAYLIST_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(3);
 const SEARCH_RESULT_COUNT: usize = 10;
 const PUBLISHED_RESULT_COUNT: usize = 5;
+const SEARCH_PRINT_TEMPLATE: &str =
+    "%(.{id,title,track,channel,uploader,artist,creator,album_artist,view_count,channel_is_verified,webpage_url,url})j";
+const PLAYLIST_PRINT_TEMPLATE: &str =
+    "%(.{id,title,track,channel,uploader,artist,creator,album_artist,webpage_url,url,format_id})j";
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -218,6 +223,41 @@ impl YoutubeSearchService {
         Ok(candidates)
     }
 
+    pub fn resolve_playlist(
+        &self,
+        url: &str,
+        generation: u64,
+    ) -> Result<Vec<ImportCandidate>, AppError> {
+        let url = url.trim();
+        if url.is_empty()
+            || url.len() > 4_096
+            || !(url.starts_with("https://") || url.starts_with("http://"))
+        {
+            return Err(AppError::BackgroundTask(
+                "Import URL must be a bounded HTTP or HTTPS URL".into(),
+            ));
+        }
+        ensure_current(&self.inner, generation)?;
+        let _permit = acquire_slot(Arc::clone(&self.inner), generation)?;
+        ensure_current(&self.inner, generation)?;
+
+        let started = Instant::now();
+        let stdout = self.resolve_playlist_with_cli(url, generation)?;
+        let candidates = parse_playlist_candidates(&stdout, url);
+        if candidates.is_empty() {
+            return Err(AppError::BackgroundTask(
+                "The URL does not contain any supported public track".into(),
+            ));
+        }
+        info!(
+            elapsed_ms = started.elapsed().as_millis(),
+            result_count = candidates.len(),
+            provider = importer::remote_provider_name(url),
+            "provider URL expanded"
+        );
+        Ok(candidates)
+    }
+
     fn resolve_with_worker(
         &self,
         query: &str,
@@ -284,7 +324,7 @@ impl YoutubeSearchService {
             "--flat-playlist",
             "--lazy-playlist",
             "--print",
-            "%(.{id,title,channel,uploader,view_count,channel_is_verified,webpage_url,url})#j",
+            SEARCH_PRINT_TEMPLATE,
             "--playlist-end",
             "10",
         ]);
@@ -347,6 +387,93 @@ impl YoutubeSearchService {
         }
         Ok(stdout.bytes)
     }
+
+    fn resolve_playlist_with_cli(&self, url: &str, generation: u64) -> Result<Vec<u8>, AppError> {
+        let tool = importer::ytdlp_command()?;
+        let mut child = tool
+            .command()
+            .args(playlist_cli_arguments(url))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| {
+                AppError::BackgroundTask(format!("could not start yt-dlp URL analysis: {error}"))
+            })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            AppError::BackgroundTask("yt-dlp URL analysis output is unavailable".into())
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            AppError::BackgroundTask("yt-dlp URL analysis diagnostics are unavailable".into())
+        })?;
+        let child = Arc::new(Mutex::new(child));
+        let child_id = register_child(&self.inner, Arc::clone(&child))?;
+        if ensure_current(&self.inner, generation).is_err() {
+            if let Ok(mut child) = child.lock() {
+                let _ = child.kill();
+            }
+        }
+
+        let stdout_reader = thread::spawn(move || read_bounded(stdout, MAX_STDOUT_BYTES));
+        let stderr_reader = thread::spawn(move || read_bounded(stderr, MAX_STDERR_BYTES));
+        let status = wait_for_child(&child, PLAYLIST_TIMEOUT);
+        clear_child(&self.inner, child_id);
+        let stdout = stdout_reader
+            .join()
+            .map_err(|_| AppError::BackgroundTask("yt-dlp URL output reader failed".into()))?
+            .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
+        let stderr = stderr_reader
+            .join()
+            .map_err(|_| AppError::BackgroundTask("yt-dlp URL diagnostic reader failed".into()))?
+            .map_err(|error| AppError::BackgroundTask(error.to_string()))?;
+        ensure_current(&self.inner, generation)?;
+        let status = status?;
+        if stdout.exceeded {
+            return Err(AppError::BackgroundTask(
+                "yt-dlp URL metadata exceeded 512 KiB".into(),
+            ));
+        }
+        let diagnostic = String::from_utf8_lossy(&stderr.bytes).trim().to_owned();
+        if !status.success() {
+            return Err(AppError::BackgroundTask(
+                metadata_analysis_error(&diagnostic).unwrap_or_else(|| {
+                    if diagnostic.is_empty() {
+                        "yt-dlp URL analysis failed without diagnostics".into()
+                    } else {
+                        diagnostic.clone()
+                    }
+                }),
+            ));
+        }
+        if stdout.bytes.iter().all(u8::is_ascii_whitespace) {
+            if let Some(error) = metadata_analysis_error(&diagnostic) {
+                return Err(AppError::BackgroundTask(error));
+            }
+        }
+        Ok(stdout.bytes)
+    }
+}
+
+fn metadata_analysis_error(diagnostic: &str) -> Option<String> {
+    importer::classify_known_ytdlp_error(diagnostic)
+        .map(|(message, suggestion)| format!("{message} {suggestion}"))
+}
+
+fn playlist_cli_arguments(url: &str) -> Vec<&str> {
+    let mut arguments = vec!["--ignore-config"];
+    if importer::remote_provider_name(url) != "YouTube" {
+        arguments.extend([
+            "--lazy-playlist",
+            "--no-warnings",
+            "--skip-download",
+            "--ignore-errors",
+            "--ignore-no-formats-error",
+        ]);
+    } else {
+        arguments.extend(["--flat-playlist", "--lazy-playlist", "--no-warnings"]);
+    }
+    arguments.extend(["--print", PLAYLIST_PRINT_TEMPLATE, "--", url]);
+    arguments
 }
 
 fn acquire_slot(inner: Arc<SearchInner>, generation: u64) -> Result<SearchPermit, AppError> {
@@ -564,9 +691,10 @@ fn wait_for_child(
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            return Err(AppError::BackgroundTask(
-                "YouTube search timed out after 12 seconds".into(),
-            ));
+            return Err(AppError::BackgroundTask(format!(
+                "yt-dlp metadata request timed out after {} seconds",
+                timeout.as_secs()
+            )));
         }
         thread::sleep(Duration::from_millis(20));
     }
@@ -618,24 +746,21 @@ fn parse_provider_candidates(
             {
                 return None;
             }
-            let title = clean_youtube_title(
-                &bounded_text(
-                    value
-                        .get("title")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or(query),
-                    256,
-                ),
-                id,
-            );
-            let channel = bounded_text(
-                value
-                    .get("channel")
-                    .or_else(|| value.get("uploader"))
-                    .and_then(|value| value.as_str())
-                    .unwrap_or(provider.label()),
-                160,
-            );
+            let title = value
+                .get("title")
+                .or_else(|| value.get("track"))
+                .and_then(|value| value.as_str())
+                .filter(|title| !title.trim().is_empty())?;
+            let title = clean_youtube_title(&bounded_text(title, 256), id);
+            let channel = value
+                .get("channel")
+                .or_else(|| value.get("uploader"))
+                .or_else(|| value.get("artist"))
+                .or_else(|| value.get("creator"))
+                .or_else(|| value.get("album_artist"))
+                .and_then(|value| value.as_str())
+                .filter(|channel| !channel.trim().is_empty())?;
+            let channel = bounded_text(channel, 160);
             let views = value.get("view_count").and_then(|value| value.as_u64());
             let verified = value
                 .get("channel_is_verified")
@@ -664,6 +789,7 @@ fn parse_provider_candidates(
                     video_id: matches!(provider, SearchProvider::Youtube).then(|| id.to_owned()),
                     provider: Some(provider.label().to_ascii_lowercase()),
                     source_url: Some(source_url),
+                    blocked: false,
                 },
             ))
         })
@@ -683,6 +809,86 @@ fn parse_provider_candidates(
         })
         .take(PUBLISHED_RESULT_COUNT)
         .map(|(_, candidate)| candidate)
+        .collect()
+}
+
+fn parse_playlist_candidates(stdout: &[u8], playlist_url: &str) -> Vec<ImportCandidate> {
+    let provider = importer::remote_provider_name(playlist_url);
+    let mut seen = HashSet::new();
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            let id = value.get("id").and_then(serde_json::Value::as_str);
+            let video_id = if provider == "YouTube" {
+                let id = id.filter(|id| {
+                    !id.is_empty()
+                        && id.len() <= 64
+                        && id.bytes().all(|character| {
+                            character.is_ascii_alphanumeric() || matches!(character, b'-' | b'_')
+                        })
+                })?;
+                Some(id.to_owned())
+            } else {
+                None
+            };
+            let source_url = if let Some(video_id) = &video_id {
+                format!("https://www.youtube.com/watch?v={video_id}")
+            } else {
+                value
+                    .get("webpage_url")
+                    .or_else(|| value.get("url"))
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|url| importer::remote_provider_name(url) == provider)?
+                    .to_owned()
+            };
+            if !seen.insert(source_url.clone()) {
+                return None;
+            }
+            let title = value
+                .get("title")
+                .or_else(|| value.get("track"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|title| !title.trim().is_empty())
+                .map(|title| bounded_text(title, 256))
+                .or_else(|| {
+                    (provider == "YouTube")
+                        .then(|| id.map(|id| bounded_text(id, 256)))
+                        .flatten()
+                })
+                .unwrap_or_else(|| format!("{provider} track"));
+            let detail = bounded_text(
+                value
+                    .get("channel")
+                    .or_else(|| value.get("uploader"))
+                    .or_else(|| value.get("artist"))
+                    .or_else(|| value.get("creator"))
+                    .or_else(|| value.get("album_artist"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(provider),
+                160,
+            );
+            let blocked = provider != "YouTube"
+                && value
+                    .get("format_id")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|format_id| !format_id.is_empty())
+                    .is_none();
+            Some(ImportCandidate {
+                input: source_url.clone(),
+                title,
+                detail,
+                kind: CandidateKind::Video,
+                match_score: None,
+                thumbnail_url: video_id
+                    .as_ref()
+                    .map(|id| format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")),
+                video_id,
+                provider: Some(provider.to_ascii_lowercase()),
+                source_url: Some(source_url),
+                blocked,
+            })
+        })
         .collect()
 }
 
@@ -897,6 +1103,8 @@ mod tests {
     fn parses_only_bounded_valid_video_results() {
         let output = br#"{"id":"abc","title":"Song","channel":"Artist"}
 {"title":"Missing id"}
+{"id":"missing-title","channel":"Artist"}
+{"id":"missing-artist","title":"Song"}
 not json
 "#;
         let candidates = parse_candidates(output, "fallback");
@@ -927,6 +1135,132 @@ not json
         );
         assert!(candidates[0].video_id.is_none());
         assert!(candidates[0].thumbnail_url.is_none());
+    }
+
+    #[test]
+    fn playlist_entries_are_exposed_as_individual_import_candidates() {
+        let output = br#"{"id":"one","title":"First","uploader":"Artist","webpage_url":"https://soundcloud.com/artist/first"}
+{"id":"two","title":"Second","uploader":"Artist","webpage_url":"https://soundcloud.com/artist/second"}
+"#;
+
+        let candidates =
+            parse_playlist_candidates(output, "https://soundcloud.com/artist/sets/collection");
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].title, "First");
+        assert_eq!(candidates[0].input, "https://soundcloud.com/artist/first");
+        assert_eq!(candidates[1].input, "https://soundcloud.com/artist/second");
+        assert!(candidates.iter().all(|candidate| {
+            candidate.kind == CandidateKind::Video
+                && candidate.provider.as_deref() == Some("soundcloud")
+        }));
+    }
+
+    #[test]
+    fn non_youtube_metadata_retains_titles_without_authentication_or_audio_downloads() {
+        for url in [
+            "https://soundcloud.com/artist/sets/collection",
+            "https://audiomack.com/artist/album/collection",
+            "https://www.beatport.com/track/title/123",
+            "https://hearthis.at/artist/title/",
+            "https://www.jamendo.com/track/1",
+            "https://www.reverbnation.com/artist/song/title",
+        ] {
+            let arguments = playlist_cli_arguments(url);
+
+            assert!(!arguments.contains(&"--flat-playlist"));
+            assert!(arguments.contains(&"--skip-download"));
+            assert!(arguments.contains(&"--ignore-no-formats-error"));
+            assert!(!arguments.contains(&"--username"));
+            assert!(!arguments.contains(&"--password"));
+            assert!(!arguments.contains(&"--cookies"));
+        }
+    }
+
+    #[test]
+    fn metadata_analysis_exposes_drm_before_import() {
+        assert_eq!(
+            metadata_analysis_error(
+                "ERROR: [soundcloud] 224371784: This video is DRM protected"
+            )
+            .as_deref(),
+            Some(
+                "This content is protected by DRM and cannot be imported. Choose another public, DRM-free source."
+            )
+        );
+    }
+
+    #[test]
+    fn metadata_without_a_public_format_keeps_its_title_but_is_blocked() {
+        let output = br#"{"id":"163684297","title":"Say My Name (feat. Zyra)","artist":"ODESZA featuring Zyra","webpage_url":"https://soundcloud.com/odesza/say_my_name"}"#;
+        let candidates =
+            parse_playlist_candidates(output, "https://soundcloud.com/odesza/say_my_name");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].title, "Say My Name (feat. Zyra)");
+        assert_eq!(candidates[0].detail, "ODESZA featuring Zyra");
+        assert!(candidates[0].blocked);
+    }
+
+    #[test]
+    fn metadata_with_a_public_format_remains_importable() {
+        let output = br#"{"id":"90301462","title":"Disfigure - Blank [NCS Release]","artist":"Disfigure","webpage_url":"https://soundcloud.com/nocopyrightsounds/disfigure-blank","format_id":"hls_aac_160k"}"#;
+        let candidates = parse_playlist_candidates(
+            output,
+            "https://soundcloud.com/nocopyrightsounds/disfigure-blank",
+        );
+
+        assert_eq!(candidates.len(), 1);
+        assert!(!candidates[0].blocked);
+    }
+
+    #[test]
+    fn metadata_analysis_exposes_unavailable_videos_before_import() {
+        assert_eq!(
+            metadata_analysis_error(
+                "ERROR: [youtube] 3URh7kJ6dtQ: This video is not available"
+            )
+            .as_deref(),
+            Some(
+                "This video is private, removed, or unavailable. Check the source URL and choose another public item."
+            )
+        );
+    }
+
+    #[test]
+    fn soundcloud_entries_never_present_the_platform_id_as_the_title() {
+        let output = br#"{"id":"1781794326","webpage_url":"https://soundcloud.com/artist/song"}"#;
+        let candidates =
+            parse_playlist_candidates(output, "https://soundcloud.com/artist/sets/collection");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].title, "SoundCloud track");
+    }
+
+    #[test]
+    fn cli_metadata_templates_request_one_compact_json_object_per_line() {
+        assert!(SEARCH_PRINT_TEMPLATE.ends_with("})j"));
+        assert!(PLAYLIST_PRINT_TEMPLATE.ends_with("})j"));
+        assert!(!SEARCH_PRINT_TEMPLATE.ends_with("})#j"));
+        assert!(!PLAYLIST_PRINT_TEMPLATE.ends_with("})#j"));
+    }
+
+    #[test]
+    fn youtube_playlist_entries_receive_stable_watch_urls() {
+        let output = br#"{"id":"AbC_123-x","title":"Song","channel":"Artist"}"#;
+        let candidates =
+            parse_playlist_candidates(output, "https://www.youtube.com/playlist?list=PLexample");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].input,
+            "https://www.youtube.com/watch?v=AbC_123-x"
+        );
+        assert_eq!(candidates[0].video_id.as_deref(), Some("AbC_123-x"));
+        assert!(
+            playlist_cli_arguments("https://www.youtube.com/playlist?list=PLexample")
+                .contains(&"--flat-playlist")
+        );
     }
 
     #[test]

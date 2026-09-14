@@ -4,9 +4,10 @@
   import { confirm, open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import { handleWindowCloseRequest, projectOpenDialogOptions } from "./lib/applicationLifecycle";
-  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openImportSource, openLrclibSearch, openProject, prepareModels, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemAvailableProfiles, stemDisable, stemLoadCached, stemReset, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
+  import { analyzeChords, analyzeImportText, audioLoad, audioPause, audioPlay, audioPreload, audioSeek, audioSetBeatTimeline, audioSetEndBehavior, audioSetLoop, audioSetLoopTrainer, audioSetLoudnessNormalization, audioSetMetronome, audioSetMusicVolume, audioSetPitch, audioSetPlaybackRate, audioSetVolume, audioSpectrum, audioStatus, beginYoutubeSearches, cancelChordAnalysis, cancelImport, confirmApplicationExit, createTemporaryProject, deleteLyrics, deleteTrack as deleteTrackFromProject, diagnostics, enqueueImports, exportChords, exportLyrics, exportPlaylist, exportStems, getAnalysisCapabilities, getLrclibLyrics, getLyrics, getPreferences, getWaveform, importJobs, initializeProject, listRecentProjects, logsSnapshot, openExternalLink, openImportSource, openLrclibSearch, openProject, prepareModels, pushFrontendLog, readImportTextFiles, removeImportJob, renameProject, renameTrack, reorderTrack, requestApplicationExit, resolveImportPlaylist, resolveYoutubeSearch, revealProject, saveLyrics, savePreferences, saveProjectAs, searchLrclibLyrics, setApplicationLanguage, stemAvailableProfiles, stemDisable, stemLoadCached, stemReset, stemSetEnabled, stemSetMix, stemStart, stemStatus, systemMetrics, takeOpenProjectRequest, updatePracticeState, verifyProjectAccess, verifyProjectDestinationAccess } from "./lib/backend";
+  import type { ExternalLinkTarget } from "./lib/backend";
   import { languageDirection, languageOptions, systemLanguage, translate, type Language, type MessageKey } from "./lib/i18n";
-  import { deduplicateImportCandidates, importRelevanceLevel, importRelevancePercent, normalizeImportQuery, reconcileImportSelection } from "./lib/importCandidates";
+  import { deduplicateImportCandidates, importRelevanceLevel, importRelevancePercent, orderedImportCandidateGroups, reconcileImportSelection } from "./lib/importCandidates";
   import type { ImportCandidateGroup } from "./lib/importCandidates";
   import { shouldConfirmDialogOnEnter } from "./lib/dialogKeyboard";
   import { droppedAudioPaths } from "./lib/importPaths";
@@ -15,7 +16,8 @@
   import { BackgroundTaskScheduler } from "./lib/backgroundTaskScheduler";
   import { beatModeForTrack, beatTimelineFor, canToggleMetronome, type BeatTimeline } from "./lib/beatMode";
   import { nextBeatSubdivisionMode, type BeatSubdivisionMode } from "./lib/beatHomogenization";
-  import { filterLogs, logOrigins, type LogLevel } from "./lib/logFilters";
+  import { filterLogs, formatLogs, logOrigins, type LogLevel } from "./lib/logFilters";
+  import { logCopyText } from "./lib/logCopyI18n";
   import { metronomeShortcutAction, parameterShortcutAction, parameterShortcutForKey, shiftedTrackShortcutOffset, shortcutKeyLabels, shortcutPlatformFor, shouldBlurFocusedSelect, shouldHandleGlobalShortcut, shouldHandleParameterShortcut, shouldHandlePlayPauseShortcut, shouldToggleBeatThisDbnShortcut, shouldToggleChordEditModeShortcut, shouldToggleLoopOnRelease, shouldToggleMetronomeOnRelease, type ParameterShortcut, type ParameterShortcutAction } from "./lib/globalShortcuts";
   import { localBpmAt } from "./lib/localTempo";
   import { nextHarmonyView } from "./lib/harmonyViews";
@@ -26,11 +28,15 @@
   import PianoChord from "./lib/PianoChord.svelte";
   import NumericControl from "./lib/NumericControl.svelte";
   import Modal from "./lib/Modal.svelte";
+  import AboutModal from "./lib/AboutModal.svelte";
+  import { aboutCopy } from "./lib/aboutI18n";
   import Toaster from "./lib/Toaster.svelte";
   import LyricsPanel from "./lib/LyricsPanel.svelte";
   import TimelineLane from "./lib/TimelineLane.svelte";
   import { timelineBoundaryPoints, type TimelineLaneItem } from "./lib/timelineLane";
   import ProviderLogo from "./lib/ProviderLogo.svelte";
+  import MusicSourceLogo from "./lib/MusicSourceLogo.svelte";
+  import type { MusicSourceId } from "./lib/musicSources";
   import VisualizationPanel from "./lib/VisualizationPanel.svelte";
   import ResourceThermometer from "./lib/ResourceThermometer.svelte";
   import ModelInstallation from "./lib/ModelInstallation.svelte";
@@ -38,6 +44,16 @@
   import { emptyMeterState, meterPeakHoldMilliseconds, smoothValues, updateMeterState, visualizationKinds, type EnergyPoint } from "./lib/visualization";
   import { appendToast, type ToastLevel, type ToastMessage } from "./lib/toasts";
   import { buildProjectPath, calculateDetectedBeatLines, defaultLoopBounds, formatPitch, formatProjectHeaderPath, formatTime, formatTimePrecise, isDetectedBeatActive, moveWaveformViewport, panWaveformViewportFromWheel, resizeWaveformViewport, shouldApplyAudioStatus, shouldApplyAudioStatusPosition, trackLoadPosition, visiblePeaks, waveformClickPosition, waveformShowsDetail, waveformViewportForWindow, waveformWheelAxis, zoomWaveformViewport, zoomWaveformViewportAroundCenter, type WaveformViewport, type WaveformViewportEdge, type WaveformWheelAxis } from "./lib/presentation";
+
+  const musicSourceLinks: ReadonlyArray<{ id: MusicSourceId; name: string; target: ExternalLinkTarget }> = [
+    { id: "youtube", name: "YouTube", target: "music-youtube" },
+    { id: "soundcloud", name: "SoundCloud", target: "music-soundcloud" },
+    { id: "bandcamp", name: "Bandcamp", target: "music-bandcamp" },
+    { id: "mixcloud", name: "Mixcloud", target: "music-mixcloud" },
+    { id: "hearthis", name: "hearthis.at", target: "music-hearthis" },
+    { id: "jamendo", name: "Jamendo", target: "music-jamendo" },
+    { id: "reverbnation", name: "ReverbNation", target: "music-reverbnation" },
+  ];
   import { availableNavigationModes, effectiveNavigationMode, navigationModeAvailable, navigationPosition, shouldRestartCurrentTrack, snappedNavigationPosition } from "./lib/navigation";
   import { forgetTrackSelection, preferredTrack, rememberedTrackId, rememberTrackSelection } from "./lib/projectSelection";
   import { prepareAnalysisForStartup, projectStartupAction, shouldProcessProjectOpenRequest, type ProjectStartupAction } from "./lib/projectStartup";
@@ -65,6 +81,7 @@
   let modelInstallError = "";
   let modelInstallProgress: ModelInstallProgress = { modelId: "startup", modelName: "SonArcan", stage: "checking", progress: 0, completedBytes: 0, totalBytes: 0, modelIndex: 0, modelCount: 0 };
   let diagnosticInfo: DiagnosticsSnapshot | null = null;
+  let aboutInfo: DiagnosticsSnapshot | null = null;
   let analysisFeaturesAvailable = false;
   let degradedAnalysisNoticeVisible = false;
   let runtimeOs = "macos";
@@ -230,6 +247,7 @@
     const provider = key.slice(0, separator) as SearchProvider;
     return resolveYoutubeSearch(key.slice(separator + 1), generation, provider);
   });
+  const importPlaylistCache = new ImportSearchCache(resolveImportPlaylist, 20);
   let importSearchCompleted = 0;
   let importSearchTotal = 0;
   let importActiveGroupIds = new Set<string>();
@@ -1976,6 +1994,7 @@
     else if (id === "file:save") saveCurrentProject();
     else if (id === "file:save_as") saveAs();
     else if (id === "app:quit") requestApplicationClose();
+    else if (id === "app:about") showAbout();
     else if (id === "file:rename_project") renameCurrentProject();
     else if (id === "playlist:add") openImportCenter();
     else if (id === "playlist:export_json") exportCurrentPlaylist("json");
@@ -2096,44 +2115,37 @@
       const parsed = deduplicateImportCandidates(await analyzeImportText(importText));
       if (generation !== importAnalysisGeneration) return;
       const previousGroups = new Map(importCandidateGroups.map((group) => [group.id, group]));
-      const groups: ImportCandidateGroup[] = [];
-      const direct = parsed.filter((candidate) => candidate.kind !== "search");
-      if (direct.length) {
-        groups.push({ id: "direct", query: null, searchIndex: null, candidates: direct });
+      const previouslyPendingGroupIds = new Set([...importPendingGroupIds, ...importActiveGroupIds]);
+      const groups = orderedImportCandidateGroups(parsed, importSearchProvider);
+      const unresolved: Array<{ group: ImportCandidateGroup; cache: ImportSearchCache; key: string }> = [];
+      for (const group of groups) {
+        if (group.query === null) continue;
+        const cache = group.kind === "search" ? importSearchCache : importPlaylistCache;
+        const key = group.kind === "search" ? `${importSearchProvider}\n${group.query}` : group.query;
+        const cached = cache.peek(key);
+        const previous = previouslyPendingGroupIds.has(group.id) ? undefined : previousGroups.get(group.id)?.candidates;
+        group.candidates = cached ?? previous ?? group.candidates;
+        if (cached === undefined && previous === undefined) unresolved.push({ group, cache, key });
       }
-      let searchIndex = 0;
-      const unresolved: ImportCandidateGroup[] = [];
-      for (const candidate of parsed) {
-        if (candidate.kind !== "search") continue;
-        searchIndex += 1;
-        const normalizedQuery = normalizeImportQuery(candidate.input);
-        const searchCacheKey = `${importSearchProvider}\n${candidate.input}`;
-        const id = `search:${importSearchProvider}:${normalizedQuery}`;
-        const cached = importSearchCache.peek(searchCacheKey);
-        const previous = previousGroups.get(id)?.candidates;
-        const group = {
-          id,
-          query: candidate.input,
-          searchIndex,
-          candidates: cached ?? previous ?? [],
-        };
-        groups.push(group);
-        if (cached === undefined && previous === undefined) unresolved.push(group);
-      }
-      importSearchTotal = searchIndex;
-      importSearchCompleted = searchIndex - unresolved.length;
-      importPendingGroupIds = new Set(unresolved.map((group) => group.id));
+      importSearchTotal = groups.filter((group) => group.query !== null).length;
+      importSearchCompleted = importSearchTotal - unresolved.length;
+      importPendingGroupIds = new Set(unresolved.map(({ group }) => group.id));
       importGroupErrors = new Map();
       publishImportGroups(groups);
 
       let nextSearchIndex = 0;
       const resolveNextSearch = async (): Promise<void> => {
         while (generation === importAnalysisGeneration) {
-          const group = unresolved[nextSearchIndex++];
-          if (!group || group.query === null) return;
+          const pendingResolution = unresolved[nextSearchIndex++];
+          if (!pendingResolution) return;
+          const { group, cache, key } = pendingResolution;
           importActiveGroupIds = new Set(importActiveGroupIds).add(group.id);
           try {
-            group.candidates = deduplicateImportCandidates(await importSearchCache.resolve(`${importSearchProvider}\n${group.query}`, backendSearchGeneration));
+            group.candidates = deduplicateImportCandidates(await cache.resolve(key, backendSearchGeneration));
+            if (group.id.startsWith("source:") && group.candidates.length > 1) {
+              group.kind = "playlist";
+              group.query = key;
+            }
           } catch (error) {
             if (generation !== importAnalysisGeneration) return;
             importGroupErrors = new Map(importGroupErrors).set(group.id, error instanceof Error ? error.message : String(error));
@@ -2267,9 +2279,27 @@
   }
 
   function showDiagnostics(): void {
+    aboutInfo = null;
     void run(async () => {
       diagnosticInfo = await diagnostics();
     });
+  }
+
+  function showAbout(): void {
+    diagnosticInfo = null;
+    void run(async () => {
+      aboutInfo = await diagnostics();
+    });
+  }
+
+  async function copyFilteredLogs(): Promise<void> {
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(formatLogs(filteredAppLogs));
+      notify("success", logCopyText(language).success);
+    } catch (error) {
+      notify("error", logCopyText(language).failure, errorText(error));
+    }
   }
 
   function showPathInFileManager(path: string): void {
@@ -2282,7 +2312,7 @@
     if (project) showPathInFileManager(project.packagePath);
   }
 
-  function openCommunityLink(target: "github" | "donate"): void {
+  function openCommunityLink(target: ExternalLinkTarget): void {
     void openExternalLink(target).catch((error) => {
       notify("error", t("linkOpenError"), errorText(error));
     });
@@ -2311,6 +2341,11 @@
       : provider === "soundcloud" ? "SoundCloud"
       : provider === "bandcamp" ? "Bandcamp"
       : provider === "mixcloud" ? "Mixcloud"
+      : provider === "audiomack" ? "Audiomack"
+      : provider === "beatport" ? "Beatport"
+      : provider === "hearthis.at" ? "hearthis.at"
+      : provider === "jamendo" ? "Jamendo"
+      : provider === "reverbnation" ? "ReverbNation"
       : provider === "local" ? "" : "Web";
   }
 
@@ -4915,7 +4950,10 @@
     <footer class="app-help-footer">
       <span>{busy ? t("working") : t("ready")}</span>
       <div class="help-strip" aria-live="polite"><Icon name="lightbulb" size="12px" /><span>{helpMessage || t("helpHover")}</span></div>
-      <button class="link" onclick={showDiagnostics}>{t("diagnostics")}</button>
+      <div class="help-footer-links">
+        <button class="link" onclick={showAbout}>{aboutCopy(language).title}</button>
+        <button class="link" onclick={showDiagnostics}>{t("diagnostics")}</button>
+      </div>
     </footer>
   {/if}
 
@@ -4926,7 +4964,8 @@
         <div class="console-filters">
           <label><span>{t("minimumLogLevel")}</span><select class={`level-${consoleMinimumLevel}`} bind:value={consoleMinimumLevel} aria-label={t("minimumLogLevel")}><option class="level-debug" value="debug">DEBUG</option><option class="level-info" value="info">INFO</option><option class="level-warn" value="warn">WARN</option><option class="level-error" value="error">ERROR</option></select></label>
           <label><span>{t("logFamily")}</span><select value={consoleOrigin ?? "all"} onchange={(event) => consoleOrigin = event.currentTarget.value === "all" ? null : event.currentTarget.value} aria-label={t("logFamily")}><option value="all">{t("allLogFamilies")}</option>{#each consoleOrigins as origin}<option value={origin}>{logOriginLabel(origin)}</option>{/each}</select></label>
-          <button aria-label={t("hideConsole")} data-tooltip={t("hideConsole")} onclick={toggleConsole}><Icon name="xmark" size="12px" /></button>
+          <button class="console-action" disabled={filteredAppLogs.length === 0} aria-label={logCopyText(language).label} data-tooltip={logCopyText(language).label} onclick={() => void copyFilteredLogs()}><Icon name="copy" size="12px" /></button>
+          <button class="console-action" aria-label={t("hideConsole")} data-tooltip={t("hideConsole")} onclick={toggleConsole}><Icon name="xmark" size="12px" /></button>
         </div>
       </header>
       <div class="console-output">
@@ -4958,6 +4997,10 @@
 
   {#if diagnosticInfo}
     <Modal title={t("diagnostics")} closeLabel={t("close")} close={() => diagnosticInfo = null}><dl><dt>{t("version")}</dt><dd>{diagnosticInfo.appVersion}</dd><dt>OS</dt><dd>{diagnosticInfo.os}</dd><dt>{t("architecture")}</dt><dd>{diagnosticInfo.architecture}</dd><dt>{t("logging")}</dt><dd>{diagnosticInfo.rustLog}</dd></dl><button onclick={() => diagnosticInfo = null}>{t("close")}</button></Modal>
+  {/if}
+
+  {#if aboutInfo}
+    <AboutModal copy={aboutCopy(language)} version={aboutInfo.appVersion} close={() => aboutInfo = null} openLink={openCommunityLink} />
   {/if}
 
   {#if stemExportVisible}
@@ -5066,32 +5109,45 @@
           <div class="import-toolbar-actions">
             <button onclick={chooseImportFiles}>{t("addFiles")}</button>
           </div>
-          <div class="import-provider-select" role="group" aria-label={providerTranslate(language, "searchProvider")}><span>{providerTranslate(language, "searchProvider")}</span><button class:active={importSearchProvider === "youtube"} aria-pressed={importSearchProvider === "youtube"} onclick={() => changeImportSearchProvider("youtube")}><ProviderLogo provider="youtube" />YouTube</button><button class:active={importSearchProvider === "soundcloud"} aria-pressed={importSearchProvider === "soundcloud"} onclick={() => changeImportSearchProvider("soundcloud")}><ProviderLogo provider="soundcloud" />SoundCloud</button></div>
-          <div class="import-direct-providers" aria-label={providerTranslate(language, "directOnly")}><small>{providerTranslate(language, "directOnly")}</small><span data-tooltip="Bandcamp"><ProviderLogo provider="bandcamp" /></span><span data-tooltip="Mixcloud"><ProviderLogo provider="mixcloud" /></span></div>
+          <div class="import-provider-select" role="group" aria-label={providerTranslate(language, "searchProvider")}><button class="ytdlp-badge" data-tooltip="GitHub · yt-dlp" onclick={() => openCommunityLink("ytdlp")}><Icon name="github" size="11px" />{providerTranslate(language, "poweredByYtDlp")}</button><button class:active={importSearchProvider === "youtube"} aria-pressed={importSearchProvider === "youtube"} onclick={() => changeImportSearchProvider("youtube")}><ProviderLogo provider="youtube" />YouTube</button><button class:active={importSearchProvider === "soundcloud"} aria-pressed={importSearchProvider === "soundcloud"} onclick={() => changeImportSearchProvider("soundcloud")}><ProviderLogo provider="soundcloud" />SoundCloud</button></div>
         </div>
         <textarea bind:this={importTextarea} use:disableTextareaAutocorrect class:drop-active={importDropActive} bind:value={importText} oninput={scheduleImportAnalysis} ondragover={(event) => { event.preventDefault(); importDropActive = true; }} ondragleave={() => importDropActive = false} ondrop={(event) => { event.preventDefault(); importDropActive = false; const text = event.dataTransfer?.getData("text/plain"); if (text) { importText = [importText, text].filter(Boolean).join("\n"); void analyzeImports(); } }} placeholder={t("importPlaceholder")}></textarea>
+        {#if importCandidates.length === 0}
+          <div class="import-info">
+            <span><Icon name="circle-info" size="13px" /></span>
+            <p><span>{providerTranslate(language, "importHelp")}</span><span>{t("dropToAnalyze")}</span><span>{t("authorizedOnly")}</span></p>
+          </div>
+          <div class="import-music-sources" aria-label={providerTranslate(language, "musicSources")}>
+            <span>{providerTranslate(language, "musicSources")}</span>
+            <div>
+              {#each musicSourceLinks as source}
+                <button aria-label={source.name} data-tooltip={source.name} onclick={() => openCommunityLink(source.target)}><MusicSourceLogo source={source.id} /></button>
+              {/each}
+              <button class="all-ytdlp-sites" aria-label={providerTranslate(language, "allYtDlpSites")} data-tooltip={providerTranslate(language, "allYtDlpSites")} onclick={() => openCommunityLink("ytdlp-sites")}><Icon name="list" size="15px" /><small>yt-dlp</small></button>
+            </div>
+          </div>
+        {/if}
         <div class="import-analysis-state">
           {#if importAnalyzing && importSearchTotal > 0}
             <div class="import-search-progress" aria-live="polite">
-              <span><i class="mini-spinner"></i>{t("searchProgress")} <b>{importSearchCompleted}/{importSearchTotal}</b></span>
-              <progress value={importSearchCompleted} max={importSearchTotal} aria-label={`${t("searchProgress")} ${importSearchCompleted}/${importSearchTotal}`}></progress>
+              <span><i class="mini-spinner"></i>{t("analyzingSources")} <b>{importSearchCompleted}/{importSearchTotal}</b></span>
+              <progress value={importSearchCompleted} max={importSearchTotal} aria-label={`${t("analyzingSources")} ${importSearchCompleted}/${importSearchTotal}`}></progress>
             </div>
           {:else if importAnalyzing}<span><i class="mini-spinner"></i>{t("analyzingSources")}</span>
           {:else if importAnalysisError}<span class="failed">{importAnalysisError}</span>
-          {:else if importHasAnalyzed}<span>{importCandidates.length} {t("sourcesFound")}</span>
-          {:else}<span>{t("dropToAnalyze")}</span>{/if}
+          {:else if importHasAnalyzed}<span>{importCandidates.length} {t("sourcesFound")}</span>{/if}
         </div>
         {#if importCandidateGroups.length}
           <div class="candidate-groups">
-            {#each importCandidateGroups as group}
+            {#each importCandidateGroups as group (group.id)}
               <section class="candidate-group" class:loading={importPendingGroupIds.has(group.id)}>
-                  <header><span data-tooltip={group.query === null ? t("directSources") : `${t("searchResults")} ${group.searchIndex}`}>{#if group.query}<ProviderLogo provider={importSearchProvider} size="13px" />{:else}<Icon name="file" label={t("directSources")} size="13px" />{/if}</span>{#if group.query}<strong>{group.query}</strong>{/if}{#if importActiveGroupIds.has(group.id)}<i class="mini-spinner"></i>{:else if importPendingGroupIds.has(group.id)}<small>{t("queued")}</small>{/if}</header>
+                  <header><span data-tooltip={group.kind === "search" ? `${t("searchResults")} ${group.searchIndex}` : group.kind === "playlist" ? group.query ?? t("directSources") : t("directSources")}>{#if group.kind === "search"}<ProviderLogo provider={importSearchProvider} size="13px" />{:else}<Icon name={group.kind === "playlist" ? "list" : "file"} label={t("directSources")} size="13px" />{/if}</span>{#if group.query}<strong>{group.query}</strong>{/if}{#if importActiveGroupIds.has(group.id)}<i class="mini-spinner"></i>{:else if importPendingGroupIds.has(group.id)}<small>{t("queued")}</small>{/if}</header>
                 {#if group.candidates.length}
                   <div class="candidate-list">
                     {#each group.candidates as candidate}
-                      <div class="candidate-row" class:selected={selectedImports.has(candidate.input)} class:has-thumbnail={candidate.thumbnailUrl !== undefined}>
-                        <button class="candidate-select-target" aria-label={candidate.title} aria-pressed={selectedImports.has(candidate.input)} onclick={() => toggleImport(candidate.input)}></button>
-                        <span class="candidate-check" aria-hidden="true"><i>{selectedImports.has(candidate.input) ? "✓" : ""}</i></span>
+                      <div class="candidate-row" class:selected={selectedImports.has(candidate.input)} class:blocked={candidate.blocked} class:has-thumbnail={candidate.thumbnailUrl !== undefined}>
+                        <button class="candidate-select-target" aria-label={candidate.title} aria-pressed={selectedImports.has(candidate.input)} disabled={candidate.blocked} onclick={() => toggleImport(candidate.input)}></button>
+                        <span class="candidate-check" aria-hidden="true"><i>{candidate.blocked ? "!" : selectedImports.has(candidate.input) ? "✓" : ""}</i></span>
                         {#if candidate.thumbnailUrl}<span class="candidate-thumbnail"><Icon name="music" size="15px" /><img src={candidate.thumbnailUrl} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror={hideBrokenThumbnail} /></span>{/if}
                         <div class="candidate-copy">
                           <strong class="candidate-title">{candidate.title}</strong>
@@ -5099,6 +5155,7 @@
                             <span class="candidate-detail">{candidate.detail}</span>
                             {#if candidate.matchScore !== undefined}<span class="candidate-separator" aria-hidden="true">•</span><span class={`candidate-score relevance-${importRelevanceLevel(candidate.matchScore)}`}>{t("youtubeMatchScore")} {importRelevancePercent(candidate.matchScore)} %</span>{/if}
                             {#if candidate.sourceUrl && candidateProvider(candidate) !== "web"}<span class="candidate-separator" aria-hidden="true">•</span><button class="candidate-video-link" aria-label={`${providerTranslate(language, "openSource")} · ${candidate.title}`} data-tooltip={candidate.sourceUrl} onclick={() => openCandidateSource(candidate)}><ProviderLogo provider={candidateProvider(candidate)} size="13px" />{candidateProvider(candidate) === "youtube" && candidate.videoId ? candidate.videoId : candidateProviderName(candidate)}</button>{/if}
+                            {#if candidate.blocked}<span class="candidate-separator" aria-hidden="true">•</span><span class="candidate-blocked-reason">{providerTranslate(language, "noPublicFormat")}</span>{/if}
                           </div>
                         </div>
                       </div>
@@ -5113,7 +5170,6 @@
         {:else if importHasAnalyzed && !importAnalysisError}
           <div class="import-empty">{t("noSourcesFound")}</div>
         {/if}
-        <small class="authorized-note">{t("authorizedOnly")}</small>
         <div class="modal-actions"><button class="primary" disabled={selectedImports.size === 0 || importAnalyzing || busy} onclick={startImports}>{t("startImport")} ({selectedImports.size})</button><button onclick={() => importVisible = false}>{t("close")}</button></div>
       </div>
     </Modal>

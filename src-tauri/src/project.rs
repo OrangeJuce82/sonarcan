@@ -715,11 +715,22 @@ pub fn delete_track(package_path: &Path, track_id: Uuid) -> Result<ProjectSummar
         .iter()
         .position(|track| track.id == track_id)
         .ok_or(AppError::TrackNotFound(track_id))?;
-    let media_path = validated_media_path(package_path, &manifest.tracks[index].source_path)?;
+    let source_path = manifest.tracks[index].source_path.clone();
+    let media_path = validated_media_path_for_deletion(package_path, &source_path)?;
+    let decoded_cache_path = source_path.file_name().map(|name| {
+        package_path
+            .join("Cache")
+            .join("decoded")
+            .join(format!("{}.pcm", name.to_string_lossy()))
+    });
     let fingerprint_path = fingerprint_cache_path(package_path, track_id)?;
     manifest.tracks.remove(index);
-    if media_path.is_file() {
-        fs::remove_file(&media_path).map_err(|error| AppError::io(&media_path, error))?;
+    if let Some(media_path) = &media_path {
+        match fs::remove_file(media_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(AppError::io(media_path, error)),
+        }
     }
     manifest.updated_at = Utc::now();
     save(package_path, &manifest)?;
@@ -734,15 +745,7 @@ pub fn delete_track(package_path: &Path, track_id: Uuid) -> Result<ProjectSummar
             .join("tempo")
             .join(format!("{track_id}.json")),
         fingerprint_path,
-        media_path
-            .file_name()
-            .map(|name| {
-                package_path
-                    .join("Cache")
-                    .join("decoded")
-                    .join(format!("{}.pcm", name.to_string_lossy()))
-            })
-            .unwrap_or_default(),
+        decoded_cache_path.unwrap_or_default(),
     ] {
         let _ = fs::remove_file(cache_path);
     }
@@ -1054,6 +1057,45 @@ fn validated_media_path(package_path: &Path, source_path: &Path) -> Result<PathB
         ));
     }
     Ok(audio_directory.join(relative_path))
+}
+
+fn validated_media_path_for_deletion(
+    package_path: &Path,
+    source_path: &Path,
+) -> Result<Option<PathBuf>, AppError> {
+    match validated_media_path(package_path, source_path) {
+        Ok(path) => Ok(Some(path)),
+        Err(AppError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            let audio_directory = package_path
+                .join("Audio")
+                .canonicalize()
+                .map_err(|error| AppError::io(package_path.join("Audio"), error))?;
+            let parent = source_path
+                .parent()
+                .ok_or_else(|| AppError::TrackMediaOutsideProject(source_path.to_path_buf()))?;
+            let canonical_parent = parent
+                .canonicalize()
+                .map_err(|error| AppError::io(parent, error))?;
+            if relative_path_within(&canonical_parent, &audio_directory).is_none() {
+                return Err(AppError::TrackMediaOutsideProject(
+                    source_path.to_path_buf(),
+                ));
+            }
+            let file_name = source_path
+                .file_name()
+                .ok_or_else(|| AppError::TrackMediaOutsideProject(source_path.to_path_buf()))?;
+            let path = canonical_parent.join(file_name);
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => Ok(Some(path)),
+                Ok(_) => Err(AppError::TrackMediaOutsideProject(
+                    source_path.to_path_buf(),
+                )),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(AppError::io(path, error)),
+            }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn relative_path_within(path: &Path, directory: &Path) -> Option<PathBuf> {
@@ -1668,6 +1710,45 @@ mod tests {
         assert_eq!(updated.track_count, 1);
         assert!(!deleted_path.exists());
         assert!(updated.tracks.iter().all(|track| track.id != deleted_id));
+    }
+
+    #[test]
+    fn deletes_a_track_when_its_media_is_already_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "Missing Media").unwrap();
+        let wave_path = temp.path().join("missing.wav");
+        fs::write(&wave_path, minimal_pcm_wave()).unwrap();
+        let imported = import_audio(&project.package_path, &[wave_path]).unwrap();
+        let deleted_id = imported.tracks[0].id;
+        let deleted_path = imported.tracks[0].source_path.clone();
+        fs::remove_file(&deleted_path).unwrap();
+
+        let updated = delete_track(&project.package_path, deleted_id).unwrap();
+
+        assert_eq!(updated.track_count, 0);
+        assert!(updated.tracks.iter().all(|track| track.id != deleted_id));
+        assert_eq!(open_project(&project.package_path).unwrap().track_count, 0);
+    }
+
+    #[test]
+    fn rejects_a_missing_media_path_outside_the_project_during_deletion() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = create_project(temp.path(), "Missing Outside Media").unwrap();
+        let wave_path = temp.path().join("outside.wav");
+        fs::write(&wave_path, minimal_pcm_wave()).unwrap();
+        let imported = import_audio(&project.package_path, &[wave_path]).unwrap();
+        let track_id = imported.tracks[0].id;
+        fs::remove_file(&imported.tracks[0].source_path).unwrap();
+        let outside_path = temp.path().join("missing.wav");
+        let mut manifest = load(&project.package_path).unwrap();
+        manifest.tracks[0].source_path = outside_path.clone();
+        save(&project.package_path, &manifest).unwrap();
+
+        assert!(matches!(
+            delete_track(&project.package_path, track_id),
+            Err(AppError::TrackMediaOutsideProject(path)) if path == outside_path
+        ));
+        assert_eq!(open_project(&project.package_path).unwrap().track_count, 1);
     }
 
     #[test]

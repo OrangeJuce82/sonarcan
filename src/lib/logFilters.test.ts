@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { filterLogs, logOrigins } from "./logFilters.ts";
+import { filterLogs, formatLogs, logOrigins } from "./logFilters.ts";
 import type { AppLogEntry } from "./types.ts";
 
 const entries: AppLogEntry[] = [
@@ -18,4 +18,11 @@ test("log filters apply a minimum severity and an optional dynamic origin", () =
 
 test("log origins are unique and stable for dynamic select options", () => {
   assert.deepEqual(logOrigins(entries), ["mlx", "rust", "webview"]);
+});
+
+test("formatted logs preserve the filtered entries and their support context", () => {
+  assert.equal(
+    formatLogs(filterLogs(entries, "warn", "rust")),
+    "1970-01-01T00:00:00.003Z [rust] WARN slow callback",
+  );
 });

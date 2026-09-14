@@ -211,15 +211,20 @@ fn verify_project_destination_access(destination: PathBuf) -> Result<bool, AppEr
 fn import_audio(
     project_path: PathBuf,
     source_paths: Vec<PathBuf>,
+    service: State<'_, importer::ImportService>,
 ) -> Result<ProjectSummary, AppError> {
     info!(project = %project_path.display(), source_count = source_paths.len(), "importing audio");
-    project::import_audio(&project_path, &source_paths)
+    service.with_project_write(|| project::import_audio(&project_path, &source_paths))
 }
 
 #[tauri::command]
-fn rename_project(package_path: PathBuf, name: String) -> Result<ProjectSummary, AppError> {
+fn rename_project(
+    package_path: PathBuf,
+    name: String,
+    service: State<'_, importer::ImportService>,
+) -> Result<ProjectSummary, AppError> {
     info!(project = %package_path.display(), new_name = name, "renaming project");
-    project::rename_project(&package_path, &name)
+    service.with_project_write(|| project::rename_project(&package_path, &name))
 }
 
 #[tauri::command]
@@ -227,9 +232,10 @@ fn rename_track(
     package_path: PathBuf,
     track_id: uuid::Uuid,
     name: String,
+    service: State<'_, importer::ImportService>,
 ) -> Result<ProjectSummary, AppError> {
     info!(project = %package_path.display(), %track_id, new_name = name, "renaming track");
-    project::rename_track(&package_path, track_id, &name)
+    service.with_project_write(|| project::rename_track(&package_path, track_id, &name))
 }
 
 #[tauri::command]
@@ -237,13 +243,18 @@ fn reorder_track(
     package_path: PathBuf,
     track_id: uuid::Uuid,
     new_index: usize,
+    service: State<'_, importer::ImportService>,
 ) -> Result<ProjectSummary, AppError> {
-    project::reorder_track(&package_path, track_id, new_index)
+    service.with_project_write(|| project::reorder_track(&package_path, track_id, new_index))
 }
 
 #[tauri::command]
-fn delete_track(package_path: PathBuf, track_id: uuid::Uuid) -> Result<ProjectSummary, AppError> {
-    project::delete_track(&package_path, track_id)
+fn delete_track(
+    package_path: PathBuf,
+    track_id: uuid::Uuid,
+    service: State<'_, importer::ImportService>,
+) -> Result<ProjectSummary, AppError> {
+    service.with_project_write(|| project::delete_track(&package_path, track_id))
 }
 
 #[tauri::command]
@@ -319,8 +330,9 @@ fn update_practice_state(
     package_path: PathBuf,
     track_id: uuid::Uuid,
     state: PracticeState,
+    service: State<'_, importer::ImportService>,
 ) -> Result<ProjectSummary, AppError> {
-    project::update_practice_state(&package_path, track_id, state)
+    service.with_project_write(|| project::update_practice_state(&package_path, track_id, state))
 }
 
 #[tauri::command]
@@ -329,9 +341,12 @@ fn save_project_as(
     source_package: PathBuf,
     destination: PathBuf,
     replace_existing: bool,
+    service: State<'_, importer::ImportService>,
 ) -> Result<ProjectSummary, AppError> {
     info!(source = %source_package.display(), destination = %destination.display(), "saving project as");
-    let summary = project::save_as_to(&source_package, &destination, replace_existing)?;
+    let summary = service.with_project_write(|| {
+        project::save_as_to(&source_package, &destination, replace_existing)
+    })?;
     remember_project(&app, &summary.package_path)?;
     Ok(summary)
 }
@@ -408,6 +423,18 @@ async fn resolve_youtube_search(
 ) -> Result<Vec<importer::ImportCandidate>, AppError> {
     let service = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || service.resolve(&query, generation, provider))
+        .await
+        .map_err(|error| AppError::BackgroundTask(error.to_string()))?
+}
+
+#[tauri::command]
+async fn resolve_import_playlist(
+    service: State<'_, youtube_search::YoutubeSearchService>,
+    url: String,
+    generation: u64,
+) -> Result<Vec<importer::ImportCandidate>, AppError> {
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.resolve_playlist(&url, generation))
         .await
         .map_err(|error| AppError::BackgroundTask(error.to_string()))?
 }
@@ -516,16 +543,28 @@ fn reveal_project(package_path: PathBuf) -> Result<(), AppError> {
 
 #[tauri::command]
 fn open_external_link(target: String) -> Result<(), AppError> {
-    let url = match target.as_str() {
-        "github" => "https://github.com/OrangeJuce82/sonarcan",
-        "donate" => "https://www.paypal.com/paypalme/z5omes",
-        _ => {
-            return Err(AppError::BackgroundTask(
-                "external link is not allowed".into(),
-            ))
-        }
-    };
+    let url = external_link_url(&target)
+        .ok_or_else(|| AppError::BackgroundTask("external link is not allowed".into()))?;
     open_url_in_browser(url)
+}
+
+fn external_link_url(target: &str) -> Option<&'static str> {
+    Some(match target {
+        "github" => "https://github.com/OrangeJuce82/sonarcan",
+        "github-issues" => "https://github.com/OrangeJuce82/sonarcan/issues",
+        "licenses" => "https://github.com/OrangeJuce82/sonarcan/blob/main/THIRD_PARTY_NOTICES.md",
+        "donate" => "https://www.paypal.com/paypalme/z5omes",
+        "ytdlp" => "https://github.com/yt-dlp/yt-dlp",
+        "ytdlp-sites" => "https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md",
+        "music-youtube" => "https://music.youtube.com/",
+        "music-soundcloud" => "https://soundcloud.com/",
+        "music-bandcamp" => "https://bandcamp.com/",
+        "music-mixcloud" => "https://www.mixcloud.com/",
+        "music-hearthis" => "https://hearthis.at/",
+        "music-jamendo" => "https://www.jamendo.com/",
+        "music-reverbnation" => "https://www.reverbnation.com/",
+        _ => return None,
+    })
 }
 
 #[tauri::command]
@@ -1024,6 +1063,7 @@ pub fn run() {
             analyze_import_text,
             begin_youtube_searches,
             resolve_youtube_search,
+            resolve_import_playlist,
             read_import_text_files,
             enqueue_imports,
             import_jobs,
@@ -1163,5 +1203,34 @@ mod tests {
             lrclib_search_url("Lou Reed").unwrap(),
             "https://lrclib.net/search/Lou%20Reed"
         );
+    }
+
+    #[test]
+    fn external_links_are_fixed_and_allowlisted() {
+        assert_eq!(
+            external_link_url("github-issues"),
+            Some("https://github.com/OrangeJuce82/sonarcan/issues")
+        );
+        assert_eq!(
+            external_link_url("licenses"),
+            Some("https://github.com/OrangeJuce82/sonarcan/blob/main/THIRD_PARTY_NOTICES.md")
+        );
+        assert_eq!(
+            external_link_url("ytdlp"),
+            Some("https://github.com/yt-dlp/yt-dlp")
+        );
+        assert_eq!(
+            external_link_url("ytdlp-sites"),
+            Some("https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md")
+        );
+        assert_eq!(
+            external_link_url("music-youtube"),
+            Some("https://music.youtube.com/")
+        );
+        assert_eq!(
+            external_link_url("music-reverbnation"),
+            Some("https://www.reverbnation.com/")
+        );
+        assert_eq!(external_link_url("https://example.com"), None);
     }
 }

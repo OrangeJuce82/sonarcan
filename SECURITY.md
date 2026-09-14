@@ -13,6 +13,8 @@ permissions, or exhaust resources without a bound.
   protocol stays disabled while the webview does not load media files.
 - Browser links for search results receive only a validated YouTube video
   identifier; Rust constructs the fixed HTTPS watch URL before opening it.
+- The Import Center's yt-dlp credit passes only an allowlisted token to Rust;
+  Rust maps it to the fixed official yt-dlp GitHub HTTPS URL.
 - Canonicalize project media before reads or deletions and verify by filesystem
   identity that it remains below the project's `Audio` directory. This preserves
   equivalent Unicode path spellings on macOS while preventing symlinks and `..`
@@ -73,6 +75,10 @@ release inputs. Release assembly validates the Apple Silicon lockfile and model
 checksums; the application does not install uv or resolve Python packages at
 runtime. FFmpeg is built from pinned source archives. Dependency and model
 updates require a fresh audit and regenerated release resources.
+
+Import discovery links never accept a URL from the frontend. Each music
+destination and the yt-dlp supported-sites catalog use a fixed Rust allowlist;
+provider logos are bundled and therefore cannot trigger remote image requests.
 
 ## Reporting and response
 

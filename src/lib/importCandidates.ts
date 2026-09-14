@@ -5,6 +5,7 @@ export interface ImportCandidateGroup {
   query: string | null;
   searchIndex: number | null;
   candidates: ImportCandidate[];
+  kind?: "direct" | "search" | "playlist";
 }
 
 export type ImportRelevanceLevel = 0 | 1 | 2 | 3 | 4;
@@ -33,10 +34,65 @@ export function deduplicateImportCandidates(candidates: ImportCandidate[]): Impo
   });
 }
 
+export function orderedImportCandidateGroups(
+  candidates: ImportCandidate[],
+  searchProvider: "youtube" | "soundcloud",
+): ImportCandidateGroup[] {
+  const groups: ImportCandidateGroup[] = [];
+  let searchIndex = 0;
+
+  for (const candidate of candidates) {
+    if (candidate.kind === "search") {
+      searchIndex += 1;
+      groups.push({
+        id: `search:${searchProvider}:${normalizeImportQuery(candidate.input)}`,
+        kind: "search",
+        query: candidate.input,
+        searchIndex,
+        candidates: [],
+      });
+      continue;
+    }
+
+    if (candidate.kind === "playlist") {
+      groups.push({
+        id: `playlist:${candidate.input}`,
+        kind: "playlist",
+        query: candidate.input,
+        searchIndex: null,
+        candidates: [],
+      });
+      continue;
+    }
+
+    if (candidate.kind === "video" && candidate.sourceUrl) {
+      groups.push({
+        id: `source:${candidate.input}`,
+        kind: "direct",
+        query: candidate.input,
+        searchIndex: null,
+        candidates: [candidate],
+      });
+      continue;
+    }
+
+    groups.push({
+      id: `direct:${candidate.input}`,
+      kind: "direct",
+      query: null,
+      searchIndex: null,
+      candidates: [candidate],
+    });
+  }
+
+  return groups;
+}
+
 export function defaultImportSelection(groups: ImportCandidateGroup[], autoSelectBestMatch = false): Set<string> {
   return new Set(groups.flatMap((group) => {
-    if (group.query === null) return group.candidates.map((candidate) => candidate.input);
-    return group.candidates.length === 1 || autoSelectBestMatch ? group.candidates.slice(0, 1).map((candidate) => candidate.input) : [];
+    const importable = group.candidates.filter((candidate) => !candidate.blocked);
+    if (group.query === null || group.kind === "playlist") return importable.map((candidate) => candidate.input);
+    return importable.length === 1 || autoSelectBestMatch ? importable.slice(0, 1).map((candidate) => candidate.input) : [];
   }));
 }
 
@@ -47,13 +103,15 @@ export function reconcileImportSelection(
   autoSelectBestMatch = false,
 ): Set<string> {
   const previousCandidates = new Set(previousGroups.flatMap((group) => group.candidates.map((candidate) => candidate.input)));
-  const nextCandidates = new Set(nextGroups.flatMap((group) => group.candidates.map((candidate) => candidate.input)));
+  const nextCandidates = new Set(nextGroups.flatMap((group) => group.candidates.filter((candidate) => !candidate.blocked).map((candidate) => candidate.input)));
   const selection = new Set([...previousSelection].filter((input) => nextCandidates.has(input)));
 
   for (const group of nextGroups) {
-    const shouldSelectNewCandidate = group.query === null || group.candidates.length === 1 || autoSelectBestMatch;
+    const selectAll = group.query === null || group.kind === "playlist";
+    const shouldSelectNewCandidate = selectAll || group.candidates.length === 1 || autoSelectBestMatch;
     if (!shouldSelectNewCandidate) continue;
-    const candidates = group.query !== null && autoSelectBestMatch ? group.candidates.slice(0, 1) : group.candidates;
+    const importable = group.candidates.filter((candidate) => !candidate.blocked);
+    const candidates = !selectAll && autoSelectBestMatch ? importable.slice(0, 1) : importable;
     for (const candidate of candidates) {
       if (!previousCandidates.has(candidate.input)) selection.add(candidate.input);
     }
