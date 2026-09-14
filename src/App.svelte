@@ -2637,7 +2637,7 @@
   }
 
   async function enableStems(profile: StemSeparationProfile, options: { resumePlayback?: boolean } = {}): Promise<void> {
-    if (!analysisFeaturesAvailable || !project || !currentTrack) return;
+    if (!analysisFeaturesAvailable || !project || !currentTrack || audioLoading) return;
     if (stemPlaybackLocked || stems.state === "separating") return;
     const trackId = currentTrack.id;
     const packagePath = project.packagePath;
@@ -2706,7 +2706,7 @@
   }
 
   async function loadCachedStems(profile: StemSeparationProfile): Promise<void> {
-    if (!analysisFeaturesAvailable || !project || !currentTrack) return;
+    if (!analysisFeaturesAvailable || !project || !currentTrack || audioLoading) return;
     if (stemGenerationStarting || stems.state === "separating") return;
     const packagePath = project.packagePath;
     const trackId = currentTrack.id;
@@ -2741,6 +2741,7 @@
   }
 
   async function chooseStemSeparationProfile(profile: StemSeparationProfile): Promise<void> {
+    if (audioLoading) return;
     await stemDisable();
     stemSeparationProfile = profile;
     stems = { state: "disabled", enabled: false, progress: 0, stage: "disabled", trackId: null, cached: false, error: null, computeBackend: null };
@@ -4848,7 +4849,7 @@
         <div class="panel stem-panel" class:stem-bypassed={stems.state === "ready" && !stems.enabled}>
           <div class="panel-title stem-panel-title">
             <label class="stem-switch" data-tooltip={t("stemSwitchHelp")}>
-              <input type="checkbox" role="switch" checked={stems.enabled} disabled={!currentTrack || stems.state === "separating" || (stems.state !== "ready" && !(stemSeparationProfile && cachedStemProfiles.includes(stemSeparationProfile)))} onchange={(event) => void toggleStemMode(event)} />
+              <input type="checkbox" role="switch" checked={stems.enabled} disabled={!currentTrack || audioLoading || stems.state === "separating" || (stems.state !== "ready" && !(stemSeparationProfile && cachedStemProfiles.includes(stemSeparationProfile)))} onchange={(event) => void toggleStemMode(event)} />
               <i aria-hidden="true"><b></b></i><strong>{t("mix")}</strong>
             </label>
             <div class="stem-header-actions">
@@ -4864,11 +4865,11 @@
             </div>
           </div>
           {#if stems.state === "disabled"}
-            <div class="stem-empty"><div class="stem-model-choices"><button class="stem-profile stem-profile-fast" class:primary={stemSeparationProfile === "fast" && cachedStemProfiles.includes("fast")} data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={() => void chooseStemSeparationProfile("fast")}><strong>Fast</strong><small>HTDemucs · 4 stems</small></button><button class="stem-profile stem-profile-hq" class:primary={stemSeparationProfile === "hq" && cachedStemProfiles.includes("hq")} data-tooltip={t("stemHelp")} disabled={!currentTrack} onclick={() => void chooseStemSeparationProfile("hq")}><strong>HQ</strong><small>SCNet Large · 4 stems</small></button></div></div>
+            <div class="stem-empty"><div class="stem-model-choices"><button class="stem-profile stem-profile-fast" class:primary={stemSeparationProfile === "fast" && cachedStemProfiles.includes("fast")} data-tooltip={t("stemHelp")} disabled={!currentTrack || audioLoading} onclick={() => void chooseStemSeparationProfile("fast")}><strong>Fast</strong><small>HTDemucs · 4 stems</small></button><button class="stem-profile stem-profile-hq" class:primary={stemSeparationProfile === "hq" && cachedStemProfiles.includes("hq")} data-tooltip={t("stemHelp")} disabled={!currentTrack || audioLoading} onclick={() => void chooseStemSeparationProfile("hq")}><strong>HQ</strong><small>SCNet Large · 4 stems</small></button></div></div>
           {:else if stems.state === "separating"}
             <div class="stem-progress"><div class="stem-progress-label"><span class="mini-spinner"></span><span>{stems.stage === "checkingCache" || stems.stage === "loadingCachedStems" ? t("loadingAvailableStems") : stems.stage === "downloadingModel" || stems.stage === "loadingModel" ? t("loadingStemModel") : stems.stage === "loadingAudio" ? t("loadingStemAudio") : stems.stage === "writingStems" || stems.stage === "validatingStems" || stems.stage === "cachingStems" ? t("writingStems") : t("separatingStems")}</span><b>{Math.round(stems.progress * 100)}%{#if stemEtaRemaining !== null}<small> · ≈ {formatStemEta(stemEtaRemaining)}</small>{/if}</b></div><i><b style={`width:${Math.max(1, stems.progress * 100)}%`}></b></i><button onclick={disableStems}>{t("disableStems")}</button></div>
           {:else if stems.state === "failed"}
-            <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><div class="stem-model-choices"><button class="stem-profile stem-profile-fast" onclick={() => void chooseStemSeparationProfile("fast")}>Fast · HTDemucs</button><button class="stem-profile stem-profile-hq" onclick={() => void chooseStemSeparationProfile("hq")}>HQ · SCNet Large</button></div></div>
+            <div class="stem-empty"><p>{stems.error ?? t("stemFailed")}</p><div class="stem-model-choices"><button class="stem-profile stem-profile-fast" disabled={audioLoading} onclick={() => void chooseStemSeparationProfile("fast")}>Fast · HTDemucs</button><button class="stem-profile stem-profile-hq" disabled={audioLoading} onclick={() => void chooseStemSeparationProfile("hq")}>HQ · SCNet Large</button></div></div>
           {:else}
             <div class="stem-mixer" aria-label={t("stemMixer")}>
               {#each stemDisplayOrder as index, position}

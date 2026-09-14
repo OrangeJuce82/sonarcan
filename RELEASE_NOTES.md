@@ -1,4 +1,4 @@
-# SonArcan 0.1.7 beta 3
+# SonArcan 0.1.7 beta 4
 
 SonArcan now builds, tests, and releases exclusively for macOS on Apple
 Silicon. Windows, Linux, Intel macOS, CUDA, ROCm, portable Torch, and CPU
@@ -32,6 +32,8 @@ Anyway**.
 
 ## Included behavior
 
+- Stem generation now waits for the selected audio to finish loading before it
+  starts, so a completed separation activates its cached mix immediately.
 - The Import Center now expands direct tracks and playlists through bounded
   metadata probes, preserves real titles and artists, and blocks DRM-protected
   or otherwise unavailable sources before they can be queued.

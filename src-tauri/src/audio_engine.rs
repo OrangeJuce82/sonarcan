@@ -385,6 +385,27 @@ impl AudioEngine {
         self.cached_or_decode(path).map(|decoded| decoded.audio)
     }
 
+    pub(crate) fn selected_audio_for_stems(
+        &self,
+        source_path: &Path,
+    ) -> Result<Arc<DecodedAudio>, AppError> {
+        let expected = source_path
+            .canonicalize()
+            .unwrap_or_else(|_| source_path.to_path_buf());
+        let loaded_path = self
+            .loaded_path
+            .lock()
+            .map_err(|_| AppError::AudioEngine("loaded-track identity is unavailable".into()))?;
+        if !loaded_source_matches(loaded_path.as_deref(), &expected) {
+            return Err(AppError::AudioEngine(
+                "the separated track is no longer selected".into(),
+            ));
+        }
+        drop(loaded_path);
+        self.cached_or_decode(source_path)
+            .map(|decoded| decoded.audio)
+    }
+
     fn cached_or_decode(&self, path: &Path) -> Result<DecodedWithLoudness, AppError> {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let metadata = path
@@ -563,13 +584,11 @@ impl AudioEngine {
         let expected = source_path
             .canonicalize()
             .unwrap_or_else(|_| source_path.to_path_buf());
-        if self
+        let loaded_path = self
             .loaded_path
             .lock()
-            .map_err(|_| AppError::AudioEngine("loaded-track identity is unavailable".into()))?
-            .as_ref()
-            != Some(&expected)
-        {
+            .map_err(|_| AppError::AudioEngine("loaded-track identity is unavailable".into()))?;
+        if !loaded_source_matches(loaded_path.as_deref(), &expected) {
             return Err(AppError::AudioEngine(
                 "the separated track is no longer selected".into(),
             ));
@@ -783,6 +802,10 @@ impl AudioEngine {
         self.spectrum
             .request(audio, stems, target_stem_gains(&self.shared), position)
     }
+}
+
+fn loaded_source_matches(loaded_path: Option<&Path>, expected: &Path) -> bool {
+    loaded_path == Some(expected)
 }
 
 fn finish_decode_load(
@@ -2224,6 +2247,16 @@ fn invalid_audio(path: &Path, error: SymphoniaError) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stems_require_the_requested_source_to_be_loaded() {
+        let selected = Path::new("/project/Audio/selected.mp3");
+        let other = Path::new("/project/Audio/other.mp3");
+
+        assert!(loaded_source_matches(Some(selected), selected));
+        assert!(!loaded_source_matches(None, selected));
+        assert!(!loaded_source_matches(Some(other), selected));
+    }
 
     fn original_loop_sample(audio: &DecodedAudio, position: f64, loop_a: u64, loop_b: u64) -> f32 {
         mixed_sample_with_loop_crossfade(

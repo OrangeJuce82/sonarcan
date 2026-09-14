@@ -698,6 +698,11 @@ fn separate_or_load(
     let metadata = media_path
         .metadata()
         .map_err(|error| AppError::io(&media_path, error))?;
+    // Starting separation before audio_load has committed the selection used to
+    // waste a complete model run before activate_stems rejected the result.
+    let source = app
+        .state::<AudioEngine>()
+        .selected_audio_for_stems(&media_path)?;
     let source_modified_ns = modified_ns(&metadata);
     if cache_is_available(
         package_path,
@@ -713,6 +718,9 @@ fn separate_or_load(
             source_modified_ns,
             profile,
         ) {
+            if active_generation.load(Ordering::Acquire) != generation {
+                return Err(AppError::StemSeparation("separation cancelled".into()));
+            }
             app.state::<AudioEngine>()
                 .activate_stems(&media_path, stems)?;
             set_status(status, ready_status(track_id, true, backend.label()));
@@ -747,9 +755,6 @@ fn separate_or_load(
             worker.backend.label()
         ),
     );
-    let source = app
-        .state::<AudioEngine>()
-        .decoded_for_analysis(&media_path)?;
     let work_parent = package_path.join("Cache").join("stem-working");
     fs::create_dir_all(&work_parent).map_err(|error| AppError::io(&work_parent, error))?;
     let output_dir = work_parent.join(format!("{track_id}-{generation}"));
@@ -808,6 +813,9 @@ fn separate_or_load(
                 cache_started.elapsed().as_secs_f64()
             ),
         );
+        if active_generation.load(Ordering::Acquire) != generation {
+            return Err(AppError::StemSeparation("separation cancelled".into()));
+        }
         app.state::<AudioEngine>()
             .activate_stems(&media_path, stems)?;
         set_status(
