@@ -145,6 +145,10 @@ automatic follow, chord filtering, edits, and transposition remain synchronized.
 Synchronized lyric lines use a second compact lane below the detailed waveform.
 Its segments use the same viewport and saved lyrics offset, highlight the active
 line, and seek directly on click without changing the selected navigation mode.
+Imported and edited synchronized lyrics retain their complete timing data even
+when timestamps extend beyond the audio duration. Those lines remain visible in
+the lyrics document, while navigation and waveform projections omit positions
+the playback cursor cannot reach.
 When both Beat This! and chord analysis are available, the chord lane shows a neutral
 beat-count badge for each playable chord. Each detected beat is assigned once: a
 chord boundary is associated with the closest active beat, using the midpoint

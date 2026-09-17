@@ -1,4 +1,4 @@
-# SonArcan 0.1.7 beta 4
+# SonArcan 0.1.7 beta 5
 
 SonArcan now builds, tests, and releases exclusively for macOS on Apple
 Silicon. Windows, Linux, Intel macOS, CUDA, ROCm, portable Torch, and CPU
@@ -32,6 +32,10 @@ Anyway**.
 
 ## Included behavior
 
+- Synchronized lyrics can now be imported and edited even when provider
+  timestamps extend beyond the audio duration; unreachable lines remain visible
+  without becoming navigation targets. The lyrics pen also toggles cleanly back
+  from editing to playback display.
 - Stem generation now waits for the selected audio to finish loading before it
   starts, so a completed separation activates its cached mix immediately.
 - The Import Center now expands direct tracks and playlists through bounded

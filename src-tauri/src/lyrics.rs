@@ -132,10 +132,6 @@ pub fn load(package_path: &Path, track_id: Uuid) -> Result<Option<LyricsDocument
             source,
         })?;
     validate(&document)?;
-    validate_duration(
-        &document,
-        project::track_duration_seconds(package_path, track_id)?,
-    )?;
     Ok(Some(document))
 }
 
@@ -146,10 +142,6 @@ pub fn save(
 ) -> Result<LyricsDocument, AppError> {
     project::track_media_path(package_path, track_id)?;
     validate(&document)?;
-    validate_duration(
-        &document,
-        project::track_duration_seconds(package_path, track_id)?,
-    )?;
     let path = lyrics_path(package_path, track_id, true)?;
     let contents = serde_json::to_vec_pretty(&document)?;
     if contents.len() as u64 > MAX_LYRICS_BYTES {
@@ -451,33 +443,6 @@ fn validate(document: &LyricsDocument) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validate_duration(
-    document: &LyricsDocument,
-    duration_seconds: Option<f64>,
-) -> Result<(), AppError> {
-    let Some(duration_ms) = duration_seconds
-        .filter(|value| value.is_finite() && *value >= 0.0)
-        .map(|value| value * 1_000.0)
-    else {
-        return Ok(());
-    };
-    let outside = |value: u64| value as f64 > duration_ms;
-    let invalid = document.lines.iter().any(|line| {
-        line.start_ms.is_some_and(outside)
-            || line.end_ms.is_some_and(outside)
-            || line
-                .words
-                .iter()
-                .any(|word| outside(word.start_ms) || word.end_ms.is_some_and(outside))
-    });
-    if invalid {
-        return Err(AppError::InvalidLyricsData(
-            "a synchronized timestamp is outside the audio duration".into(),
-        ));
-    }
-    Ok(())
-}
-
 fn valid_range(start: Option<u64>, end: Option<u64>) -> bool {
     match (start, end) {
         (Some(start), Some(end)) => end > start,
@@ -532,12 +497,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_timings_outside_the_audio_duration() {
+    fn accepts_timings_outside_the_audio_duration() {
         let mut value = document();
         value.lines[0].start_ms = Some(2_001);
         value.lines[0].end_ms = None;
-        assert!(validate_duration(&value, Some(2.0)).is_err());
-        assert!(validate_duration(&value, None).is_ok());
+        assert!(validate(&value).is_ok());
     }
 
     #[test]

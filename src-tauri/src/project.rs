@@ -1025,19 +1025,6 @@ pub fn track_media_path(package_path: &Path, track_id: Uuid) -> Result<PathBuf, 
     validated_media_path(package_path, &source_path)
 }
 
-pub fn track_duration_seconds(
-    package_path: &Path,
-    track_id: Uuid,
-) -> Result<Option<f64>, AppError> {
-    let manifest = load(package_path)?;
-    manifest
-        .tracks
-        .iter()
-        .find(|track| track.id == track_id)
-        .map(|track| track.duration_seconds)
-        .ok_or(AppError::TrackNotFound(track_id))
-}
-
 fn validated_media_path(package_path: &Path, source_path: &Path) -> Result<PathBuf, AppError> {
     let audio_directory = package_path
         .join("Audio")

@@ -145,7 +145,12 @@
     return selectedStart >= 0 && index >= Math.min(selectedStart, selectedEnd) && index <= Math.max(selectedStart, selectedEnd);
   }
 
-  async function openEditor(): Promise<void> {
+  async function toggleEditor(): Promise<void> {
+    if (editorVisible && document) {
+      editorVisible = false;
+      editorError = "";
+      return;
+    }
     const editor = document ? lyricsEditorContent(document, activeIndex) : { text: editorText, selectionStart: 0, selectionEnd: editorText.length };
     if (document) editorText = editor.text;
     editorError = "";
@@ -194,7 +199,7 @@
       </div>
     {/if}
     <div class="lyrics-actions">
-      <button class="lyrics-header-button" class:active={editorVisible || !document} disabled={editorVisible} aria-label={tr("edit")} data-tooltip={tr("edit")} onclick={openEditor}><Icon name="pen" size="12px" /></button>
+      <button class="lyrics-header-button" class:active={editorVisible || !document} aria-pressed={editorVisible || !document} aria-label={tr("edit")} data-tooltip={tr("edit")} onclick={toggleEditor}><Icon name="pen" size="12px" /></button>
       <button class="lyrics-header-button danger-icon" disabled={!document} aria-label={tr("delete")} data-tooltip={tr("delete")} onclick={() => deleteVisible = true}><Icon name="trash" size="11px" /></button>
       <i class="lyrics-action-separator" aria-hidden="true"></i>
       <button class="lyrics-header-button" aria-label={tr("searchOnline")} data-tooltip={tr("searchOnline")} onclick={openSearch}><Icon name="magnifying-glass" size="12px" /></button>

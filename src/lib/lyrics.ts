@@ -21,7 +21,6 @@ export function parseLyrics(input: string, language = "und", durationMs?: number
   const lines = /<tt[\s>]/i.test(trimmed) ? parseTtml(trimmed) : parseLrcOrPlain(trimmed);
   if (!lines.length) throw new Error("No lyric line was found.");
   if (lines.length > MAX_LINES) throw new Error("Lyrics contain too many lines.");
-  validateTimestampRange(lines, durationMs);
   completeLineEnds(lines, durationMs);
   const syncLevel: LyricsSyncLevel = lines.some((line) => line.words.length) ? "word"
     : lines.some((line) => line.startMs !== null) ? "line" : "none";
@@ -260,16 +259,6 @@ function validateTimestampDelimiters(line: string, opening: "[" | "<", closing: 
 function validLrcTimestamp(value: string): boolean {
   const match = value.match(/^\d{1,3}:(\d{2})(?:\.\d{1,3})?$/);
   return Boolean(match && Number(match[1]) < 60);
-}
-
-function validateTimestampRange(lines: LyricsLine[], durationMs?: number): void {
-  if (durationMs === undefined) return;
-  if (!Number.isFinite(durationMs) || durationMs < 0) throw new LyricsParseError("timestampOutOfRange");
-  const outside = (value: number | null): boolean => value !== null && (value < 0 || value > durationMs);
-  if (lines.some((line) => outside(line.startMs) || outside(line.endMs)
-    || line.words.some((word) => outside(word.startMs) || outside(word.endMs)))) {
-    throw new LyricsParseError("timestampOutOfRange");
-  }
 }
 
 function parseEnhancedLrcWords(body: string): LyricsWord[] {

@@ -44,15 +44,11 @@ test("rejects malformed LRC timestamps instead of treating them as plain text", 
   assert.throws(() => parseLyrics("[01:10.00]<01:word>Broken word sync", "en"), LyricsParseError);
 });
 
-test("rejects line and word timestamps outside the audio duration", () => {
-  assert.throws(
-    () => parseLyrics("[00:11.00]Past the end", "en", 10_000),
-    (error) => error instanceof LyricsParseError && error.code === "timestampOutOfRange",
-  );
-  assert.throws(
-    () => parseLyrics("[00:01.00]<00:12.00>Past the end", "en", 10_000),
-    (error) => error instanceof LyricsParseError && error.code === "timestampOutOfRange",
-  );
+test("keeps line and word timestamps beyond the audio duration", () => {
+  const document = parseLyrics("[00:01.00]<00:01.00>Within <00:12.00>beyond\n[00:11.00]Past the end", "en", 10_000);
+  assert.equal(document.lines[0].words[1]?.startMs, 12_000);
+  assert.equal(document.lines[1].startMs, 11_000);
+  assert.deepEqual(lyricsNavigationPositions(document, 10), [1]);
 });
 
 test("serializes lyrics and selects the active line for inline editing", () => {
