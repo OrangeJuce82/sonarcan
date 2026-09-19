@@ -293,12 +293,12 @@
   .lyrics-header-button:hover:not(:disabled), .lyrics-header-button:focus-visible { color: var(--text-strong); }
   .lyrics-header-button.danger-icon:not(:disabled) { color: var(--danger); }
   .lyrics-action-separator { width: 1px; height: 18px; margin-inline: 1px; background: var(--border); }
-  .lyrics-lines { display: grid; align-content: start; min-height: 0; height: 100%; overflow-y: auto; padding: 0 8px; gap: 4px; overscroll-behavior: contain; scrollbar-gutter: stable; }
-  .lyrics-lines button { position: relative; display: block; width: 100%; min-height: 34px; padding: 7px 58px 7px 10px; border: 1px solid transparent; color: var(--muted); background: transparent; font-size: .84rem; font-weight: 650; line-height: 1.35; text-align: left; transition: color 140ms ease, background-color 140ms ease, transform 140ms ease; }
+  .lyrics-lines { display: flex; flex-direction: column; align-items: stretch; min-height: 0; height: 100%; overflow-y: auto; padding: 0 8px; gap: 6px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .lyrics-lines button { position: relative; display: block; flex: none; width: 100%; min-height: 34px; padding: 7px 58px 7px 10px; border: 1px solid transparent; border-radius: 8px; color: var(--muted); background: transparent; font-size: .84rem; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; text-align: left; transition: color 140ms ease, background-color 140ms ease; }
   :global([dir="rtl"]) .lyrics-lines button { padding: 7px 10px 7px 58px; text-align: right; }
   .lyrics-lines button:hover, .lyrics-lines button:focus-visible { color: var(--text-strong); background: var(--surface-hover); }
   .lyrics-lines button.selected { border-color: var(--purple); background: var(--purple-bg); }
-  .lyrics-lines button.active { color: var(--text-strong); background: var(--accent-soft); transform: scale(1.015); }
+  .lyrics-lines button.active { color: var(--text-strong); background: var(--accent-soft); }
   .lyrics-lines button span { color: var(--muted); transition: color 100ms linear; }
   .lyrics-lines button span.active { color: var(--accent-strong); }
   .lyrics-lines button small { position: absolute; top: 10px; right: 8px; color: var(--muted-soft); font: .52rem/1 ui-monospace, SFMono-Regular, monospace; }

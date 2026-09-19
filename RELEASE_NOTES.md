@@ -1,4 +1,4 @@
-# SonArcan 0.1.7 beta 5
+# SonArcan 0.1.8
 
 SonArcan now builds, tests, and releases exclusively for macOS on Apple
 Silicon. Windows, Linux, Intel macOS, CUDA, ROCm, portable Torch, and CPU
@@ -32,6 +32,8 @@ Anyway**.
 
 ## Included behavior
 
+- Multiline lyrics now keep their selection border around the full text, with
+  clearer spacing between lines.
 - Synchronized lyrics can now be imported and edited even when provider
   timestamps extend beyond the audio duration; unreachable lines remain visible
   without becoming navigation targets. The lyrics pen also toggles cleanly back
